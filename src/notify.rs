@@ -3,6 +3,10 @@
 //! dies the name is released and D-Bus activation brings swaync back.
 use std::{
     collections::HashMap,
+    fs,
+    hash::{Hash, Hasher},
+    io::BufWriter,
+    path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Mutex, OnceLock,
@@ -98,12 +102,14 @@ pub fn hide_popup(id: u32) {
 pub fn dismiss(id: u32) {
     LIST.lock().unwrap().retain(|n| n.id != id);
     changed();
+    save();
     emit(|e| async move { Server::notification_closed(&e, id, 2).await });
 }
 
 pub fn clear_all() {
     let ids: Vec<u32> = LIST.lock().unwrap().drain(..).map(|n| n.id).collect();
     changed();
+    save();
     for id in ids {
         emit(|e| async move { Server::notification_closed(&e, id, 2).await });
     }
@@ -165,13 +171,17 @@ impl Server {
         expire_timeout: i32,
     ) -> u32 {
         let critical = hints.get("urgency").and_then(|v| u8::try_from(v).ok()) == Some(2);
-        // ponytail: raw "image-data" pixel hints are ignored, only icon names / file paths are shown
-        let icon = hints
+        // spec priority: image-data, image-path, app_icon, icon_data
+        let path_hint = hints
             .get("image-path")
             .or_else(|| hints.get("image_path"))
             .and_then(|v| <&str>::try_from(v).ok().map(str::to_string))
-            .filter(|s| !s.is_empty())
-            .unwrap_or(app_icon);
+            .filter(|s| !s.is_empty());
+        let icon = pixel_hint(&hints, &["image-data", "image_data"])
+            .or(path_hint)
+            .or_else(|| Some(app_icon).filter(|s| !s.is_empty()))
+            .or_else(|| pixel_hint(&hints, &["icon_data"]))
+            .unwrap_or_default();
         let icon = icon.strip_prefix("file://").unwrap_or(&icon).to_string();
         let id = if replaces_id > 0 { replaces_id } else { NEXT_ID.fetch_add(1, Ordering::Relaxed) };
         let show = !dnd() || critical;
@@ -199,12 +209,14 @@ impl Server {
         list.truncate(100);
         drop(list);
         changed();
+        save();
         id
     }
 
     async fn close_notification(&self, id: u32, #[zbus(signal_emitter)] e: SignalEmitter<'_>) -> zbus::fdo::Result<()> {
         LIST.lock().unwrap().retain(|n| n.id != id);
         changed();
+        save();
         Self::notification_closed(&e, id, 3).await?;
         Ok(())
     }
@@ -228,8 +240,111 @@ fn chrono_now() -> String {
         .unwrap_or_default()
 }
 
+fn home() -> String {
+    std::env::var("HOME").unwrap_or_default()
+}
+
+fn store_path() -> String {
+    format!("{}/.local/state/fiaboo-notifs.json", home())
+}
+
+fn cache_dir() -> PathBuf {
+    PathBuf::from(format!("{}/.cache/fiaboo-shell", home()))
+}
+
+/// Keep the list across shell restarts (actions are dropped: the sender may be gone).
+fn save() {
+    let v: Vec<serde_json::Value> = LIST
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|n| {
+            serde_json::json!({"id": n.id, "app": n.app, "summary": n.summary, "body": n.body,
+                "icon": n.icon, "critical": n.critical, "time": n.time})
+        })
+        .collect();
+    let path = store_path();
+    let tmp = format!("{path}.tmp");
+    if fs::write(&tmp, serde_json::Value::from(v).to_string()).is_ok() {
+        let _ = fs::rename(tmp, path);
+    }
+}
+
+fn load() {
+    let Ok(text) = fs::read_to_string(store_path()) else { return };
+    let Ok(serde_json::Value::Array(items)) = serde_json::from_str(&text) else { return };
+    let s = |v: &serde_json::Value, k: &str| v[k].as_str().unwrap_or_default().to_string();
+    let list: Vec<Notif> = items
+        .iter()
+        .filter_map(|v| {
+            Some(Notif {
+                id: u32::try_from(v["id"].as_u64()?).ok()?,
+                app: s(v, "app"),
+                summary: s(v, "summary"),
+                body: s(v, "body"),
+                icon: s(v, "icon"),
+                actions: vec![],
+                critical: v["critical"].as_bool().unwrap_or(false),
+                time: s(v, "time"),
+                popup_until: None,
+            })
+        })
+        .collect();
+    NEXT_ID.store(list.iter().map(|n| n.id).max().unwrap_or(0) + 1, Ordering::Relaxed);
+    // drop cached notification images nothing refers to any more
+    if let Ok(rd) = fs::read_dir(cache_dir()) {
+        for e in rd.flatten() {
+            let path = e.path();
+            let name = e.file_name().to_string_lossy().to_string();
+            if name.starts_with("notif-") && !list.iter().any(|n| PathBuf::from(&n.icon) == path) {
+                let _ = fs::remove_file(path);
+            }
+        }
+    }
+    *LIST.lock().unwrap() = list;
+    changed();
+}
+
+/// Raw pixel hint (iiibiiay: width, height, rowstride, has_alpha, bits, channels, data) -> PNG path.
+fn pixel_hint(hints: &HashMap<String, OwnedValue>, keys: &[&str]) -> Option<String> {
+    let v = keys.iter().find_map(|k| hints.get(*k))?;
+    let (w, h, stride, alpha, bits, ch, data) =
+        <(i32, i32, i32, bool, i32, i32, Vec<u8>)>::try_from(v.try_clone().ok()?).ok()?;
+    let rgba = to_rgba(w, h, stride, alpha, bits, ch, &data)?;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    data.hash(&mut hasher);
+    let dir = cache_dir();
+    fs::create_dir_all(&dir).ok()?;
+    let file = dir.join(format!("notif-{:x}.png", hasher.finish()));
+    if !file.exists() {
+        let mut enc = png::Encoder::new(BufWriter::new(fs::File::create(&file).ok()?), w as u32, h as u32);
+        enc.set_color(png::ColorType::Rgba);
+        enc.set_depth(png::BitDepth::Eight);
+        enc.write_header().ok()?.write_image_data(&rgba).ok()?;
+    }
+    Some(file.to_string_lossy().to_string())
+}
+
+fn to_rgba(w: i32, h: i32, stride: i32, alpha: bool, bits: i32, ch: i32, data: &[u8]) -> Option<Vec<u8>> {
+    let (w, h, stride, ch) = (usize::try_from(w).ok()?, usize::try_from(h).ok()?, usize::try_from(stride).ok()?, usize::try_from(ch).ok()?);
+    if w == 0 || h == 0 || w > 4096 || h > 4096 || bits != 8 || ch != if alpha { 4 } else { 3 } || stride < w * ch {
+        return None;
+    }
+    if data.len() < stride * (h - 1) + w * ch {
+        return None;
+    }
+    let mut out = Vec::with_capacity(w * h * 4);
+    for y in 0..h {
+        for px in data[y * stride..y * stride + w * ch].chunks_exact(ch) {
+            out.extend_from_slice(&[px[0], px[1], px[2], if alpha { px[3] } else { 255 }]);
+        }
+    }
+    Some(out)
+}
+
 /// Serve the interface and own the name (now, or as soon as swaync releases it).
 pub fn start() {
+    load();
     thread::spawn(|| {
         let Ok(conn) = Connection::session() else { return };
         if conn.object_server().at(PATH, Server).is_err() {
@@ -249,5 +364,15 @@ mod tests {
     fn markup_is_stripped() {
         assert_eq!(strip_markup("<b>Hi</b> &amp; <i>bye</i> &lt;3"), "Hi & bye <3");
         assert_eq!(strip_markup("plain"), "plain");
+    }
+
+    #[test]
+    fn pixels_to_rgba() {
+        // 2x1 RGB with a padded row stride of 8
+        let data = [1, 2, 3, 4, 5, 6, 0, 0];
+        assert_eq!(to_rgba(2, 1, 8, false, 8, 3, &data), Some(vec![1, 2, 3, 255, 4, 5, 6, 255]));
+        assert_eq!(to_rgba(1, 1, 4, true, 8, 4, &[9, 8, 7, 6]), Some(vec![9, 8, 7, 6]));
+        assert_eq!(to_rgba(2, 2, 6, false, 8, 3, &data), None); // too short
+        assert_eq!(to_rgba(1, 1, 4, true, 16, 4, &[0; 8]), None); // 16-bit unsupported
     }
 }

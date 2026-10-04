@@ -9,7 +9,7 @@ use std::{
     fs,
     path::PathBuf,
     process::Command,
-    sync::{Mutex, OnceLock},
+    sync::{Arc, Mutex, OnceLock},
     time::Duration,
 };
 
@@ -64,60 +64,71 @@ struct Desktop {
     wm_class: String, // lowercase StartupWMClass or ""
 }
 
-fn desktops() -> &'static Vec<Desktop> {
-    static ALL: OnceLock<Vec<Desktop>> = OnceLock::new();
-    ALL.get_or_init(|| {
-        let mut all = vec![];
-        for dir in [
-            "/usr/share/applications".to_string(),
-            format!("{}/.local/share/applications", home()),
-        ] {
-            let Ok(rd) = fs::read_dir(dir) else { continue };
-            for e in rd.flatten() {
-                let path = e.path();
-                if path.extension().is_none_or(|x| x != "desktop") {
-                    continue;
-                }
-                let Ok(text) = fs::read_to_string(&path) else { continue };
-                let field = |k: &str| {
-                    text.lines()
-                        .find_map(|l| l.strip_prefix(k).and_then(|v| v.strip_prefix('=')))
-                        .map(str::trim)
-                        .map(String::from)
-                };
-                if field("NoDisplay").as_deref() == Some("true") {
-                    continue;
-                }
-                let (Some(icon), Some(stem)) =
-                    (field("Icon"), path.file_stem().and_then(|s| s.to_str()))
-                else {
-                    continue;
-                };
-                all.push(Desktop {
-                    name: field("Name").unwrap_or_else(|| stem.to_string()),
-                    stem: stem.to_lowercase(),
-                    icon,
-                    wm_class: field("StartupWMClass").unwrap_or_default().to_lowercase(),
-                });
-            }
-        }
-        all
-    })
+fn app_dirs() -> [String; 2] {
+    ["/usr/share/applications".to_string(), format!("{}/.local/share/applications", home())]
 }
 
-/// lowercase window class / desktop file stem -> Icon= value
-fn desktop_index() -> &'static HashMap<String, String> {
-    static IDX: OnceLock<HashMap<String, String>> = OnceLock::new();
-    IDX.get_or_init(|| {
-        let mut map = HashMap::new();
-        for d in desktops() {
-            map.insert(d.stem.clone(), d.icon.clone());
-            if !d.wm_class.is_empty() {
-                map.insert(d.wm_class.clone(), d.icon.clone());
+fn scan_desktops() -> Vec<Desktop> {
+    let mut all = vec![];
+    for dir in app_dirs() {
+        let Ok(rd) = fs::read_dir(dir) else { continue };
+        for e in rd.flatten() {
+            let path = e.path();
+            if path.extension().is_none_or(|x| x != "desktop") {
+                continue;
             }
+            let Ok(text) = fs::read_to_string(&path) else { continue };
+            let field = |k: &str| {
+                text.lines()
+                    .find_map(|l| l.strip_prefix(k).and_then(|v| v.strip_prefix('=')))
+                    .map(str::trim)
+                    .map(String::from)
+            };
+            if field("NoDisplay").as_deref() == Some("true") {
+                continue;
+            }
+            let (Some(icon), Some(stem)) = (field("Icon"), path.file_stem().and_then(|s| s.to_str())) else {
+                continue;
+            };
+            all.push(Desktop {
+                name: field("Name").unwrap_or_else(|| stem.to_string()),
+                stem: stem.to_lowercase(),
+                icon,
+                wm_class: field("StartupWMClass").unwrap_or_default().to_lowercase(),
+            });
         }
-        map
-    })
+    }
+    all
+}
+
+type DesktopIndex = HashMap<String, String>; // lowercase window class / desktop file stem -> Icon= value
+static ICON_CACHE: OnceLock<Mutex<HashMap<String, Option<PathBuf>>>> = OnceLock::new();
+
+/// Installed apps; rescanned when an applications dir changes (installs/removals rename files in it).
+fn apps() -> Arc<(Vec<Desktop>, DesktopIndex)> {
+    static CACHE: Mutex<Option<(Vec<Option<std::time::SystemTime>>, Arc<(Vec<Desktop>, DesktopIndex)>)>> =
+        Mutex::new(None);
+    let stamp: Vec<_> = app_dirs().iter().map(|d| fs::metadata(d).and_then(|m| m.modified()).ok()).collect();
+    let mut cache = CACHE.lock().unwrap();
+    if let Some((s, a)) = cache.as_ref() {
+        if *s == stamp {
+            return a.clone();
+        }
+    }
+    let list = scan_desktops();
+    let mut map = HashMap::new();
+    for d in &list {
+        map.insert(d.stem.clone(), d.icon.clone());
+        if !d.wm_class.is_empty() {
+            map.insert(d.wm_class.clone(), d.icon.clone());
+        }
+    }
+    let a = Arc::new((list, map));
+    *cache = Some((stamp, a.clone()));
+    if let Some(c) = ICON_CACHE.get() {
+        c.lock().unwrap().clear(); // a new app may now resolve a class that had no icon
+    }
+    a
 }
 
 fn find_icon_file(name: &str) -> Option<PathBuf> {
@@ -141,13 +152,14 @@ fn find_icon_file(name: &str) -> Option<PathBuf> {
 }
 
 fn icon_for(class: &str) -> Option<PathBuf> {
-    static CACHE: OnceLock<Mutex<HashMap<String, Option<PathBuf>>>> = OnceLock::new();
-    let cache = CACHE.get_or_init(Default::default);
+    let apps = apps(); // before taking the cache lock: a rescan clears it
+    let cache = ICON_CACHE.get_or_init(Default::default);
     if let Some(hit) = cache.lock().unwrap().get(class) {
         return hit.clone();
     }
     let lower = class.to_lowercase();
-    let found = desktop_index()
+    let found = apps
+        .1
         .get(&lower)
         .and_then(|icon| find_icon_file(icon))
         .or_else(|| find_icon_file(&lower));
@@ -172,13 +184,15 @@ fn pinned() -> Vec<(String, Desktop)> {
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or_default();
+    let apps = apps();
     ids.into_iter()
         .filter_map(|id| {
             let id = id.to_lowercase();
-            let d = desktops()
+            let d = apps
+                .0
                 .iter()
                 .find(|d| d.stem == id)
-                .or_else(|| desktops().iter().find(|d| d.stem.contains(&id)))?;
+                .or_else(|| apps.0.iter().find(|d| d.stem.contains(&id)))?;
             Some((id, d.clone()))
         })
         .collect()
@@ -3002,6 +3016,13 @@ struct Entry {
 struct StartState(Option<AnyWindowHandle>);
 impl Global for StartState {}
 
+/// (button, confirmation question, command)
+const POWER: [(&str, &str, &str); 3] = [
+    ("Log out", "Log out now?", "hyprctl dispatch 'hl.dsp.exit()'"),
+    ("Restart", "Restart now?", "systemctl reboot"),
+    ("Shut down", "Shut down now?", "systemctl poweroff"),
+];
+
 fn entry_of(d: &Desktop) -> Entry {
     Entry { name: d.name.clone(), stem: d.stem.clone(), icon: find_icon_file(&d.icon) }
 }
@@ -3047,13 +3068,15 @@ struct StartMenu {
     pins: Vec<Entry>,
     sel: usize, // highlighted search result (arrow keys)
     last_input: std::time::Instant,
+    power: bool,            // power row shown
+    confirm: Option<usize>, // POWER action waiting for confirmation
 }
 
 impl StartMenu {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
-        let mut all: Vec<Entry> = desktops().iter().map(entry_of).collect();
+        let mut all: Vec<Entry> = apps().0.iter().map(entry_of).collect();
         all.sort_by_key(|e| e.name.to_lowercase());
         all.dedup_by(|a, b| a.stem == b.stem);
         let pins = pinned().iter().map(|(_, d)| entry_of(d)).collect();
@@ -3077,6 +3100,8 @@ impl StartMenu {
             pins,
             sel: 0,
             last_input: std::time::Instant::now(),
+            power: false,
+            confirm: None,
         }
     }
 
@@ -3242,6 +3267,40 @@ impl Render for StartMenu {
                 .child(label)
         };
 
+        let small_btn = |id: &'static str, label: &'static str| {
+            div()
+                .id(id)
+                .cursor_pointer()
+                .px_3()
+                .py_1p5()
+                .rounded_lg()
+                .text_size(px(13.))
+                .bg(rgba((p.dim << 8) | 0x28))
+                .hover(|s| s.bg(rgba((p.accent << 8) | 0x40)))
+                .child(label)
+        };
+        let power_row = match self.confirm {
+            Some(i) => {
+                let (label, question, cmd) = POWER[i];
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(div().flex_1().font_weight(FontWeight::BOLD).child(question))
+                    .child(footer_btn("p-ok", label, cmd).bg(rgba((0xf85149 << 8) | 0x60)))
+                    .child(small_btn("p-cancel", "Cancel").on_click(cx.listener(|this, _, _, cx| {
+                        this.confirm = None;
+                        cx.notify();
+                    })))
+            }
+            None => div().flex().justify_end().gap_3().children(POWER.iter().enumerate().map(|(i, &(label, _, _))| {
+                small_btn(label, label).on_click(cx.listener(move |this, _, _, cx| {
+                    this.confirm = Some(i);
+                    cx.notify();
+                }))
+            })),
+        };
+
         let footer = div()
             .flex()
             .items_center()
@@ -3256,7 +3315,12 @@ impl Render for StartMenu {
             .child(div().flex_1().font_weight(FontWeight::BOLD).child("fiaboo"))
             .child(footer_btn("f-settings", "Settings", "kitty --class tui-float --title 'ML4W Settings' -e ~/.local/bin/ml4w-dotfiles-settings com.ml4w.dotfiles"))
             .child(footer_btn("f-menu", "Control menu", "~/.local/bin/ctrl-menu"))
-            .child(footer_btn("f-lock", "Lock", "hyprlock"));
+            .child(footer_btn("f-lock", "Lock", "hyprlock"))
+            .child(small_btn("f-power", "\u{23fb}").font_family(NF).on_click(cx.listener(|this, _, _, cx| {
+                this.power = !this.power;
+                this.confirm = None;
+                cx.notify();
+            })));
 
         div()
             .size_full()
@@ -3319,6 +3383,7 @@ impl Render for StartMenu {
             .text_size(px(14.))
             .child(search)
             .child(body)
+            .when(self.power, |d| d.child(power_row))
             .child(footer)
             )
     }
