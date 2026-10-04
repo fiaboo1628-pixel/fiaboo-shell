@@ -1469,6 +1469,7 @@ struct Bar {
     tray: Vec<tray::TrayItem>,
     notif_gen: u64,
     notif_count: usize,
+    recording: bool,
 }
 
 static HYPR_DIRTY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
@@ -1661,6 +1662,7 @@ impl Bar {
                     None
                 };
                 let tray_now = tray::items();
+                let rec_flag = format!("{}/fiaboo-recording", std::env::var("XDG_RUNTIME_DIR").unwrap_or_default());
                 let _ = this.update(cx, |bar, cx| {
                     let mut changed = false;
                     if let Some(st) = st {
@@ -1686,6 +1688,11 @@ impl Bar {
                         sync_notif_popups(cx);
                         changed = true;
                     }
+                    let rec = std::path::Path::new(&rec_flag).exists();
+                    if rec != bar.recording {
+                        bar.recording = rec;
+                        changed = true;
+                    }
                     if tray_now != bar.tray {
                         bar.tray = tray_now;
                         changed = true;
@@ -1698,7 +1705,7 @@ impl Bar {
             }
         })
         .detach();
-        Bar { pal: palette(), st: State::default(), sys: Sys::default(), tray: tray::items(), notif_gen: u64::MAX, notif_count: 0 }
+        Bar { pal: palette(), st: State::default(), sys: Sys::default(), tray: tray::items(), notif_gen: u64::MAX, notif_count: 0, recording: false }
     }
 }
 
@@ -1908,6 +1915,22 @@ impl Render for Bar {
                         })
                 })),
             )
+                    .when(self.recording, |d| {
+                        d.child(
+                            div()
+                                .id("rec")
+                                .cursor_pointer()
+                                .px_2()
+                                .py_1()
+                                .rounded_lg()
+                                .font_family(NF)
+                                .text_size(px(16.))
+                                .text_color(rgb(0xf85149))
+                                .hover(|s| s.bg(rgba((p.dim << 8) | 0x30)))
+                                .on_click(|_, _, _| run_bg("~/.local/bin/fiaboo-record"))
+                                .child("\u{f044a}"),
+                        )
+                    })
                     .child({
                 let (g_wifi, g_bt, g_vol) = sys_glyphs(&self.sys);
                 div()
@@ -2664,7 +2687,9 @@ fn take_shot(window: &mut Window, cx: &mut App, rect: Option<(i32, i32, i32, i32
         let geo = rect.map(|(x, y, w, h)| format!("-g '{x},{y} {w}x{h}'")).unwrap_or_default();
         let script = format!(
             "grim {geo} '{file}' && wl-copy < '{file}' && \
-             [ \"$(notify-send -a Screenshot -i '{file}' -A default=Open -t 6000 'Screenshot copied' '{file}')\" = default ] && xdg-open '{file}'"
+             case \"$(notify-send -a Screenshot -i '{file}' -A default=Open -A edit=Edit -t 6000 'Screenshot copied' '{file}')\" in \
+             default) xdg-open '{file}' ;; \
+             edit) satty --filename '{file}' --output-filename '{file}' --copy-command wl-copy --early-exit ;; esac"
         );
         let _ = Command::new("setsid").args(["sh", "-c", &script]).spawn();
     });

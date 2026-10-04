@@ -1,0 +1,17 @@
+#!/bin/sh
+# Toggle screen recording (Shift+Print). First run: drag a region or click a monitor; second run stops.
+flag="$XDG_RUNTIME_DIR/fiaboo-recording" # the bar shows a red dot while it exists
+if pgrep -x wf-recorder >/dev/null; then
+    pkill -INT -x wf-recorder # SIGINT lets wf-recorder finish the file
+    exit 0
+fi
+rm -f "$flag"
+geo=$(slurp -o) || exit 0
+dir="$HOME/Videos/recordings"
+mkdir -p "$dir"
+file="$dir/rec-$(date +%Y%m%d-%H%M%S).mp4"
+touch "$flag"
+wf-recorder -g "$geo" -f "$file" >/dev/null 2>&1
+rm -f "$flag"
+[ -s "$file" ] || exit 1
+[ "$(notify-send -a Recorder -A default=Open -t 8000 'Recording saved' "$file")" = default ] && xdg-open "$file"
