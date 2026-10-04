@@ -741,7 +741,7 @@ impl Render for Quick {
                         "Night light",
                         if sys.night { "On" } else { "Off" }.to_string(),
                         sys.night,
-                        "~/.config/ml4w/scripts/ml4w-toggle-hyprsunset".to_string(),
+                        "pkill -x hyprsunset || setsid hyprsunset".to_string(),
                     ))
                     .child(tile(
                         "q-dnd",
@@ -2840,9 +2840,7 @@ impl Global for WpState {}
 const WP_COLS: usize = 4;
 
 fn wp_dir() -> String {
-    let raw = fs::read_to_string(format!("{}/.config/ml4w/settings/wallpaper-folder", home())).unwrap_or_default();
-    let raw = raw.trim().replace("$HOME", &home()).replace('~', &home());
-    if raw.is_empty() { format!("{}/.config/ml4w/wallpapers", home()) } else { raw }
+    format!("{}/Pictures/wallpapers", home())
 }
 
 fn wp_list() -> Vec<PathBuf> {
@@ -2879,7 +2877,7 @@ fn wp_make_thumbs(list: Vec<PathBuf>) {
 }
 
 fn wp_current() -> String {
-    fs::read_to_string(format!("{}/.cache/ml4w/hyprland-dotfiles/current_wallpaper", home())).unwrap_or_default().trim().to_string()
+    fs::read_to_string(format!("{}/.cache/fiaboo-shell/wallpaper/current", home())).unwrap_or_default().trim().to_string()
 }
 
 fn wp_apply(path: &std::path::Path) {
@@ -3347,10 +3345,7 @@ impl Render for SettingsPanel {
                                 close_settings(window, cx);
                                 toggle_wp(cx);
                             }))
-                            .child(btn("s-ml4w", "ML4W settings").on_click(|_, window, cx| {
-                                run_bg("setsid kitty --class tui-float --title 'ML4W Settings' -e ~/.local/bin/ml4w-dotfiles-settings com.ml4w.dotfiles");
-                                close_settings(window, cx);
-                            })),
+                            .child(btn("s-theme", "Light / dark").on_click(|_, _, _| run_bg("setsid ~/.local/bin/fiaboo-wallpaper --toggle-theme"))),
                     ),
             )
     }

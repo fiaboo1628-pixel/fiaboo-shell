@@ -165,7 +165,7 @@ impl Watcher {
 }
 
 /// Serve the watcher interface on `conn` and try to own the well-known name. Returns the watcher state
-/// and whether this process owns the name (false = another watcher is running, e.g. quickshell).
+/// and whether this process owns the name (false = another watcher is running).
 pub fn serve_watcher(conn: &Connection) -> (Watcher, bool) {
     let w = Watcher::default();
     let _ = conn.object_server().at("/StatusNotifierWatcher", w.clone());

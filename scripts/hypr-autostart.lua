@@ -1,6 +1,4 @@
--- Autostart (owned by fiaboo; was ML4W's). ML4W's version also ran ml4w-autostart
--- (quickshell, settings app, overview, welcome), waybar, swaync and the ML4W listeners:
--- fiaboo-shell replaces all of them. Original: ~/backup-2026-10-02/autostart.lua.bak-task8
+-- Autostart (fiaboo). Runs once at Hyprland start; fiaboo-session starts the shell (custom.lua).
 hl.on("hyprland.start", function ()
     -- Export variables to systemd
     hl.exec_cmd("dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP")
