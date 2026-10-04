@@ -405,6 +405,21 @@ struct Sys {
     muted: bool,
     dnd: bool,
     night: bool,
+    media: Option<Media>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct Media {
+    playing: bool,
+    artist: String,
+    title: String,
+}
+
+/// One `playerctl metadata --format '{{status}}\t{{artist}}\t{{title}}'` line; empty when no player.
+fn parse_media(line: &str) -> Option<Media> {
+    let mut f = line.splitn(3, '\t');
+    let (status, artist, title) = (f.next()?, f.next()?.trim(), f.next()?.trim());
+    (!title.is_empty()).then(|| Media { playing: status == "Playing", artist: artist.into(), title: title.into() })
 }
 
 fn sh(cmd: &str) -> String {
@@ -435,6 +450,7 @@ fn read_sys() -> Sys {
         muted,
         dnd: notify::dnd(),
         night: !sh("pgrep -x hyprsunset").is_empty(),
+        media: parse_media(&sh("playerctl metadata --format '{{status}}\t{{artist}}\t{{title}}' 2>/dev/null")),
     }
 }
 
@@ -592,6 +608,51 @@ impl Render for Quick {
                 )
         });
 
+        let media_btn = |id: &'static str, glyph: &'static str, cmd: &'static str| {
+            div()
+                .id(id)
+                .cursor_pointer()
+                .size(px(34.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_full()
+                .font_family(NF)
+                .text_size(px(18.))
+                .hover(|s| s.bg(rgba((p.accent << 8) | 0x40)))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.last_input = std::time::Instant::now();
+                    run_bg(&format!("playerctl {cmd}"));
+                    if let (Some(m), "play-pause") = (this.sys.media.as_mut(), cmd) {
+                        m.playing = !m.playing; // show it now, the next poll confirms
+                    }
+                    cx.notify();
+                }))
+                .child(glyph)
+        };
+        let media = sys.media.as_ref().map(|m| {
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .px_3()
+                .py_2()
+                .rounded_xl()
+                .bg(rgba((p.dim << 8) | 0x1c))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.))
+                        .flex()
+                        .flex_col()
+                        .child(div().overflow_hidden().whitespace_nowrap().text_ellipsis().font_weight(FontWeight::BOLD).text_size(px(13.)).child(m.title.clone()))
+                        .child(div().overflow_hidden().whitespace_nowrap().text_ellipsis().text_size(px(11.)).text_color(rgb(p.dim)).child(m.artist.clone())),
+                )
+                .child(media_btn("m-prev", "\u{f04ae}", "previous"))
+                .child(media_btn("m-play", if m.playing { "\u{f03e4}" } else { "\u{f040a}" }, "play-pause"))
+                .child(media_btn("m-next", "\u{f04ad}", "next"))
+        });
+
         let footer_btn = |id: &'static str, label: &'static str, cmd: &'static str| {
             div()
                 .id(id)
@@ -630,7 +691,7 @@ impl Render for Quick {
             .child(
                 div()
                     .w(px(380.0))
-                    .h(px(330.))
+                    .h(px(if media.is_some() { 400. } else { 330. }))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()).on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
                     .flex()
                     .flex_col()
@@ -718,6 +779,7 @@ impl Render for Quick {
                         if sys.muted { "Muted".to_string() } else { format!("{level}%") },
                     )),
             )
+            .children(media)
             .child(
                 div()
                     .flex()
@@ -3649,4 +3711,19 @@ fn main() {
         )
         .unwrap();
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn media_line() {
+        assert_eq!(
+            parse_media("Playing\tArtist\tSong"),
+            Some(Media { playing: true, artist: "Artist".into(), title: "Song".into() })
+        );
+        assert_eq!(parse_media("Paused\t\tVideo\twith tab").map(|m| (m.playing, m.title)), Some((false, "Video\twith tab".into())));
+        assert_eq!(parse_media(""), None);
+        assert_eq!(parse_media("Stopped\t\t"), None);
+    }
 }
