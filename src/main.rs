@@ -2883,7 +2883,7 @@ fn wp_current() -> String {
 }
 
 fn wp_apply(path: &std::path::Path) {
-    run_bg(&format!("setsid ~/.config/ml4w/scripts/ml4w-wallpaper '{}'", path.display()));
+    run_bg(&format!("setsid ~/.local/bin/fiaboo-wallpaper '{}'", path.display()));
 }
 
 fn toggle_wp(cx: &mut App) {
@@ -3014,7 +3014,7 @@ impl Render for WpPicker {
                     "down" if n > 0 => go(this, (this.sel + WP_COLS).min(n - 1), cx),
                     "up" if n > 0 => go(this, this.sel.saturating_sub(WP_COLS), cx),
                     "r" => {
-                        run_bg("setsid ~/.config/ml4w/scripts/ml4w-wallpaper --random");
+                        run_bg("setsid ~/.local/bin/fiaboo-wallpaper --random");
                         close_wp(window, cx);
                     }
                     "enter" => {
@@ -3064,7 +3064,7 @@ impl Render for WpPicker {
                                     .bg(rgba((p.dim << 8) | 0x28))
                                     .hover(|s| s.bg(rgba((p.accent << 8) | 0x50)))
                                     .on_click(|_, window, cx| {
-                                        run_bg("setsid ~/.config/ml4w/scripts/ml4w-wallpaper --random");
+                                        run_bg("setsid ~/.local/bin/fiaboo-wallpaper --random");
                                         close_wp(window, cx);
                                     })
                                     .child("Random"),

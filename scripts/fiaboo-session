@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
 # Replace the quickshell Win11 taskbar with fiaboo-shell at login.
-#  - waits for ml4w-autostart to finish (it starts quickshell and applies theming over qs IPC)
-#  - stops the main `qs` (the taskbar) and the settings/overview qs processes
+#  - stops the main `qs` (the taskbar) and the settings/overview qs processes, if running
 #  - stops swaync (fiaboo-shell owns org.freedesktop.Notifications; if it dies, D-Bus activation restarts swaync)
 #  - runs fiaboo-shell; if it dies within 30 s of starting, brings quickshell back as a fallback
 #  - restarts fiaboo-shell if it crashes later or its binary was replaced (upgrade: install, then pkill -9); `pkill fiaboo-shell` (SIGTERM) stops it for good
 BIN=${FIABOO_SHELL_BIN:-$HOME/.local/bin/fiaboo-shell}
 LOG=$HOME/.cache/fiaboo-shell.log
 
-for _ in $(seq 1 20); do pgrep -x ml4w-autostart >/dev/null && break; sleep 1; done
-for _ in $(seq 1 90); do pgrep -x ml4w-autostart >/dev/null || break; sleep 1; done
-sleep 2
+# ML4W's autostart (which started quickshell) no longer runs at login (hypr/conf/autostart.lua is
+# fiaboo's now); the stops below only matter if something started the old pieces anyway
 
 main_qs() {  # pid of the plain `qs` process (no -p argument)
     for p in $(pgrep -x qs); do
