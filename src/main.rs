@@ -236,7 +236,7 @@ fn hyprctl_json(arg: &str) -> serde_json::Value {
 }
 
 fn is_rustdesk_cm(class: &str, title: &str) -> bool {
-    class == "rustdesk"
+    class.eq_ignore_ascii_case("rustdesk") // RustDesk reports "rustdesk" or "Rustdesk" depending on version
         && title
             .strip_suffix(" - RustDesk")
             .is_some_and(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()))
@@ -247,7 +247,7 @@ fn is_rustdesk_cm(class: &str, title: &str) -> bool {
 fn is_rustdesk_cm_client(c: &serde_json::Value) -> bool {
     let (class, title) = (c["class"].as_str().unwrap_or(""), c["title"].as_str().unwrap_or(""));
     is_rustdesk_cm(class, title)
-        || (class == "rustdesk"
+        || (class.eq_ignore_ascii_case("rustdesk")
             && title != "RustDesk"
             && c["floating"].as_bool() == Some(true)
             && c["size"][0].as_i64().unwrap_or(i64::MAX) < 500)
@@ -3753,6 +3753,41 @@ struct TvWin {
     class: String,
     ws: i64,
     icon: Option<PathBuf>,
+    stable_id: String,
+    thumb: PathBuf, // filled in by a background `grim -T` (Hyprland's stableId is the ext-foreign-toplevel identifier)
+}
+
+/// Capture every window (hidden workspaces too) into small JPEGs. Each open uses fresh file
+/// names so GPUI's image cache never shows an old frame; the previous set is deleted.
+fn tv_capture(wins: Vec<(String, PathBuf)>) {
+    let dir = PathBuf::from(format!("{}/.cache/fiaboo-shell", home()));
+    let keep: Vec<PathBuf> = wins.iter().map(|w| w.1.clone()).collect();
+    if let Ok(rd) = fs::read_dir(&dir) {
+        for e in rd.flatten() {
+            if e.file_name().to_string_lossy().starts_with("tv-") && !keep.contains(&e.path()) {
+                let _ = fs::remove_file(e.path());
+            }
+        }
+    }
+    let jobs: Vec<_> = wins
+        .into_iter()
+        .map(|(id, file)| {
+            std::thread::spawn(move || {
+                let tmp = file.with_extension("tmp");
+                let ok = Command::new("grim")
+                    .args(["-T", &id, "-s", "0.3", "-t", "jpeg", "-q", "75"])
+                    .arg(&tmp)
+                    .status()
+                    .is_ok_and(|s| s.success());
+                if ok {
+                    let _ = fs::rename(&tmp, &file); // appears whole, never half-written
+                }
+            })
+        })
+        .collect();
+    for j in jobs {
+        let _ = j.join();
+    }
 }
 
 fn tv_windows() -> Vec<TvWin> {
@@ -3768,12 +3803,20 @@ fn tv_windows() -> Vec<TvWin> {
             if class.is_empty() || ws < 1 || class == "fiaboo-shell" || is_rustdesk_cm_client(c) {
                 return None;
             }
+            let stable_id = c["stableId"].as_str().unwrap_or("0").to_string();
             Some(TvWin {
                 address: c["address"].as_str()?.to_string(),
                 icon: icon_for(&class),
+                thumb: PathBuf::from(format!(
+                    "{}/.cache/fiaboo-shell/tv-{}-{}.jpg",
+                    home(),
+                    stable_id,
+                    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)
+                )),
                 title,
                 class,
                 ws,
+                stable_id,
             })
         })
         .collect();
@@ -3827,7 +3870,24 @@ impl TaskView {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
-        TaskView { pal: palette(), focus, wins: tv_windows(), sel: 0 }
+        let wins = tv_windows();
+        let jobs: Vec<(String, PathBuf)> = wins.iter().map(|w| (w.stable_id.clone(), w.thumb.clone())).collect();
+        let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = done.clone();
+        std::thread::spawn(move || {
+            tv_capture(jobs);
+            flag.store(true, std::sync::atomic::Ordering::Relaxed);
+        });
+        // repaint while thumbnails land
+        cx.spawn_in(window, async move |this, cx| loop {
+            cx.background_executor().timer(Duration::from_millis(120)).await;
+            let finished = done.load(std::sync::atomic::Ordering::Relaxed);
+            if this.update(cx, |_, cx| cx.notify()).is_err() || finished {
+                break;
+            }
+        })
+        .detach();
+        TaskView { pal: palette(), focus, wins, sel: 0 }
     }
 }
 
@@ -3841,12 +3901,12 @@ impl Render for TaskView {
             div()
                 .id(("tv", i))
                 .cursor_pointer()
-                .w(px(260.))
-                .h(px(120.))
+                .w(px(300.))
+                .h(px(236.))
                 .p_3()
                 .flex()
                 .flex_col()
-                .justify_between()
+                .gap_2()
                 .rounded_xl()
                 .bg(rgba((p.dim << 8) | 0x26))
                 .border_1()
@@ -3879,8 +3939,17 @@ impl Render for TaskView {
                 )
                 .child(
                     div()
-                        .max_h(px(48.))
+                        .flex_1()
+                        .rounded_lg()
                         .overflow_hidden()
+                        .bg(rgba((p.bg << 8) | 0x80))
+                        .when(w.thumb.exists(), |d| d.child(img(w.thumb.clone()).size_full().object_fit(ObjectFit::Contain))),
+                )
+                .child(
+                    div()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
                         .text_size(px(13.))
                         .font_weight(FontWeight::BOLD)
                         .child(w.title.clone()),
@@ -3920,7 +3989,7 @@ impl Render for TaskView {
             .on_mouse_down(MouseButton::Right, |_, window, cx| close_taskview(window, cx))
             .child(
                 div()
-                    .max_w(px(1000.))
+                    .max_w(px(1600.))
                     .flex()
                     .flex_row()
                     .flex_wrap()
@@ -4016,6 +4085,8 @@ mod tests {
         );
         assert_eq!(parse_media("Paused\t\tVideo\twith tab").map(|m| (m.playing, m.title)), Some((false, "Video\twith tab".into())));
         assert_eq!(parse_media(""), None);
+        assert!(is_rustdesk_cm("Rustdesk", "1725218340 - RustDesk"));
+        assert!(!is_rustdesk_cm("Rustdesk", "RustDesk"));
         assert_eq!(nmcli_fields("wlan0:wifi:connected:My\\:Net"), ["wlan0", "wifi", "connected", "My:Net"]);
         assert_eq!(nmcli_fields("p2p:wifi-p2p:disconnected:"), ["p2p", "wifi-p2p", "disconnected", ""]);
         assert_eq!(parse_media("Stopped\t\t"), None);

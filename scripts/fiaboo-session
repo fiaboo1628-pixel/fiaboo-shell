@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Replace the quickshell Win11 taskbar with fiaboo-shell at login.
+#  - waits for ml4w-autostart to finish (it starts quickshell and applies theming over qs IPC)
+#  - stops the main `qs` (the taskbar) and the settings/overview qs processes
+#  - stops swaync (fiaboo-shell owns org.freedesktop.Notifications; if it dies, D-Bus activation restarts swaync)
+#  - runs fiaboo-shell; if it dies within 30 s of starting, brings quickshell back as a fallback
+#  - restarts fiaboo-shell if it crashes later or its binary was replaced (upgrade: install, then pkill -9); `pkill fiaboo-shell` (SIGTERM) stops it for good
+BIN=${FIABOO_SHELL_BIN:-$HOME/.local/bin/fiaboo-shell}
+LOG=$HOME/.cache/fiaboo-shell.log
+
+for _ in $(seq 1 20); do pgrep -x ml4w-autostart >/dev/null && break; sleep 1; done
+for _ in $(seq 1 90); do pgrep -x ml4w-autostart >/dev/null || break; sleep 1; done
+sleep 2
+
+main_qs() {  # pid of the plain `qs` process (no -p argument)
+    for p in $(pgrep -x qs); do
+        [ "$(tr '\0' ' ' < /proc/$p/cmdline)" = "qs " ] && echo "$p"
+    done | head -1
+}
+
+restore_quickshell() {
+    # the old bar config was archived (2026-10-04); unpack it again before starting qs
+    [ -f "$HOME/.config/quickshell/shell.qml" ] || tar -xzf "$HOME/backup-2026-10-02/quickshell-old-bar.tar.gz" -C "$HOME/.config/quickshell"
+    [ -n "$(main_qs)" ] || { setsid qs >/dev/null 2>&1 & }
+    pgrep -x swaync >/dev/null || { setsid swaync >/dev/null 2>&1 & sleep 1; }
+    pgrep -f "^qs -p $SETTINGS_QS\$" >/dev/null || PROFILE=com.ml4w.dotfiles setsid qs -p "$SETTINGS_QS" >/dev/null 2>&1 &
+    pgrep -f "^qs -p $OVERVIEW_QS\$" >/dev/null || { setsid qs -p "$OVERVIEW_QS" >/dev/null 2>&1 & }
+    notify-send "fiaboo-shell" "Failed to start, quickshell taskbar restored" 2>/dev/null
+}
+
+pid=$(main_qs); [ -n "$pid" ] && kill "$pid"
+# fiaboo-shell is the notification daemon: stop swaync and the old bar's swaync-client watchers
+pkill -x swaync; pkill -x swaync-client
+# the ML4W settings window is only reachable from the old bar; fiaboo-shell opens the terminal version instead
+SETTINGS_QS="$HOME/.local/share/ml4w-dotfiles-settings/quickshell"
+pkill -f "^qs -p $SETTINGS_QS\$"
+# Task View (SUPER+Tab) replaces the qs overview (~300 MB); the fallback above starts it again
+OVERVIEW_QS="$HOME/.config/quickshell/overview"
+pkill -f "^qs -p $OVERVIEW_QS\$"
+sleep 1
+
+while true; do
+    pkill -x swaync   # may have been D-Bus-activated while fiaboo-shell was down; the shell takes the name over
+    start=$(date +%s); stamp=$(stat -c %Y "$BIN" 2>/dev/null)
+    "$BIN" >>"$LOG" 2>&1
+    rc=$?
+    if [ $rc -eq 143 ] || [ $rc -eq 130 ]; then exit 0; fi          # stopped on purpose
+    if [ "$(stat -c %Y "$BIN" 2>/dev/null)" != "$stamp" ]; then sleep 1; continue; fi  # binary upgraded: just restart
+    if [ $(( $(date +%s) - start )) -lt 30 ]; then restore_quickshell; exit 1; fi
+    sleep 2                                                           # crashed after running a while: restart
+done
