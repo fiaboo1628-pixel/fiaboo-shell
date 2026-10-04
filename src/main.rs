@@ -1637,6 +1637,7 @@ impl Bar {
                         "clipboard" => toggle_clip(cx),
                         "shot" => toggle_shot(cx),
                         "wallpaper" => toggle_wp(cx),
+                        "settings" => toggle_settings(cx),
                         _ => {}
                     });
                 }
@@ -3092,6 +3093,269 @@ impl Render for WpPicker {
     }
 }
 
+// ---------- settings ----------
+struct SettingsState(Option<AnyWindowHandle>);
+impl Global for SettingsState {}
+
+#[derive(Clone, Default)]
+struct SettingsInfo {
+    net: Vec<(String, String)>,          // (device · type, "state · connection · ip")
+    sinks: Vec<(String, String, bool)>,  // (name, description, default)
+    displays: Vec<String>,
+    about: Vec<(&'static str, String)>,
+}
+
+/// Split one `nmcli -t` line: fields are ':'-separated, literal ':' is escaped as "\:".
+fn nmcli_fields(line: &str) -> Vec<String> {
+    let mut out = vec![String::new()];
+    let mut chars = line.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => out.last_mut().unwrap().extend(chars.next()),
+            ':' => out.push(String::new()),
+            _ => out.last_mut().unwrap().push(c),
+        }
+    }
+    out
+}
+
+fn read_settings() -> SettingsInfo {
+    let net = sh("nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device")
+        .lines()
+        .map(nmcli_fields)
+        .filter(|f| f.len() == 4 && f[1] != "loopback" && f[1] != "wifi-p2p")
+        .map(|f| {
+            let ip = sh(&format!("nmcli -g IP4.ADDRESS device show '{}' | head -1", f[0]));
+            let detail = [f[2].as_str(), f[3].as_str(), ip.as_str()].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>();
+            (format!("{} · {}", f[0], f[1]), detail.join(" · "))
+        })
+        .collect();
+    let default_sink = sh("pactl get-default-sink");
+    let sinks = serde_json::from_str::<serde_json::Value>(&sh("pactl -f json list sinks"))
+        .ok()
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|s| {
+            let name = s["name"].as_str()?.to_string();
+            let desc = s["description"].as_str().unwrap_or(&name).to_string();
+            let is_default = name == default_sink;
+            Some((name, desc, is_default))
+        })
+        .collect();
+    let displays = hyprctl_json("monitors")
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(|m| {
+            format!(
+                "{} · {}x{} @ {:.0} Hz · scale {}",
+                m["name"].as_str().unwrap_or("?"),
+                m["width"],
+                m["height"],
+                m["refreshRate"].as_f64().unwrap_or(0.0),
+                m["scale"]
+            )
+        })
+        .collect();
+    let about = vec![
+        ("Host", sh("cat /etc/hostname")),
+        ("Kernel", sh("uname -r")),
+        ("Uptime", sh("uptime -p").trim_start_matches("up ").to_string()),
+        ("Memory", sh("free -h | awk '/^Mem/ {print $3 \" / \" $2}'")),
+        ("Disk /", sh("df -h / | awk 'NR==2 {print $3 \" / \" $2}'")),
+    ];
+    SettingsInfo { net, sinks, displays, about }
+}
+
+fn toggle_settings(cx: &mut App) {
+    if let Some(handle) = cx.try_global::<SettingsState>().and_then(|s| s.0) {
+        cx.set_global(SettingsState(None));
+        if handle.update(cx, |_, window, _| window.remove_window()).is_ok() {
+            return;
+        }
+    }
+    let opened = cx.open_window(
+        WindowOptions {
+            titlebar: None,
+            window_bounds: Some(WindowBounds::Windowed(Bounds { origin: point(px(0.), px(0.)), size: size(px(0.), px(0.)) })),
+            app_id: Some("fiaboo-settings".to_string()),
+            window_background: WindowBackgroundAppearance::Transparent,
+            kind: WindowKind::LayerShell(LayerShellOptions {
+                namespace: "fiaboo-settings".to_string(),
+                layer: Layer::Overlay,
+                anchor: Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
+                exclusive_zone: Some(px(-1.)),
+                keyboard_interactivity: KeyboardInteractivity::Exclusive,
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        |window, cx| cx.new(|cx| SettingsPanel::new(window, cx)),
+    );
+    if let Ok(h) = opened {
+        cx.set_global(SettingsState(Some(h.into())));
+    }
+}
+
+fn close_settings(window: &mut Window, cx: &mut App) {
+    cx.set_global(SettingsState(None));
+    window.remove_window();
+}
+
+struct SettingsPanel {
+    pal: Palette,
+    focus: FocusHandle,
+    info: SettingsInfo,
+    last_input: std::time::Instant,
+}
+
+impl SettingsPanel {
+    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let focus = cx.focus_handle();
+        window.focus(&focus, cx);
+        // refresh every few seconds; also the idle safety net (the panel holds exclusive keyboard focus)
+        cx.spawn_in(window, async move |this, cx| loop {
+            let info = cx.background_executor().spawn(async { read_settings() }).await;
+            let idle = this
+                .update(cx, |s, cx| {
+                    s.info = info;
+                    cx.notify();
+                    s.last_input.elapsed() > Duration::from_secs(120)
+                })
+                .unwrap_or(true);
+            if idle {
+                let _ = this.update_in(cx, |_, window, cx| close_settings(window, cx));
+                break;
+            }
+            cx.background_executor().timer(Duration::from_secs(3)).await;
+        })
+        .detach();
+        SettingsPanel { pal: palette(), focus, info: SettingsInfo::default(), last_input: std::time::Instant::now() }
+    }
+}
+
+impl Render for SettingsPanel {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let p = self.pal.clone();
+        let info = self.info.clone();
+        let section = |title: &'static str| {
+            div().pt_2().text_size(px(12.)).font_weight(FontWeight::BOLD).text_color(rgb(p.dim)).child(title)
+        };
+        let row = |label: String, value: String| {
+            div()
+                .flex()
+                .gap_3()
+                .px_3()
+                .py_1p5()
+                .rounded_lg()
+                .bg(rgba((p.dim << 8) | 0x1c))
+                .child(div().w(px(170.)).flex_none().overflow_hidden().whitespace_nowrap().text_ellipsis().child(label))
+                .child(div().flex_1().min_w(px(0.)).overflow_hidden().whitespace_nowrap().text_ellipsis().text_color(rgb(p.dim)).child(value))
+        };
+        let sinks = info.sinks.iter().enumerate().map(|(i, (name, desc, is_default))| {
+            let name = name.clone();
+            div()
+                .id(("sink", i))
+                .cursor_pointer()
+                .flex()
+                .items_center()
+                .gap_3()
+                .px_3()
+                .py_1p5()
+                .rounded_lg()
+                .bg(if *is_default { rgba((p.accent << 8) | 0x38) } else { rgba((p.dim << 8) | 0x1c) })
+                .hover(|s| s.bg(rgba((p.accent << 8) | 0x4a)))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.last_input = std::time::Instant::now();
+                    run_bg(&format!("pactl set-default-sink '{name}'"));
+                    for s in this.info.sinks.iter_mut() {
+                        s.2 = s.0 == name; // show it now, the next refresh confirms
+                    }
+                    cx.notify();
+                }))
+                .child(div().font_family(NF).text_color(if *is_default { rgb(p.accent) } else { rgb(p.dim) }).child(if *is_default { "\u{f0133}" } else { "\u{f0130}" }))
+                .child(div().flex_1().min_w(px(0.)).overflow_hidden().whitespace_nowrap().text_ellipsis().child(desc.clone()))
+        });
+        let btn = |id: &'static str, label: &'static str| {
+            div()
+                .id(id)
+                .cursor_pointer()
+                .px_3()
+                .py_1p5()
+                .rounded_lg()
+                .text_size(px(13.))
+                .bg(rgba((p.dim << 8) | 0x28))
+                .hover(|s| s.bg(rgba((p.accent << 8) | 0x40)))
+                .child(label)
+        };
+        div()
+            .size_full()
+            .track_focus(&self.focus)
+            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
+                this.last_input = std::time::Instant::now();
+                if ev.keystroke.key == "escape" {
+                    close_settings(window, cx);
+                }
+            }))
+            .flex()
+            .items_center()
+            .justify_center()
+            .on_mouse_down(MouseButton::Left, |_, window, cx| close_settings(window, cx))
+            .on_mouse_down(MouseButton::Right, |_, window, cx| close_settings(window, cx))
+            .child(
+                div()
+                    .w(px(640.))
+                    .h(px(600.))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .p_4()
+                    .rounded_2xl()
+                    .bg(rgba((p.bg << 8) | 0xE8))
+                    .border_1()
+                    .border_color(rgba((p.dim << 8) | 0x40))
+                    .text_color(rgb(p.fg))
+                    .text_size(px(13.5))
+                    .child(div().font_weight(FontWeight::BOLD).text_size(px(15.)).child("Settings"))
+                    .child(
+                        div()
+                            .id("settings-body")
+                            .flex_1()
+                            .overflow_y_scroll()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(section("Network (read only)"))
+                            .children(info.net.iter().map(|(a, b)| row(a.clone(), b.clone())))
+                            .child(section("Sound output"))
+                            .children(sinks)
+                            .child(section("Displays"))
+                            .children(info.displays.iter().map(|d| row(d.split(" · ").next().unwrap_or("").to_string(), d.split_once(" · ").map(|x| x.1).unwrap_or("").to_string())))
+                            .child(section("About"))
+                            .children(info.about.iter().map(|(a, b)| row(a.to_string(), b.clone()))),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .gap_2()
+                            .justify_end()
+                            .child(btn("s-wp", "Wallpaper").on_click(|_, window, cx| {
+                                close_settings(window, cx);
+                                toggle_wp(cx);
+                            }))
+                            .child(btn("s-ml4w", "ML4W settings").on_click(|_, window, cx| {
+                                run_bg("setsid kitty --class tui-float --title 'ML4W Settings' -e ~/.local/bin/ml4w-dotfiles-settings com.ml4w.dotfiles");
+                                close_settings(window, cx);
+                            })),
+                    ),
+            )
+    }
+}
+
 // ---------- start menu ----------
 #[derive(Clone)]
 struct Entry {
@@ -3400,7 +3664,10 @@ impl Render for StartMenu {
                     .object_fit(ObjectFit::Cover),
             )
             .child(div().flex_1().font_weight(FontWeight::BOLD).child("fiaboo"))
-            .child(footer_btn("f-settings", "Settings", "kitty --class tui-float --title 'ML4W Settings' -e ~/.local/bin/ml4w-dotfiles-settings com.ml4w.dotfiles"))
+            .child(small_btn("f-settings", "Settings").on_click(|_, window, cx| {
+                close_start(window, cx);
+                toggle_settings(cx);
+            }))
             .child(footer_btn("f-menu", "Control menu", "~/.local/bin/ctrl-menu"))
             .child(footer_btn("f-lock", "Lock", "hyprlock"))
             .child(small_btn("f-power", "\u{23fb}").font_family(NF).on_click(cx.listener(|this, _, _, cx| {
@@ -3749,6 +4016,8 @@ mod tests {
         );
         assert_eq!(parse_media("Paused\t\tVideo\twith tab").map(|m| (m.playing, m.title)), Some((false, "Video\twith tab".into())));
         assert_eq!(parse_media(""), None);
+        assert_eq!(nmcli_fields("wlan0:wifi:connected:My\\:Net"), ["wlan0", "wifi", "connected", "My:Net"]);
+        assert_eq!(nmcli_fields("p2p:wifi-p2p:disconnected:"), ["p2p", "wifi-p2p", "disconnected", ""]);
         assert_eq!(parse_media("Stopped\t\t"), None);
     }
 }
