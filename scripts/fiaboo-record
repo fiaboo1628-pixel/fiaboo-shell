@@ -11,7 +11,9 @@ dir="$HOME/Videos/recordings"
 mkdir -p "$dir"
 file="$dir/rec-$(date +%Y%m%d-%H%M%S).mp4"
 touch "$flag"
-wf-recorder -g "$geo" -f "$file" >/dev/null 2>&1
+# desktop sound (what the speakers play), not the microphone; -D -r 30: steady 30 fps even on a still
+# screen (with audio and only damage-driven frames, a still screen gave a file with no video)
+wf-recorder -g "$geo" -D -r 30 --audio="$(pactl get-default-sink).monitor" -f "$file" >/dev/null 2>&1
 rm -f "$flag"
 [ -s "$file" ] || exit 1
 [ "$(notify-send -a Recorder -A default=Open -t 8000 'Recording saved' "$file")" = default ] && xdg-open "$file"

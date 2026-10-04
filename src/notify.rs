@@ -136,6 +136,11 @@ where
 }
 
 /// Notification bodies may carry a small HTML subset: drop tags, decode the basic entities.
+/// "dd/mm HH:MM" → "HH:MM" when it is today (entries saved before dates were added are plain "HH:MM").
+pub fn short_time(t: &str, today: &str) -> String {
+    t.strip_prefix(today).map(|r| r.trim_start().to_string()).unwrap_or_else(|| t.to_string())
+}
+
 pub fn strip_markup(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut in_tag = false;
@@ -234,7 +239,7 @@ impl Server {
 
 fn chrono_now() -> String {
     std::process::Command::new("date")
-        .arg("+%H:%M")
+        .arg("+%d/%m %H:%M")
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_default()
@@ -364,6 +369,13 @@ mod tests {
     fn markup_is_stripped() {
         assert_eq!(strip_markup("<b>Hi</b> &amp; <i>bye</i> &lt;3"), "Hi & bye <3");
         assert_eq!(strip_markup("plain"), "plain");
+    }
+
+    #[test]
+    fn time_is_shortened_today_only() {
+        assert_eq!(short_time("04/10 18:30", "04/10"), "18:30");
+        assert_eq!(short_time("03/10 18:30", "04/10"), "03/10 18:30");
+        assert_eq!(short_time("18:30", "04/10"), "18:30");
     }
 
     #[test]

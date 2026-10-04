@@ -1107,6 +1107,12 @@ fn month_name(m: u32) -> &'static str {
         [(m - 1) as usize]
 }
 
+/// "dd/mm", the date prefix notifications are stamped with
+fn today_dm() -> String {
+    let (_, m, d) = today_ymd();
+    format!("{d:02}/{m:02}")
+}
+
 fn today_ymd() -> (i32, u32, u32) {
     let t = sh("date +%Y-%m-%d");
     let p: Vec<i32> = t.split('-').filter_map(|x| x.parse().ok()).collect();
@@ -2006,7 +2012,7 @@ impl Render for Bar {
 // ---------- notifications: popups + center ----------
 const CARD_H: f32 = 100.;
 
-fn notif_card(n: &notify::Notif, p: &Palette, in_center: bool, id: usize) -> gpui::AnyElement {
+fn notif_card(n: &notify::Notif, p: &Palette, in_center: bool, id: usize, today: &str) -> gpui::AnyElement {
     let (nid, nid2, nid3) = (n.id, n.id, n.id);
     let icon = find_icon_file(&n.icon).or_else(|| icon_for(&n.app.to_lowercase()));
     div()
@@ -2059,7 +2065,7 @@ fn notif_card(n: &notify::Notif, p: &Palette, in_center: bool, id: usize) -> gpu
                         .text_size(px(11.))
                         .text_color(rgb(p.dim))
                         .child(div().flex_1().overflow_hidden().whitespace_nowrap().text_ellipsis().child(n.app.clone()))
-                        .child(n.time.clone()),
+                        .child(notify::short_time(&n.time, today)),
                 )
                 .child(
                     div()
@@ -2104,13 +2110,14 @@ struct NotifPopup {
 impl Render for NotifPopup {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.pal.clone();
+        let today = today_dm();
         div()
             .size_full()
             .flex()
             .flex_col()
             .gap_2()
             .text_size(px(14.))
-            .children(self.list.iter().enumerate().map(|(i, n)| notif_card(n, &p, false, i)))
+            .children(self.list.iter().enumerate().map(|(i, n)| notif_card(n, &p, false, i, &today)))
     }
 }
 
@@ -2226,6 +2233,7 @@ impl Render for NotifCenter {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.pal.clone();
         let list = notify::all();
+        let today = today_dm();
         let dnd = notify::dnd();
         let pill = |id: &'static str, label: String, on: bool| {
             div()
@@ -2296,7 +2304,7 @@ impl Render for NotifCenter {
                             .flex()
                             .flex_col()
                             .gap_2()
-                            .children(list.iter().enumerate().map(|(i, n)| notif_card(n, &p, true, i)))
+                            .children(list.iter().enumerate().map(|(i, n)| notif_card(n, &p, true, i, &today)))
                             .when(list.is_empty(), |d| {
                                 d.child(div().py_6().flex().justify_center().text_color(rgb(p.dim)).child("No notifications"))
                             }),
@@ -3101,6 +3109,19 @@ struct SettingsInfo {
     sinks: Vec<(String, String, bool)>,  // (name, description, default)
     displays: Vec<String>,
     about: Vec<(&'static str, String)>,
+    bt_on: bool,
+    bt_devices: Vec<(String, String, bool)>, // (mac, name, connected), paired devices
+}
+
+/// `bluetoothctl devices …` lines: "Device <MAC> <name>" -> (mac, name)
+fn bt_device_lines(text: &str) -> Vec<(String, String)> {
+    text.lines()
+        .filter_map(|l| {
+            let mut it = l.strip_prefix("Device ")?.splitn(2, ' ');
+            let mac = it.next()?.to_string();
+            Some((mac.clone(), it.next().unwrap_or(&mac).to_string()))
+        })
+        .collect()
 }
 
 /// Split one `nmcli -t` line: fields are ':'-separated, literal ':' is escaped as "\:".
@@ -3164,7 +3185,16 @@ fn read_settings() -> SettingsInfo {
         ("Memory", sh("free -h | awk '/^Mem/ {print $3 \" / \" $2}'")),
         ("Disk /", sh("df -h / | awk 'NR==2 {print $3 \" / \" $2}'")),
     ];
-    SettingsInfo { net, sinks, displays, about }
+    let connected = bt_device_lines(&sh("bluetoothctl devices Connected"));
+    let bt_devices = bt_device_lines(&sh("bluetoothctl devices Paired"))
+        .into_iter()
+        .map(|(mac, name)| {
+            let on = connected.iter().any(|c| c.0 == mac);
+            (mac, name, on)
+        })
+        .collect();
+    let bt_on = sh("bluetoothctl show | grep -c 'Powered: yes'") == "1";
+    SettingsInfo { net, sinks, displays, about, bt_on, bt_devices }
 }
 
 fn toggle_settings(cx: &mut App) {
@@ -3252,6 +3282,26 @@ impl Render for SettingsPanel {
                 .child(div().w(px(170.)).flex_none().overflow_hidden().whitespace_nowrap().text_ellipsis().child(label))
                 .child(div().flex_1().min_w(px(0.)).overflow_hidden().whitespace_nowrap().text_ellipsis().text_color(rgb(p.dim)).child(value))
         };
+        let toggle_row = |id: gpui::ElementId, label: String, on: bool, cmd: String| {
+            div()
+                .id(id)
+                .cursor_pointer()
+                .flex()
+                .items_center()
+                .gap_3()
+                .px_3()
+                .py_1p5()
+                .rounded_lg()
+                .bg(if on { rgba((p.accent << 8) | 0x38) } else { rgba((p.dim << 8) | 0x1c) })
+                .hover(|s| s.bg(rgba((p.accent << 8) | 0x4a)))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.last_input = std::time::Instant::now();
+                    run_bg(&cmd); // the 3 s refresh shows the new state
+                    cx.notify();
+                }))
+                .child(div().font_family(NF).text_color(if on { rgb(p.accent) } else { rgb(p.dim) }).child(if on { "\u{f00af}" } else { "\u{f00b2}" }))
+                .child(div().flex_1().min_w(px(0.)).overflow_hidden().whitespace_nowrap().text_ellipsis().child(label))
+        };
         let sinks = info.sinks.iter().enumerate().map(|(i, (name, desc, is_default))| {
             let name = name.clone();
             div()
@@ -3331,6 +3381,16 @@ impl Render for SettingsPanel {
                             .children(info.net.iter().map(|(a, b)| row(a.clone(), b.clone())))
                             .child(section("Sound output"))
                             .children(sinks)
+                            .child(section("Bluetooth"))
+                            .child(toggle_row("bt-power".into(), if info.bt_on { "On" } else { "Off" }.to_string(), info.bt_on, if info.bt_on {
+                                "bluetoothctl power off".to_string()
+                            } else {
+                                "rfkill unblock bluetooth; bluetoothctl power on".to_string()
+                            }))
+                            .children(info.bt_devices.iter().enumerate().map(|(i, (mac, name, on))| {
+                                let cmd = format!("bluetoothctl {} {mac}", if *on { "disconnect" } else { "connect" });
+                                toggle_row(("bt-dev", i).into(), format!("{name} · {}", if *on { "connected" } else { "paired" }), *on, cmd)
+                            }))
                             .child(section("Displays"))
                             .children(info.displays.iter().map(|d| row(d.split(" · ").next().unwrap_or("").to_string(), d.split_once(" · ").map(|x| x.1).unwrap_or("").to_string())))
                             .child(section("About"))
@@ -4080,6 +4140,10 @@ mod tests {
         );
         assert_eq!(parse_media("Paused\t\tVideo\twith tab").map(|m| (m.playing, m.title)), Some((false, "Video\twith tab".into())));
         assert_eq!(parse_media(""), None);
+        assert_eq!(
+            bt_device_lines("Device 4C:3C:8F:5D:76:9B JBL Go 4\nnoise"),
+            [("4C:3C:8F:5D:76:9B".to_string(), "JBL Go 4".to_string())]
+        );
         assert!(is_rustdesk_cm("Rustdesk", "1725218340 - RustDesk"));
         assert!(!is_rustdesk_cm("Rustdesk", "RustDesk"));
         assert_eq!(nmcli_fields("wlan0:wifi:connected:My\\:Net"), ["wlan0", "wifi", "connected", "My:Net"]);
