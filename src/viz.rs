@@ -194,6 +194,10 @@ fn load_cover(url: &str) -> Option<Cover> {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     url.hash(&mut h);
+    // Chromium hands out temp files (/tmp/.org.chromium.Chromium.*) that can be rewritten: key on size+mtime too
+    if let Some(m) = file_url_path(url).and_then(|p| std::fs::metadata(p).ok()) {
+        (m.len(), m.modified().ok()).hash(&mut h);
+    }
     let dir = format!("{}/.cache/fiaboo-shell/viz", home());
     let key = format!("{dir}/{:016x}", h.finish());
     let (sharp, acc) = (format!("{key}.jpg"), format!("{key}.accent"));
