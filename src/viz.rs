@@ -13,8 +13,8 @@ use std::{
 };
 
 use gpui::{
-    canvas, div, fill, img, layer_shell::*, point, prelude::*, px, rgb, rgba, size, AnyWindowHandle, App, Bounds,
-    Context, FocusHandle, FontWeight, Global, KeyDownEvent, MouseButton, ObjectFit, PathBuilder, Window,
+    canvas, div, img, linear_color_stop, linear_gradient, layer_shell::*, point, prelude::*, px, rgb, rgba, size, AnyWindowHandle, App, Bounds,
+    Context, FocusHandle, FontWeight, Global, KeyDownEvent, MouseButton, ObjectFit, PathBuilder, Pixels, Point, Window,
     WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions,
 };
 
@@ -28,8 +28,11 @@ const F_LO: f32 = 50.;
 const F_HI: f32 = 12000.;
 // ponytail: fixed level mapping; tune these two if bars sit too low/high on your music
 const FLOOR_DB: f32 = -62.; // this level and below draws as 0
+const CEIL_DB: f32 = -14.; // this level and above draws full height (music bins rarely reach 0 dB)
 const TILT_DB_PER_OCT: f32 = 3.; // lifts the treble, music energy falls ~3 dB per octave
-const DECAY: f32 = 0.86; // per frame fall-off, rise is instant
+// display easing per frame (~60 fps): how far the drawn level moves toward the new one
+const RISE: f32 = 0.22;
+const FALL: f32 = 0.07;
 const MINI_H: f32 = 72.;
 
 /// Latest band levels 0..1 (bass first), written by the capture thread.
@@ -60,7 +63,7 @@ pub fn bands(samples: &[f32]) -> [f32; BANDS] {
         let k1 = ((f1 / res).ceil() as usize).max(k0 + 1);
         let m = (k0..k1).map(mag).fold(0., f32::max);
         let db = 20. * m.max(1e-9).log10() + TILT_DB_PER_OCT * ((f0 * f1).sqrt() / 1000.).log2();
-        *o = ((db - FLOOR_DB) / -FLOOR_DB).clamp(0., 1.);
+        *o = ((db - FLOOR_DB) / (CEIL_DB - FLOOR_DB)).clamp(0., 1.);
     }
     out
 }
@@ -85,10 +88,7 @@ fn capture_start() {
             ring.drain(..HOP);
             ring.extend(buf.chunks_exact(2).map(|c| i16::from_le_bytes([c[0], c[1]]) as f32 / 32768.));
             let now = bands(&ring);
-            let mut lv = LEVELS.lock().unwrap();
-            for (l, v) in lv.iter_mut().zip(now) {
-                *l = v.max(*l * DECAY);
-            }
+            *LEVELS.lock().unwrap() = now;
         }
         *LEVELS.lock().unwrap() = [0.; BANDS]; // parec gone (killed or sound server restarted)
     });
@@ -103,6 +103,48 @@ fn capture_stop() {
 
 fn levels() -> [f32; BANDS] {
     *LEVELS.lock().unwrap()
+}
+
+/// Ease the drawn levels toward the latest spectrum: neighbours blended, slow rise, slower fall.
+fn ease(shown: &mut [f32; BANDS], rise: f32, fall: f32) {
+    let mut t = levels();
+    for _ in 0..2 {
+        let s = t;
+        for i in 0..BANDS {
+            t[i] = 0.25 * s[i.saturating_sub(1)] + 0.5 * s[i] + 0.25 * s[(i + 1).min(BANDS - 1)];
+        }
+    }
+    for (v, t) in shown.iter_mut().zip(t) {
+        *v += (t - *v) * if t > *v { rise } else { fall };
+    }
+}
+
+/// Level for slot `i` of `2 * BANDS` going round: bass at both ends of the run, treble in the middle.
+fn mirrored(lv: &[f32; BANDS], i: usize) -> f32 {
+    lv[if i < BANDS { i } else { 2 * BANDS - 1 - i }]
+}
+
+/// Smooth curve through `pts` (quadratic segments between midpoints); `closed` joins the ends.
+fn smooth(pb: &mut PathBuilder, pts: &[Point<Pixels>], closed: bool, start: bool) {
+    let mid = |a: Point<Pixels>, b: Point<Pixels>| point((a.x + b.x) / 2., (a.y + b.y) / 2.);
+    let n = pts.len();
+    if closed {
+        pb.move_to(mid(pts[n - 1], pts[0]));
+        for i in 0..n {
+            pb.curve_to(mid(pts[i], pts[(i + 1) % n]), pts[i]);
+        }
+        pb.close();
+    } else {
+        if start {
+            pb.move_to(pts[0]);
+        } else {
+            pb.line_to(pts[0]);
+        }
+        for i in 1..n - 1 {
+            pb.curve_to(mid(pts[i], pts[i + 1]), pts[i]);
+        }
+        pb.line_to(pts[n - 1]);
+    }
 }
 
 // ---------- now playing + cover art ----------
@@ -312,19 +354,20 @@ fn tick<V: 'static>(window: &mut Window, cx: &mut Context<V>, mut every_second: 
 
 struct Mini {
     pal: Palette,
+    shown: [f32; BANDS],
 }
 
 impl Mini {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         tick(window, cx, |m: &mut Mini, _| m.pal = palette());
-        Mini { pal: palette() }
+        Mini { pal: palette(), shown: [0.; BANDS] }
     }
 }
 
 impl Render for Mini {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        let color = rgba((self.pal.accent << 8) | 0xB0);
-        let lv = levels();
+        ease(&mut self.shown, RISE, FALL);
+        let (lv, accent) = (self.shown, self.pal.accent);
         div()
             .size_full()
             .on_mouse_down(MouseButton::Left, |ev, _, cx| {
@@ -336,18 +379,35 @@ impl Render for Mini {
                 canvas(
                     |_, _, _| (),
                     move |b, _, window, _| {
-                        // mirrored: bass in the middle, treble at both edges
+                        // one soft wave across the screen: treble at the edges, bass in the middle
+                        let (x0, w) = (f32::from(b.origin.x), f32::from(b.size.width));
+                        let bottom = f32::from(b.origin.y) + f32::from(b.size.height);
                         let n = BANDS * 2;
-                        let slot = f32::from(b.size.width) / n as f32;
-                        let w = (slot - 3.).max(1.);
-                        for i in 0..n {
-                            let band = if i < BANDS { BANDS - 1 - i } else { i - BANDS };
-                            let h = (lv[band] * (MINI_H - 6.)).max(2.);
-                            let x = f32::from(b.origin.x) + i as f32 * slot + (slot - w) / 2.;
-                            let y = f32::from(b.origin.y) + f32::from(b.size.height) - h;
-                            window.paint_quad(
-                                fill(Bounds { origin: point(px(x), px(y)), size: size(px(w), px(h)) }, color).corner_radii(px(w / 2.)),
+                        let pts: Vec<_> = (0..n)
+                            .map(|i| {
+                                let v = lv[if i < BANDS { BANDS - 1 - i } else { i - BANDS }];
+                                point(px(x0 + w * i as f32 / (n - 1) as f32), px(bottom - 2. - v * (MINI_H - 10.)))
+                            })
+                            .collect();
+                        let mut area = PathBuilder::fill();
+                        area.move_to(point(px(x0), px(bottom)));
+                        smooth(&mut area, &pts, false, false);
+                        area.line_to(point(px(x0 + w), px(bottom)));
+                        area.close();
+                        if let Ok(p) = area.build() {
+                            window.paint_path(
+                                p,
+                                linear_gradient(
+                                    180.,
+                                    linear_color_stop(rgba((accent << 8) | 0x10), 0.),
+                                    linear_color_stop(rgba((accent << 8) | 0x48), 1.),
+                                ),
                             );
+                        }
+                        let mut edge = PathBuilder::stroke(px(1.5));
+                        smooth(&mut edge, &pts, false, true);
+                        if let Ok(p) = edge.build() {
+                            window.paint_path(p, rgba((accent << 8) | 0xC0));
                         }
                     },
                 )
@@ -361,6 +421,8 @@ struct Full {
     focus: FocusHandle,
     track: Track,
     cover: Option<Cover>,
+    shown: [f32; BANDS],
+    slow: [f32; BANDS], // lags behind `shown`, drawn as the faint outer halo
 }
 
 impl Full {
@@ -386,7 +448,7 @@ impl Full {
             }
             f.track = t;
         });
-        Full { pal: palette(), focus, track: Track::default(), cover: None }
+        Full { pal: palette(), focus, track: Track::default(), cover: None, shown: [0.; BANDS], slow: [0.; BANDS] }
     }
 }
 
@@ -399,9 +461,11 @@ impl Render for Full {
             .as_ref()
             .map(|c| c.blur.clone())
             .unwrap_or_else(|| PathBuf::from(format!("{}/.cache/fiaboo-shell/wallpaper/blurred.png", home())));
-        let lv = levels();
+        ease(&mut self.shown, RISE, FALL);
+        ease(&mut self.slow, RISE / 3., FALL / 2.);
+        let (lv, slow) = (self.shown, self.slow);
         const COVER: f32 = 300.;
-        const RING: f32 = COVER + 2. * (14. + 150. + 8.); // cover + gap + longest bar, each side
+        const RING: f32 = COVER + 2. * (14. + 120. + 8.); // cover + gap + widest halo, each side
         let center = match &self.cover {
             Some(c) => img(c.sharp.clone()).size(px(COVER)).rounded_full().object_fit(ObjectFit::Cover).into_any_element(),
             None => div()
@@ -458,23 +522,31 @@ impl Render for Full {
                     |_, _, _| (),
                     move |b, _, window, _| {
                         let (cx0, cy0) = (f32::from(b.origin.x) + f32::from(b.size.width) / 2., f32::from(b.origin.y) + f32::from(b.size.height) / 2.);
-                        let n = BANDS * 2; // mirrored left/right, bass at the top
-                        let r0 = COVER / 2. + 14.;
-                        let half = (PI / n as f32) * 0.55; // bar half-width as an angle
-                        for i in 0..n {
-                            let band = if i < BANDS { i } else { n - 1 - i };
-                            let len = 4. + lv[band] * 150.;
-                            let a = -PI / 2. + (i as f32 + 0.5) * 2. * PI / n as f32;
-                            let pt = |r: f32, da: f32| point(px(cx0 + r * (a + da).cos()), px(cy0 + r * (a + da).sin()));
+                        // a soft ring that breathes with the music: bass at the top, mirrored left/right
+                        let n = BANDS * 2;
+                        let r0 = COVER / 2. + 10.;
+                        let ring = |lv: &[f32; BANDS], amp: f32| -> Vec<Point<Pixels>> {
+                            (0..n)
+                                .map(|i| {
+                                    let a = -PI / 2. + i as f32 * 2. * PI / n as f32;
+                                    let r = r0 + 4. + mirrored(lv, i) * amp;
+                                    point(px(cx0 + r * a.cos()), px(cy0 + r * a.sin()))
+                                })
+                                .collect()
+                        };
+                        let halo = ring(&slow, 120.);
+                        let main = ring(&lv, 80.);
+                        for (pts, alpha) in [(&halo, 0x0c), (&main, 0x16)] {
                             let mut pb = PathBuilder::fill();
-                            pb.move_to(pt(r0, -half));
-                            pb.line_to(pt(r0 + len, -half * r0 / (r0 + len)));
-                            pb.line_to(pt(r0 + len, half * r0 / (r0 + len)));
-                            pb.line_to(pt(r0, half));
-                            pb.close();
-                            if let Ok(path) = pb.build() {
-                                window.paint_path(path, rgba((accent << 8) | (0x90 + (lv[band] * 0x6f as f32) as u32)));
+                            smooth(&mut pb, pts, true, true);
+                            if let Ok(p) = pb.build() {
+                                window.paint_path(p, rgba((accent << 8) | alpha));
                             }
+                        }
+                        let mut edge = PathBuilder::stroke(px(2.));
+                        smooth(&mut edge, &main, true, true);
+                        if let Ok(p) = edge.build() {
+                            window.paint_path(p, rgba((accent << 8) | 0xd8));
                         }
                     },
                 )
