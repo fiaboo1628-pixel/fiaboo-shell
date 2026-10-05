@@ -1,5 +1,5 @@
 //! Music visualizer ("studio"): a thin spectrum strip above the taskbar while working (mini),
-//! and a fullscreen view with the blurred cover art, the sharp cover in the middle and a circular
+//! and a fullscreen view on dark glass over the desktop, the cover in the middle and a circular
 //! spectrum around it (full). Audio comes from the default sink monitor via `parec`; the spectrum
 //! is a plain windowed DFT over log-spaced bands, no extra dependency.
 
@@ -186,19 +186,18 @@ fn file_url_path(url: &str) -> Option<String> {
 #[derive(Clone)]
 struct Cover {
     sharp: PathBuf,
-    blur: PathBuf,
     accent: Option<u32>,
 }
 
-/// Square cover, blurred backdrop and matugen accent for an artUrl, cached by URL hash.
+/// Square cover and matugen accent for an artUrl, cached by URL hash.
 fn load_cover(url: &str) -> Option<Cover> {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     url.hash(&mut h);
     let dir = format!("{}/.cache/fiaboo-shell/viz", home());
     let key = format!("{dir}/{:016x}", h.finish());
-    let (sharp, blur, acc) = (format!("{key}.jpg"), format!("{key}-blur.jpg"), format!("{key}.accent"));
-    if !std::path::Path::new(&blur).exists() {
+    let (sharp, acc) = (format!("{key}.jpg"), format!("{key}.accent"));
+    if !std::path::Path::new(&acc).exists() {
         let _ = std::fs::create_dir_all(&dir);
         let src = match file_url_path(url) {
             Some(p) => p,
@@ -212,8 +211,7 @@ fn load_cover(url: &str) -> Option<Cover> {
             .args([&src, "-resize", "600x600^", "-gravity", "center", "-extent", "600x600", &sharp])
             .status()
             .ok()?
-            .success()
-            && Command::new("magick").args([&sharp, "-resize", "320x180^", "-blur", "0x12", &blur]).status().ok()?.success();
+            .success();
         if !ok {
             return None;
         }
@@ -225,7 +223,7 @@ fn load_cover(url: &str) -> Option<Cover> {
         let _ = std::fs::write(&acc, hex);
     }
     let accent = std::fs::read_to_string(&acc).ok().and_then(|h| u32::from_str_radix(h.trim().trim_start_matches('#'), 16).ok());
-    Some(Cover { sharp: sharp.into(), blur: blur.into(), accent })
+    Some(Cover { sharp: sharp.into(), accent })
 }
 
 // ---------- windows ----------
@@ -451,11 +449,6 @@ impl Render for Full {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.pal.clone();
         let accent = self.cover.as_ref().and_then(|c| c.accent).unwrap_or(p.accent);
-        let backdrop = self
-            .cover
-            .as_ref()
-            .map(|c| c.blur.clone())
-            .unwrap_or_else(|| PathBuf::from(format!("{}/.cache/fiaboo-shell/wallpaper/blurred.png", home())));
         ease(&mut self.shown, RISE, FALL);
         ease(&mut self.slow, RISE / 3., FALL / 2.);
         let (lv, slow) = (self.shown, self.slow);
@@ -493,9 +486,7 @@ impl Render for Full {
                 _ => {}
             }))
             .on_mouse_down(MouseButton::Right, |_, _, cx| toggle_full(cx))
-            .bg(rgb(0x000000))
-            .child(img(backdrop).absolute().size_full().object_fit(ObjectFit::Cover))
-            .child(div().absolute().size_full().bg(rgba(0x000000a0)))
+            .bg(rgba(0x0000008c)) // dark glass: Hyprland's layer blur shows the desktop through it
             .child(
                 div()
                     .absolute()
