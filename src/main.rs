@@ -2064,7 +2064,7 @@ fn notif_card(n: &notify::Notif, p: &Palette, in_center: bool, id: usize, today:
                     div()
                         .flex()
                         .gap_2()
-                        .text_size(px(11.))
+                        .text_size(px(12.))
                         .text_color(rgb(p.dim))
                         .child(div().flex_1().overflow_hidden().whitespace_nowrap().text_ellipsis().child(n.app.clone()))
                         .child(notify::short_time(&n.time, today)),
