@@ -3,6 +3,7 @@
 mod lunar;
 mod notify;
 mod tray;
+mod viz;
 
 use std::{
     collections::HashMap,
@@ -1647,6 +1648,8 @@ impl Bar {
                         "wallpaper" => toggle_wp(cx),
                         "settings" => toggle_settings(cx),
                         "calendar" => toggle_calendar(cx),
+                        "viz" => viz::toggle_mini(cx),
+                        "viz-full" => viz::toggle_full(cx),
                         _ => {}
                     });
                 }
