@@ -453,7 +453,7 @@ impl Render for Full {
         ease(&mut self.slow, RISE / 3., FALL / 2.);
         let (lv, slow) = (self.shown, self.slow);
         const COVER: f32 = 300.;
-        const RING: f32 = COVER + 2. * (14. + 120. + 8.); // cover + gap + widest halo, each side
+        const RING: f32 = COVER + 2. * (12. + 3. + 120. + 8.); // cover + gap + longest echo tick, each side
         let center = match &self.cover {
             Some(c) => img(c.sharp.clone()).size(px(COVER)).rounded_full().object_fit(ObjectFit::Cover).into_any_element(),
             None => div()
@@ -508,31 +508,27 @@ impl Render for Full {
                     |_, _, _| (),
                     move |b, _, window, _| {
                         let (cx0, cy0) = (f32::from(b.origin.x) + f32::from(b.size.width) / 2., f32::from(b.origin.y) + f32::from(b.size.height) / 2.);
-                        // a soft ring that breathes with the music: bass at the top, mirrored left/right
-                        let n = BANDS * 2;
-                        let r0 = COVER / 2. + 10.;
-                        let ring = |lv: &[f32; BANDS], amp: f32| -> Vec<Point<Pixels>> {
-                            (0..n)
-                                .map(|i| {
-                                    let a = -PI / 2. + i as f32 * 2. * PI / n as f32;
-                                    let r = r0 + 4. + mirrored(lv, i) * amp;
-                                    point(px(cx0 + r * a.cos()), px(cy0 + r * a.sin()))
-                                })
-                                .collect()
+                        // fine ticks growing out of the cover's edge: bass at the top, mirrored left/right;
+                        // the slow levels draw a faint longer echo behind them
+                        const TICKS: usize = 120;
+                        let r0 = COVER / 2. + 12.;
+                        let at = |lv: &[f32; BANDS], t: usize| {
+                            let u = t as f32 * (2 * BANDS) as f32 / TICKS as f32;
+                            let (i, f) = (u as usize, u.fract());
+                            mirrored(lv, i) * (1. - f) + mirrored(lv, (i + 1) % (2 * BANDS)) * f
                         };
-                        let halo = ring(&slow, 120.);
-                        let main = ring(&lv, 80.);
-                        for (pts, alpha) in [(&halo, 0x0c), (&main, 0x16)] {
-                            let mut pb = PathBuilder::fill();
-                            smooth(&mut pb, pts, true, true);
+                        for (lv, amp, width, alpha) in [(&slow, 120., 3., 0x30), (&lv, 90., 3., 0xe0)] {
+                            let mut pb = PathBuilder::stroke(px(width));
+                            for t in 0..TICKS {
+                                let a = -PI / 2. + t as f32 * 2. * PI / TICKS as f32;
+                                let (c, s) = (a.cos(), a.sin());
+                                let r1 = r0 + 3. + at(lv, t) * amp;
+                                pb.move_to(point(px(cx0 + r0 * c), px(cy0 + r0 * s)));
+                                pb.line_to(point(px(cx0 + r1 * c), px(cy0 + r1 * s)));
+                            }
                             if let Ok(p) = pb.build() {
                                 window.paint_path(p, rgba((accent << 8) | alpha));
                             }
-                        }
-                        let mut edge = PathBuilder::stroke(px(2.));
-                        smooth(&mut edge, &main, true, true);
-                        if let Ok(p) = edge.build() {
-                            window.paint_path(p, rgba((accent << 8) | 0xd8));
                         }
                     },
                 )
