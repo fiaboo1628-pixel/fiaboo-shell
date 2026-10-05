@@ -415,7 +415,8 @@ struct Full {
     track: Track,
     cover: Option<Cover>,
     shown: [f32; BANDS],
-    slow: [f32; BANDS], // lags behind `shown`, drawn as the faint outer halo
+    slow: [f32; BANDS], // lags behind `shown`, drawn as the faint outer echo
+    spin: f32,          // record angle, advances while playing
 }
 
 impl Full {
@@ -441,7 +442,7 @@ impl Full {
             }
             f.track = t;
         });
-        Full { pal: palette(), focus, track: Track::default(), cover: None, shown: [0.; BANDS], slow: [0.; BANDS] }
+        Full { pal: palette(), focus, track: Track::default(), cover: None, shown: [0.; BANDS], slow: [0.; BANDS], spin: 0. }
     }
 }
 
@@ -451,24 +452,34 @@ impl Render for Full {
         let accent = self.cover.as_ref().and_then(|c| c.accent).unwrap_or(p.accent);
         ease(&mut self.shown, RISE, FALL);
         ease(&mut self.slow, RISE / 3., FALL / 2.);
-        let (lv, slow) = (self.shown, self.slow);
-        const COVER: f32 = 300.;
+        if self.track.playing {
+            self.spin += 2. * PI * (100. / 3.) / 60. / 60.; // 33⅓ rpm at ~60 fps
+        }
+        let (lv, slow, spin) = (self.shown, self.slow, self.spin);
+        const COVER: f32 = 300.; // record diameter
+        const LABEL: f32 = 116.;
         const RING: f32 = COVER + 2. * (12. + 3. + 120. + 8.); // cover + gap + longest echo tick, each side
-        let center = match &self.cover {
-            Some(c) => img(c.sharp.clone()).size(px(COVER)).rounded_full().object_fit(ObjectFit::Cover).into_any_element(),
+        // record label: the thumbnail (YouTube art is a 16:9 frame, small and centred reads fine), else a note
+        let label = match &self.cover {
+            Some(c) => img(c.sharp.clone()).size_full().rounded_full().object_fit(ObjectFit::Cover).into_any_element(),
             None => div()
-                .size(px(COVER))
+                .size_full()
                 .rounded_full()
                 .flex()
                 .items_center()
                 .justify_center()
-                .bg(rgba((p.bg << 8) | 0xC0))
+                .bg(rgb(accent))
                 .font_family(NF)
-                .text_size(px(96.))
-                .text_color(rgb(accent))
+                .text_size(px(40.))
+                .text_color(rgb(0x111111))
                 .child("\u{f075a}")
                 .into_any_element(),
         };
+        let center = div()
+            .relative()
+            .size(px(LABEL))
+            .child(label)
+            .child(div().absolute().top(px(LABEL / 2. - 5.)).left(px(LABEL / 2. - 5.)).size(px(10.)).rounded_full().bg(rgb(0x0a0a0a)));
         let (title, artist) = if self.track.title.is_empty() {
             ("Nothing playing".to_string(), "Play something to see it here".to_string())
         } else {
@@ -508,10 +519,55 @@ impl Render for Full {
                     |_, _, _| (),
                     move |b, _, window, _| {
                         let (cx0, cy0) = (f32::from(b.origin.x) + f32::from(b.size.width) / 2., f32::from(b.origin.y) + f32::from(b.size.height) / 2.);
+                        let at_r = |r: f32, a: f32| point(px(cx0 + r * a.cos()), px(cy0 + r * a.sin()));
+                        let circle = |r: f32| (0..128).map(|i| at_r(r, i as f32 * 2. * PI / 128.)).collect::<Vec<_>>();
+                        let arc = |pb: &mut PathBuilder, r: f32, a0: f32, a1: f32| {
+                            pb.move_to(at_r(r, a0));
+                            for k in 1..=16 {
+                                pb.line_to(at_r(r, a0 + (a1 - a0) * k as f32 / 16.));
+                            }
+                        };
+                        let rec = COVER / 2.;
+                        // vinyl body
+                        let mut pb = PathBuilder::fill();
+                        pb.add_polygon(&circle(rec), true);
+                        if let Ok(p) = pb.build() {
+                            window.paint_path(p, rgb(0x121212));
+                        }
+                        // grooves
+                        let mut pb = PathBuilder::stroke(px(1.));
+                        let mut r = LABEL / 2. + 8.;
+                        while r < rec - 4. {
+                            pb.add_polygon(&circle(r), true);
+                            r += 3.5;
+                        }
+                        if let Ok(p) = pb.build() {
+                            window.paint_path(p, rgba(0xffffff0d));
+                        }
+                        // light reflection: stays put while the record turns, like a real one
+                        for a0 in [-2.2f32, 0.94] {
+                            let mut pb = PathBuilder::fill();
+                            let pts: Vec<_> = (0..=12)
+                                .map(|k| at_r(rec - 6., a0 + 0.5 * k as f32 / 12.))
+                                .chain((0..=12).rev().map(|k| at_r(LABEL / 2. + 10., a0 + 0.5 * k as f32 / 12.)))
+                                .collect();
+                            pb.add_polygon(&pts, true);
+                            if let Ok(p) = pb.build() {
+                                window.paint_path(p, rgba(0xffffff0c));
+                            }
+                        }
+                        // a few brighter groove marks that turn with the record
+                        let mut pb = PathBuilder::stroke(px(1.5));
+                        for (r, off, len) in [(rec - 14., 0.3, 0.45), (rec - 32., 2.4, 0.3), (LABEL / 2. + 22., 4.2, 0.6)] {
+                            arc(&mut pb, r, spin + off, spin + off + len);
+                        }
+                        if let Ok(p) = pb.build() {
+                            window.paint_path(p, rgba(0xffffff26));
+                        }
                         // fine ticks growing out of the cover's edge: bass at the top, mirrored left/right;
                         // the slow levels draw a faint longer echo behind them
                         const TICKS: usize = 120;
-                        let r0 = COVER / 2. + 12.;
+                        let r0 = rec + 12.;
                         let at = |lv: &[f32; BANDS], t: usize| {
                             let u = t as f32 * (2 * BANDS) as f32 / TICKS as f32;
                             let (i, f) = (u as usize, u.fract());
