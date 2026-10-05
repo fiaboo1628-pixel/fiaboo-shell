@@ -1349,9 +1349,9 @@ impl Render for CalendarPopup {
                     let (ld, lm, _) = lunar::solar_to_lunar(day as i32, month as i32, year);
                     if ld == 1 { format!("{ld}/{lm}") } else { ld.to_string() }
                 });
-                div().flex_1().h(px(44.)).flex().items_center().justify_center().child(
+                div().flex_1().h(px(40.)).flex().items_center().justify_center().child(
                     div()
-                        .size(px(42.))
+                        .size(px(38.))
                         .flex()
                         .flex_col()
                         .items_center()
@@ -1450,7 +1450,7 @@ impl Render for CalendarPopup {
             .child(
                 div()
                     .w(px(400.0))
-                    .h(px(660.))
+                    .h(px(724.))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()).on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
                     .flex()
                     .flex_col()
@@ -1646,6 +1646,7 @@ impl Bar {
                         "shot" => toggle_shot(cx),
                         "wallpaper" => toggle_wp(cx),
                         "settings" => toggle_settings(cx),
+                        "calendar" => toggle_calendar(cx),
                         _ => {}
                     });
                 }
