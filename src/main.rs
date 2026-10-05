@@ -4151,6 +4151,7 @@ fn main() {
             |_, cx| cx.new(Bar::new),
         )
         .unwrap();
+        viz::restore(cx);
     });
 }
 

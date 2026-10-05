@@ -242,11 +242,26 @@ fn close(handle: Option<AnyWindowHandle>, cx: &mut App) {
     }
 }
 
+/// Present while the strip is on, so it comes back after a shell restart or a new login.
+fn mini_flag() -> String {
+    format!("{}/.cache/fiaboo-shell/viz/mini-on", home())
+}
+
+/// Reopen the strip if it was on when the shell last stopped.
+pub fn restore(cx: &mut App) {
+    if std::path::Path::new(&mini_flag()).exists() && state(cx).mini.is_none() {
+        toggle_mini(cx);
+    }
+}
+
 /// `fiaboo-shell viz`: show/hide the strip above the taskbar.
 pub fn toggle_mini(cx: &mut App) {
     if let Some(h) = state(cx).mini.take() {
+        let _ = std::fs::remove_file(mini_flag());
         return close(Some(h), cx);
     }
+    let _ = std::fs::create_dir_all(format!("{}/.cache/fiaboo-shell/viz", home()));
+    let _ = std::fs::write(mini_flag(), "");
     capture_start();
     let h = layer_window(cx, "fiaboo-viz", Layer::Bottom, Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT, MINI_H, KeyboardInteractivity::None, |w, cx| {
         Mini::new(w, cx)
