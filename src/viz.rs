@@ -276,6 +276,14 @@ fn layer_window<V: 'static + Render>(
     .map(|h| h.into())
 }
 
+/// Close the fullscreen view from inside its own handlers: `handle.update` on the window being
+/// updated fails silently, which left the view stuck on screen and opened a new one per toggle.
+fn close_full_here(window: &mut Window, cx: &mut App) {
+    state(cx).full = None;
+    window.remove_window();
+    close(None, cx);
+}
+
 fn close(handle: Option<AnyWindowHandle>, cx: &mut App) {
     if let Some(h) = handle {
         let _ = h.update(cx, |_, window, _| window.remove_window());
@@ -493,14 +501,14 @@ impl Render for Full {
             .size_full()
             .relative()
             .track_focus(&self.focus)
-            .on_key_down(cx.listener(|_, ev: &KeyDownEvent, _, cx| match ev.keystroke.key.as_str() {
-                "escape" => toggle_full(cx),
+            .on_key_down(cx.listener(|_, ev: &KeyDownEvent, window, cx| match ev.keystroke.key.as_str() {
+                "escape" => close_full_here(window, cx),
                 "space" => crate::run_bg("playerctl play-pause"),
                 "left" => crate::run_bg("playerctl previous"),
                 "right" => crate::run_bg("playerctl next"),
                 _ => {}
             }))
-            .on_mouse_down(MouseButton::Right, |_, _, cx| toggle_full(cx))
+            .on_mouse_down(MouseButton::Right, |_, window, cx| close_full_here(window, cx))
             .bg(rgba(0x0000008c)) // dark glass: Hyprland's layer blur shows the desktop through it
             .child(
                 div()
