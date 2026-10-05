@@ -31,8 +31,8 @@ const FLOOR_DB: f32 = -62.; // this level and below draws as 0
 const CEIL_DB: f32 = -14.; // this level and above draws full height (music bins rarely reach 0 dB)
 const TILT_DB_PER_OCT: f32 = 3.; // lifts the treble, music energy falls ~3 dB per octave
 // display easing per frame (~60 fps): how far the drawn level moves toward the new one
-const RISE: f32 = 0.22;
-const FALL: f32 = 0.07;
+const RISE: f32 = 0.09;
+const FALL: f32 = 0.035;
 const MINI_H: f32 = 72.;
 
 /// Latest band levels 0..1 (bass first), written by the capture thread.
@@ -108,7 +108,7 @@ fn levels() -> [f32; BANDS] {
 /// Ease the drawn levels toward the latest spectrum: neighbours blended, slow rise, slower fall.
 fn ease(shown: &mut [f32; BANDS], rise: f32, fall: f32) {
     let mut t = levels();
-    for _ in 0..2 {
+    for _ in 0..4 {
         let s = t;
         for i in 0..BANDS {
             t[i] = 0.25 * s[i.saturating_sub(1)] + 0.5 * s[i] + 0.25 * s[(i + 1).min(BANDS - 1)];
