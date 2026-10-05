@@ -379,7 +379,7 @@ impl Render for Mini {
                 canvas(
                     |_, _, _| (),
                     move |b, _, window, _| {
-                        // one soft wave across the screen: treble at the edges, bass in the middle
+                        // one soft wave across the screen (fill only): treble at the edges, bass in the middle
                         let (x0, w) = (f32::from(b.origin.x), f32::from(b.size.width));
                         let bottom = f32::from(b.origin.y) + f32::from(b.size.height);
                         let n = BANDS * 2;
@@ -403,11 +403,6 @@ impl Render for Mini {
                                     linear_color_stop(rgba((accent << 8) | 0x48), 1.),
                                 ),
                             );
-                        }
-                        let mut edge = PathBuilder::stroke(px(1.5));
-                        smooth(&mut edge, &pts, false, true);
-                        if let Ok(p) = edge.build() {
-                            window.paint_path(p, rgba((accent << 8) | 0xC0));
                         }
                     },
                 )
