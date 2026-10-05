@@ -574,8 +574,8 @@ impl Render for Quick {
                     div()
                         .flex()
                         .flex_col()
-                        .child(div().font_weight(FontWeight::BOLD).text_size(px(13.)).child(title))
-                        .child(div().text_size(px(11.)).text_color(rgb(p.dim)).child(sub)),
+                        .child(div().font_weight(FontWeight::SEMIBOLD).text_size(px(13.)).child(title))
+                        .child(div().text_size(px(12.)).text_color(rgb(p.dim)).child(sub)),
                 )
         };
 
@@ -647,8 +647,8 @@ impl Render for Quick {
                         .min_w(px(0.))
                         .flex()
                         .flex_col()
-                        .child(div().overflow_hidden().whitespace_nowrap().text_ellipsis().font_weight(FontWeight::BOLD).text_size(px(13.)).child(m.title.clone()))
-                        .child(div().overflow_hidden().whitespace_nowrap().text_ellipsis().text_size(px(11.)).text_color(rgb(p.dim)).child(m.artist.clone())),
+                        .child(div().overflow_hidden().whitespace_nowrap().text_ellipsis().font_weight(FontWeight::SEMIBOLD).text_size(px(13.)).child(m.title.clone()))
+                        .child(div().overflow_hidden().whitespace_nowrap().text_ellipsis().text_size(px(12.)).text_color(rgb(p.dim)).child(m.artist.clone())),
                 )
                 .child(media_btn("m-prev", "\u{f04ae}", "previous"))
                 .child(media_btn("m-play", if m.playing { "\u{f03e4}" } else { "\u{f040a}" }, "play-pause"))
@@ -705,7 +705,7 @@ impl Render for Quick {
             .border_color(rgba((p.dim << 8) | 0x40))
             .text_color(rgb(p.fg))
             .text_size(px(14.))
-            .child(div().font_weight(FontWeight::BOLD).text_size(px(15.)).child("Quick settings"))
+            .child(div().font_weight(FontWeight::SEMIBOLD).text_size(px(15.)).child("Quick settings"))
             .child(
                 div()
                     .flex()
@@ -1246,7 +1246,7 @@ impl Render for CalendarPopup {
                                         .child(
                                             div()
                                                 .text_size(px(60.))
-                                                .font_weight(FontWeight::BOLD)
+                                                .font_weight(FontWeight::SEMIBOLD)
                                                 .child(format!("{:.0}", w.temp)),
                                         )
                                         .child(div().text_size(px(22.)).pt_2().child("\u{b0}C")),
@@ -1298,9 +1298,9 @@ impl Render for CalendarPopup {
                     .bg(if i == 0 { rgba((p.accent << 8) | 0x30) } else { rgba((p.dim << 8) | 0x1c) })
                     .child(div().text_size(px(12.)).text_color(rgb(p.dim)).child(if i == 0 { "Today".to_string() } else { d.label.clone() }))
                     .child(div().font_family(NF).text_size(px(24.)).text_color(rgb(p.accent)).child(weather_glyph(d.code, true)))
-                    .child(div().text_size(px(12.5)).font_weight(FontWeight::BOLD).child(format!("{:.0}\u{b0}", d.tmax)))
-                    .child(div().text_size(px(11.)).text_color(rgb(p.dim)).child(format!("{:.0}\u{b0}", d.tmin)))
-                    .child(div().text_size(px(10.5)).text_color(rgb(p.accent)).child(format!("{}%", d.rain)))
+                    .child(div().text_size(px(12.5)).font_weight(FontWeight::SEMIBOLD).child(format!("{:.0}\u{b0}", d.tmax)))
+                    .child(div().text_size(px(12.)).text_color(rgb(p.dim)).child(format!("{:.0}\u{b0}", d.tmin)))
+                    .child(div().text_size(px(12.)).text_color(rgb(p.accent)).child(format!("{}%", d.rain)))
             }),
         );
 
@@ -1328,7 +1328,7 @@ impl Render for CalendarPopup {
                 .child(label)
         };
         let weekdays = div().flex().children(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].iter().map(|d| {
-            div().flex_1().flex().justify_center().text_size(px(11.5)).text_color(rgb(p.dim)).child(*d)
+            div().flex_1().flex().justify_center().text_size(px(12.)).text_color(rgb(p.dim)).child(*d)
         }));
         let today = self.today;
         let p2 = p.clone();
@@ -1358,7 +1358,7 @@ impl Render for CalendarPopup {
                         .justify_center()
                         .rounded_full()
                         .text_size(px(13.5))
-                        .when(is_today, |d| d.bg(rgb(p.accent)).text_color(rgb(p.bg)).font_weight(FontWeight::BOLD))
+                        .when(is_today, |d| d.bg(rgb(p.accent)).text_color(rgb(p.bg)).font_weight(FontWeight::SEMIBOLD))
                         .when(!is_today, |d| {
                             d.text_color(if !current {
                                 rgba((p.dim << 8) | 0x60)
@@ -1370,7 +1370,7 @@ impl Render for CalendarPopup {
                         })
                         .child(day.to_string())
                         .children(lunar_txt.map(|t| {
-                            div().text_size(px(8.5)).line_height(px(9.)).opacity(0.7).child(t)
+                            div().text_size(px(12.)).line_height(px(12.)).opacity(0.7).child(t)
                         })),
                 )
             }))
@@ -1391,7 +1391,7 @@ impl Render for CalendarPopup {
                             .flex()
                             .items_baseline()
                             .gap_2()
-                            .child(div().text_size(px(17.)).font_weight(FontWeight::BOLD).child(month_name(month)))
+                            .child(div().text_size(px(17.)).font_weight(FontWeight::SEMIBOLD).child(month_name(month)))
                             .child(div().text_size(px(14.)).text_color(rgb(p.dim)).child(year.to_string())),
                     )
                     .child(
@@ -1450,7 +1450,7 @@ impl Render for CalendarPopup {
             .child(
                 div()
                     .w(px(400.0))
-                    .h(px(660.))
+                    .h(px(724.))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()).on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
                     .flex()
                     .flex_col()
@@ -1552,7 +1552,7 @@ impl Render for Osd {
                     .flex()
                     .justify_end()
                     .text_size(px(13.))
-                    .font_weight(FontWeight::BOLD)
+                    .font_weight(FontWeight::SEMIBOLD)
                     .child(if self.muted { "Muted".to_string() } else { format!("{pct}%") }),
             )
     }
@@ -1646,6 +1646,7 @@ impl Bar {
                         "shot" => toggle_shot(cx),
                         "wallpaper" => toggle_wp(cx),
                         "settings" => toggle_settings(cx),
+                        "calendar" => toggle_calendar(cx),
                         _ => {}
                     });
                 }
@@ -1978,8 +1979,8 @@ impl Render for Bar {
                             .flex_col()
                             .items_end()
                             .px_2()
-                            .child(div().text_size(px(12.5)).font_weight(FontWeight::BOLD).child(clock_time.to_string()))
-                            .child(div().text_size(px(11.)).text_color(rgb(p.dim)).child(clock_date.to_string())),
+                            .child(div().text_size(px(12.5)).font_weight(FontWeight::SEMIBOLD).child(clock_time.to_string()))
+                            .child(div().text_size(px(12.)).text_color(rgb(p.dim)).child(clock_date.to_string())),
                     )
                     .child(
                         div()
@@ -2000,8 +2001,8 @@ impl Render for Bar {
                                 d.child(
                                     div()
                                         .font_family(".SystemUIFont")
-                                        .text_size(px(11.))
-                                        .font_weight(FontWeight::BOLD)
+                                        .text_size(px(12.))
+                                        .font_weight(FontWeight::SEMIBOLD)
                                         .text_color(rgb(p.accent))
                                         .child(self.notif_count.to_string()),
                                 )
@@ -2064,7 +2065,7 @@ fn notif_card(n: &notify::Notif, p: &Palette, in_center: bool, id: usize, today:
                     div()
                         .flex()
                         .gap_2()
-                        .text_size(px(11.))
+                        .text_size(px(12.))
                         .text_color(rgb(p.dim))
                         .child(div().flex_1().overflow_hidden().whitespace_nowrap().text_ellipsis().child(n.app.clone()))
                         .child(notify::short_time(&n.time, today)),
@@ -2074,7 +2075,7 @@ fn notif_card(n: &notify::Notif, p: &Palette, in_center: bool, id: usize, today:
                         .overflow_hidden()
                         .whitespace_nowrap()
                         .text_ellipsis()
-                        .font_weight(FontWeight::BOLD)
+                        .font_weight(FontWeight::SEMIBOLD)
                         .text_size(px(13.5))
                         .child(n.summary.clone()),
                 )
@@ -2286,7 +2287,7 @@ impl Render for NotifCenter {
                             .flex()
                             .items_center()
                             .gap_2()
-                            .child(div().flex_1().font_weight(FontWeight::BOLD).text_size(px(15.)).child("Notifications"))
+                            .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).text_size(px(15.)).child("Notifications"))
                             .child(pill("nc-dnd", format!("Do not disturb: {}", if dnd { "On" } else { "Off" }), dnd).on_click(
                                 cx.listener(|_, _, _, cx| {
                                     notify::toggle_dnd();
@@ -2599,7 +2600,7 @@ impl Render for ClipPanel {
                     )
                     .child(
                         div()
-                            .text_size(px(11.))
+                            .text_size(px(12.))
                             .text_color(rgb(p.dim))
                             .child("Enter: copy   ·   Right-click / Del: remove   ·   Esc: close"),
                     ),
@@ -3060,7 +3061,7 @@ impl Render for WpPicker {
                             .flex()
                             .items_center()
                             .gap_2()
-                            .child(div().flex_1().font_weight(FontWeight::BOLD).text_size(px(15.)).child("Wallpaper"))
+                            .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).text_size(px(15.)).child("Wallpaper"))
                             .child(
                                 div()
                                     .id("wp-random")
@@ -3093,7 +3094,7 @@ impl Render for WpPicker {
                     )
                     .child(
                         div()
-                            .text_size(px(11.))
+                            .text_size(px(12.))
                             .text_color(rgb(p.dim))
                             .child(format!("{} images   ·   Arrows + Enter or click: apply   ·   R: random   ·   Esc: close", self.list.len())),
                     ),
@@ -3199,6 +3200,14 @@ fn read_settings() -> SettingsInfo {
     SettingsInfo { net, sinks, displays, about, bt_on, bt_devices }
 }
 
+/// Current on/off of a Bluetooth row: "power" or a device MAC.
+fn bt_state(info: &SettingsInfo, key: &str) -> Option<bool> {
+    if key == "power" {
+        return Some(info.bt_on);
+    }
+    info.bt_devices.iter().find(|d| d.0 == key).map(|d| d.2)
+}
+
 fn toggle_settings(cx: &mut App) {
     if let Some(handle) = cx.try_global::<SettingsState>().and_then(|s| s.0) {
         cx.set_global(SettingsState(None));
@@ -3239,6 +3248,8 @@ struct SettingsPanel {
     focus: FocusHandle,
     info: SettingsInfo,
     last_input: std::time::Instant,
+    /// Bluetooth row clicked and not settled yet: (row key, target state, since)
+    bt_busy: Option<(String, bool, std::time::Instant)>,
 }
 
 impl SettingsPanel {
@@ -3251,6 +3262,11 @@ impl SettingsPanel {
             let idle = this
                 .update(cx, |s, cx| {
                     s.info = info;
+                    if let Some((key, want, since)) = &s.bt_busy {
+                        if bt_state(&s.info, key) == Some(*want) || since.elapsed() > Duration::from_secs(20) {
+                            s.bt_busy = None;
+                        }
+                    }
                     cx.notify();
                     s.last_input.elapsed() > Duration::from_secs(120)
                 })
@@ -3262,7 +3278,7 @@ impl SettingsPanel {
             cx.background_executor().timer(Duration::from_secs(3)).await;
         })
         .detach();
-        SettingsPanel { pal: palette(), focus, info: SettingsInfo::default(), last_input: std::time::Instant::now() }
+        SettingsPanel { pal: palette(), focus, info: SettingsInfo::default(), last_input: std::time::Instant::now(), bt_busy: None }
     }
 }
 
@@ -3271,20 +3287,23 @@ impl Render for SettingsPanel {
         let p = self.pal.clone();
         let info = self.info.clone();
         let section = |title: &'static str| {
-            div().pt_2().text_size(px(12.)).font_weight(FontWeight::BOLD).text_color(rgb(p.dim)).child(title)
+            div().pt_2().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(rgb(p.dim)).child(title)
         };
         let row = |label: String, value: String| {
             div()
                 .flex()
                 .gap_3()
                 .px_3()
-                .py_1p5()
+                .py_2p5()
                 .rounded_lg()
                 .bg(rgba((p.dim << 8) | 0x1c))
                 .child(div().w(px(170.)).flex_none().overflow_hidden().whitespace_nowrap().text_ellipsis().child(label))
                 .child(div().flex_1().min_w(px(0.)).overflow_hidden().whitespace_nowrap().text_ellipsis().text_color(rgb(p.dim)).child(value))
         };
-        let toggle_row = |id: gpui::ElementId, label: String, on: bool, cmd: String| {
+        let busy = self.bt_busy.as_ref().map(|b| b.0.clone());
+        let toggle_row = |id: gpui::ElementId, key: String, label: String, on: bool, cmd: String| {
+            let pending = busy.as_deref() == Some(key.as_str());
+            let label = if pending { format!("{label} · working…") } else { label };
             div()
                 .id(id)
                 .cursor_pointer()
@@ -3292,13 +3311,14 @@ impl Render for SettingsPanel {
                 .items_center()
                 .gap_3()
                 .px_3()
-                .py_1p5()
+                .py_2p5()
                 .rounded_lg()
                 .bg(if on { rgba((p.accent << 8) | 0x38) } else { rgba((p.dim << 8) | 0x1c) })
                 .hover(|s| s.bg(rgba((p.accent << 8) | 0x4a)))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.last_input = std::time::Instant::now();
-                    run_bg(&cmd); // the 3 s refresh shows the new state
+                    this.bt_busy = Some((key.clone(), !on, std::time::Instant::now()));
+                    run_bg(&cmd); // the 3 s refresh shows the new state and clears bt_busy
                     cx.notify();
                 }))
                 .child(div().font_family(NF).text_color(if on { rgb(p.accent) } else { rgb(p.dim) }).child(if on { "\u{f00af}" } else { "\u{f00b2}" }))
@@ -3313,7 +3333,7 @@ impl Render for SettingsPanel {
                 .items_center()
                 .gap_3()
                 .px_3()
-                .py_1p5()
+                .py_2p5()
                 .rounded_lg()
                 .bg(if *is_default { rgba((p.accent << 8) | 0x38) } else { rgba((p.dim << 8) | 0x1c) })
                 .hover(|s| s.bg(rgba((p.accent << 8) | 0x4a)))
@@ -3333,7 +3353,7 @@ impl Render for SettingsPanel {
                 .id(id)
                 .cursor_pointer()
                 .px_3()
-                .py_1p5()
+                .py_2p5()
                 .rounded_lg()
                 .text_size(px(13.))
                 .bg(rgba((p.dim << 8) | 0x28))
@@ -3357,7 +3377,7 @@ impl Render for SettingsPanel {
             .child(
                 div()
                     .w(px(640.))
-                    .h(px(600.))
+                    .h(px(700.))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
                     .flex()
@@ -3370,7 +3390,7 @@ impl Render for SettingsPanel {
                     .border_color(rgba((p.dim << 8) | 0x40))
                     .text_color(rgb(p.fg))
                     .text_size(px(13.5))
-                    .child(div().font_weight(FontWeight::BOLD).text_size(px(15.)).child("Settings"))
+                    .child(div().font_weight(FontWeight::SEMIBOLD).text_size(px(15.)).child("Settings"))
                     .child(
                         div()
                             .id("settings-body")
@@ -3384,14 +3404,14 @@ impl Render for SettingsPanel {
                             .child(section("Sound output"))
                             .children(sinks)
                             .child(section("Bluetooth"))
-                            .child(toggle_row("bt-power".into(), if info.bt_on { "On" } else { "Off" }.to_string(), info.bt_on, if info.bt_on {
+                            .child(toggle_row("bt-power".into(), "power".into(), if info.bt_on { "On" } else { "Off" }.to_string(), info.bt_on, if info.bt_on {
                                 "bluetoothctl power off".to_string()
                             } else {
                                 "rfkill unblock bluetooth; bluetoothctl power on".to_string()
                             }))
                             .children(info.bt_devices.iter().enumerate().map(|(i, (mac, name, on))| {
                                 let cmd = format!("bluetoothctl {} {mac}", if *on { "disconnect" } else { "connect" });
-                                toggle_row(("bt-dev", i).into(), format!("{name} · {}", if *on { "connected" } else { "paired" }), *on, cmd)
+                                toggle_row(("bt-dev", i).into(), mac.clone(), format!("{name} · {}", if *on { "connected" } else { "paired" }), *on, cmd)
                             }))
                             .child(section("Displays"))
                             .children(info.displays.iter().map(|d| row(d.split(" · ").next().unwrap_or("").to_string(), d.split_once(" · ").map(|x| x.1).unwrap_or("").to_string())))
@@ -3566,7 +3586,7 @@ impl Render for StartMenu {
             });
 
         let section = |title: &'static str| {
-            div().text_size(px(12.)).font_weight(FontWeight::BOLD).text_color(rgb(p.dim)).child(title)
+            div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(rgb(p.dim)).child(title)
         };
 
         let row = |e: &Entry, i: usize, first: bool| {
@@ -3638,7 +3658,7 @@ impl Render for StartMenu {
                             .overflow_hidden()
                             .whitespace_nowrap()
                             .text_ellipsis()
-                            .text_size(px(11.5))
+                            .text_size(px(12.))
                             .child(e.name.clone()),
                     )
             });
@@ -3694,7 +3714,7 @@ impl Render for StartMenu {
                     .flex()
                     .items_center()
                     .gap_3()
-                    .child(div().flex_1().font_weight(FontWeight::BOLD).child(question))
+                    .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).child(question))
                     .child(footer_btn("p-ok", label, cmd).bg(rgba((0xf85149 << 8) | 0x60)))
                     .child(small_btn("p-cancel", "Cancel").on_click(cx.listener(|this, _, _, cx| {
                         this.confirm = None;
@@ -3720,7 +3740,7 @@ impl Render for StartMenu {
                     .rounded_full()
                     .object_fit(ObjectFit::Cover),
             )
-            .child(div().flex_1().font_weight(FontWeight::BOLD).child("fiaboo"))
+            .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).child("fiaboo"))
             .child(small_btn("f-settings", "Settings").on_click(|_, window, cx| {
                 close_start(window, cx);
                 toggle_settings(cx);
@@ -3992,7 +4012,7 @@ impl Render for TaskView {
                             None => div().size(px(28.)).into_any_element(),
                         })
                         .child(div().flex_1().text_size(px(12.)).text_color(rgb(p.dim)).child(w.class.clone()))
-                        .child(div().text_size(px(11.)).text_color(rgb(p.accent)).child(format!("WS {}", w.ws))),
+                        .child(div().text_size(px(12.)).text_color(rgb(p.accent)).child(format!("WS {}", w.ws))),
                 )
                 .child(
                     div()
@@ -4008,7 +4028,7 @@ impl Render for TaskView {
                         .whitespace_nowrap()
                         .text_ellipsis()
                         .text_size(px(13.))
-                        .font_weight(FontWeight::BOLD)
+                        .font_weight(FontWeight::SEMIBOLD)
                         .child(w.title.clone()),
                 )
         });
@@ -4056,7 +4076,7 @@ impl Render for TaskView {
                     .when(empty, |d| d.child(div().text_color(rgb(p.dim)).child("No open windows"))),
             )
             .child(
-                div().pt_4().text_size(px(11.)).text_color(rgb(p.dim)).child("Click: switch   ·   Right-click: close   ·   Esc: dismiss"),
+                div().pt_4().text_size(px(12.)).text_color(rgb(p.dim)).child("Click: switch   ·   Right-click: close   ·   Esc: dismiss"),
             )
     }
 }
@@ -4146,6 +4166,8 @@ mod tests {
             bt_device_lines("Device 4C:3C:8F:5D:76:9B JBL Go 4\nnoise"),
             [("4C:3C:8F:5D:76:9B".to_string(), "JBL Go 4".to_string())]
         );
+        let bt = SettingsInfo { bt_on: true, bt_devices: vec![("AA".into(), "JBL".into(), false)], ..Default::default() };
+        assert_eq!((bt_state(&bt, "power"), bt_state(&bt, "AA"), bt_state(&bt, "BB")), (Some(true), Some(false), None));
         assert!(is_rustdesk_cm("Rustdesk", "1725218340 - RustDesk"));
         assert!(!is_rustdesk_cm("Rustdesk", "RustDesk"));
         assert_eq!(nmcli_fields("wlan0:wifi:connected:My\\:Net"), ["wlan0", "wifi", "connected", "My:Net"]);
