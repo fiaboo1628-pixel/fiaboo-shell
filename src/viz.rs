@@ -137,7 +137,8 @@ fn file_url_path(url: &str) -> Option<String> {
         out.push(s[i]);
         i += 1;
     }
-    String::from_utf8(out).ok()
+    // absolute only: the artUrl comes from any MPRIS player, never let it become a magick flag or coder ("-x", "msl:")
+    String::from_utf8(out).ok().filter(|p| p.starts_with('/'))
 }
 
 #[derive(Clone)]
@@ -511,5 +512,6 @@ mod tests {
         assert!(t.playing && t.title == "Song" && t.artist == "Artist");
         assert_eq!(file_url_path(&t.art).as_deref(), Some("/tmp/a b.jpg"));
         assert_eq!(file_url_path("https://x/y.jpg"), None);
+        assert_eq!(file_url_path("file://-density"), None);
     }
 }
