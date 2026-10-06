@@ -6,7 +6,7 @@ mod tray;
 mod viz;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     path::PathBuf,
     process::Command,
@@ -67,17 +67,19 @@ struct Desktop {
     wm_class: String, // lowercase StartupWMClass or ""
 }
 
+// User dir first: a same-named file there overrides (or hides) the system one, per XDG.
 fn app_dirs() -> [String; 2] {
-    ["/usr/share/applications".to_string(), format!("{}/.local/share/applications", home())]
+    [format!("{}/.local/share/applications", home()), "/usr/share/applications".to_string()]
 }
 
-fn scan_desktops() -> Vec<Desktop> {
+fn scan_desktops(dirs: &[String]) -> Vec<Desktop> {
     let mut all = vec![];
-    for dir in app_dirs() {
+    let mut seen = HashSet::new();
+    for dir in dirs {
         let Ok(rd) = fs::read_dir(dir) else { continue };
         for e in rd.flatten() {
             let path = e.path();
-            if path.extension().is_none_or(|x| x != "desktop") {
+            if path.extension().is_none_or(|x| x != "desktop") || !seen.insert(e.file_name()) {
                 continue;
             }
             let Ok(text) = fs::read_to_string(&path) else { continue };
@@ -118,7 +120,7 @@ fn apps() -> Arc<(Vec<Desktop>, DesktopIndex)> {
             return a.clone();
         }
     }
-    let list = scan_desktops();
+    let list = scan_desktops(&app_dirs());
     let mut map = HashMap::new();
     for d in &list {
         map.insert(d.stem.clone(), d.icon.clone());
@@ -4158,6 +4160,21 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn user_desktop_overrides_system() {
+        let root = std::env::temp_dir().join(format!("fiaboo-desktops-{}", std::process::id()));
+        let (user, sys) = (root.join("user"), root.join("sys"));
+        fs::create_dir_all(&user).unwrap();
+        fs::create_dir_all(&sys).unwrap();
+        fs::write(sys.join("a.desktop"), "Name=A\nIcon=a\n").unwrap();
+        fs::write(sys.join("b.desktop"), "Name=B\nIcon=b\n").unwrap();
+        fs::write(user.join("a.desktop"), "Name=A\nIcon=a\nNoDisplay=true\n").unwrap();
+        fs::write(user.join("b.desktop"), "Name=B2\nIcon=b\n").unwrap();
+        let dirs = [user.to_string_lossy().into_owned(), sys.to_string_lossy().into_owned()];
+        let names: Vec<_> = scan_desktops(&dirs).into_iter().map(|d| d.name).collect();
+        fs::remove_dir_all(&root).unwrap();
+        assert_eq!(names, ["B2"]);
+    }
     #[test]
     fn media_line() {
         assert_eq!(
