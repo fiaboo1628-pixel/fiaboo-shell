@@ -240,24 +240,6 @@ fn hyprctl_json(arg: &str) -> serde_json::Value {
         .unwrap_or_default()
 }
 
-fn is_rustdesk_cm(class: &str, title: &str) -> bool {
-    class.eq_ignore_ascii_case("rustdesk") // RustDesk reports "rustdesk" or "Rustdesk" depending on version
-        && title
-            .strip_suffix(" - RustDesk")
-            .is_some_and(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()))
-}
-
-/// RustDesk's connection-manager window: titled "<id> - RustDesk" at first, then with the peer's
-/// device name; it is always the small floating window (the main window is "RustDesk", >= 700 px wide).
-fn is_rustdesk_cm_client(c: &serde_json::Value) -> bool {
-    let (class, title) = (c["class"].as_str().unwrap_or(""), c["title"].as_str().unwrap_or(""));
-    is_rustdesk_cm(class, title)
-        || (class.eq_ignore_ascii_case("rustdesk")
-            && title != "RustDesk"
-            && c["floating"].as_bool() == Some(true)
-            && c["size"][0].as_i64().unwrap_or(i64::MAX) < 500)
-}
-
 fn read_state() -> State {
     let active = hyprctl_json("activewindow");
     let active_addr = active["address"].as_str().unwrap_or("").to_string();
@@ -278,24 +260,6 @@ fn read_state() -> State {
     // one icon per window class, keep the most recently focused window of each class
     let mut clients: Vec<serde_json::Value> =
         hyprctl_json("clients").as_array().cloned().unwrap_or_default();
-    // RustDesk's connection-manager window ("<peer id> - RustDesk") cannot be matched by a Hyprland
-    // window rule (its title is set after the window opens), so park it on a hidden special workspace here.
-    clients.retain(|c| {
-        let in_special = c["workspace"]["name"].as_str().unwrap_or("").starts_with("special");
-        if is_rustdesk_cm_client(c) {
-            if !in_special {
-                let addr = c["address"].as_str().unwrap_or("");
-                let _ = Command::new("hyprctl")
-                    .args([
-                        "dispatch",
-                        &format!("hl.dsp.window.move({{ workspace = \"special:rustdesk\", follow = false, window = \"address:{addr}\" }})"),
-                    ])
-                    .spawn();
-            }
-            return false;
-        }
-        true
-    });
     clients.sort_by_key(|c| c["focusHistoryID"].as_i64().unwrap_or(i64::MAX));
     let mut apps: Vec<AppIcon> = vec![];
     let pins = pinned();
@@ -353,10 +317,7 @@ fn read_state() -> State {
     State {
         active_ws,
         occupied,
-        title: {
-            let t = active["title"].as_str().unwrap_or("");
-            if is_rustdesk_cm_client(&active) { String::new() } else { t.to_string() }
-        },
+        title: active["title"].as_str().unwrap_or("").to_string(),
         apps,
         time: Command::new("date")
             .arg("+%H:%M|%d/%m/%Y")
@@ -3882,7 +3843,7 @@ fn tv_windows() -> Vec<TvWin> {
             let class = c["class"].as_str()?.to_string();
             let title = c["title"].as_str().unwrap_or("").to_string();
             let ws = c["workspace"]["id"].as_i64()?;
-            if class.is_empty() || ws < 1 || class == "fiaboo-shell" || is_rustdesk_cm_client(c) {
+            if class.is_empty() || ws < 1 || class == "fiaboo-shell" {
                 return None;
             }
             let stable_id = c["stableId"].as_str().unwrap_or("0").to_string();
@@ -4189,8 +4150,6 @@ mod tests {
         );
         let bt = SettingsInfo { bt_on: true, bt_devices: vec![("AA".into(), "JBL".into(), false)], ..Default::default() };
         assert_eq!((bt_state(&bt, "power"), bt_state(&bt, "AA"), bt_state(&bt, "BB")), (Some(true), Some(false), None));
-        assert!(is_rustdesk_cm("Rustdesk", "1725218340 - RustDesk"));
-        assert!(!is_rustdesk_cm("Rustdesk", "RustDesk"));
         assert_eq!(nmcli_fields("wlan0:wifi:connected:My\\:Net"), ["wlan0", "wifi", "connected", "My:Net"]);
         assert_eq!(nmcli_fields("p2p:wifi-p2p:disconnected:"), ["p2p", "wifi-p2p", "disconnected", ""]);
         assert_eq!(parse_media("Stopped\t\t"), None);
