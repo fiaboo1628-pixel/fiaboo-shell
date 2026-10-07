@@ -5,7 +5,6 @@ UI text is English. Current state and history live in auto memory.
 
 ## Never break the running desktop
 - The shell is the owner's live desktop, often used remotely from an iPhone (Moonlight/SSH over Tailscale). Replace things gradually, always keep a fallback (swaync for notifications, rofi as launcher fallback, nm-applet).
-- Never touch Wi-Fi/network. Never reboot unless asked.
 - Never `pkill -f` (it matches your own command line and kills the wrong thing).
 - Back up a file before editing config outside the repo (`<file>.bakN` next to it).
 
@@ -13,7 +12,6 @@ UI text is English. Current state and history live in auto memory.
 - `src/main.rs` (~4.2k lines): almost everything. `src/viz.rs` visualizer, `src/notify.rs` notification store (`~/.local/state/fiaboo-notifs.json`), `src/tray.rs`, `src/lunar.rs`.
 - `scripts/fiaboo-session`: supervisor started by Hyprland (`~/.config/hypr/custom.lua`). `scripts/fiaboo-record`, `scripts/fiaboo-wallpaper`, `scripts/hypr-autostart.lua`.
 - IPC: `fiaboo-shell <start|taskview|clipboard|shot|wallpaper|settings|calendar|viz|viz-full>` via `$XDG_RUNTIME_DIR/fiaboo-shell.sock`.
-- Keybindings: `~/.config/hypr/conf/keybindings/default.lua` (dotfiles: `dot add/commit/push`).
 
 ## Build, test, upgrade
 1. Long cargo builds: run in the background; on OOM use `-j4`.
@@ -22,7 +20,6 @@ UI text is English. Current state and history live in auto memory.
    - Use `-9`: exit code 143/130 (SIGTERM/SIGINT) means "stopped on purpose" and the supervisor exits, leaving no shell.
    - If the shell dies within 30 s of starting, the supervisor starts swaync and retries every 30 s (log path in the notification).
 4. Verify the UI with `grim` screenshots. Don't rely on ydotool mouse positioning (inaccurate).
-5. Env when running from Claude Code: `WAYLAND_DISPLAY=wayland-1`, `HYPRLAND_INSTANCE_SIGNATURE=$(command ls -t /run/user/1000/hypr | head -1)`, `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus`.
 
 ## Git
 - Work on a feature branch, merge into `main` with `git merge --no-ff` ("Merge <branch>: <summary>"), push to Forgejo `sever/fiaboo-shell`.
