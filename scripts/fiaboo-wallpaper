@@ -40,7 +40,3 @@ matugen image "$img" --source-color-index 0 -m "$mode"
 magick "$img" -resize 75% -blur 50x30 "$cache_dir/blurred.png"
 magick "$img" -gravity Center -extent 1:1 "$cache_dir/square.png"
 echo "* { current-image: url(\"$cache_dir/blurred.png\", height); }" > "$cache_dir/current.rasi"
-
-# SilverBullet dashboard hero (brain vault, Syncthing'd to the server; gitignored there)
-brain_wall="$HOME/brain/Library/fiaboo/wallpaper.jpg"
-[ -d "${brain_wall%/*}" ] && magick "$img" -resize 1920x -quality 82 "$brain_wall"
