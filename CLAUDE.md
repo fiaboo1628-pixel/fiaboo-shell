@@ -29,6 +29,7 @@ UI text is English. Current state and history live in auto memory.
 1. Long cargo builds: run in the background; on OOM use `-j4`.
 2. Test: `dbus-run-session -- cargo test --release` (plain `cargo test` fails the tray tests because the running shell owns the watcher name). One test: `dbus-run-session -- cargo test --release <name>`.
 3. Upgrade the live shell: build release → `cp target/release/fiaboo-shell ~/.local/bin/fiaboo-shell.new && mv ~/.local/bin/fiaboo-shell.new ~/.local/bin/fiaboo-shell` → `pkill -9 -x fiaboo-shell` once. The supervisor sees the new binary and restarts it after ~1 s.
+   - `fiaboo-wave` (fullscreen visualizer shader, `src/bin/`) is started from next to `fiaboo-shell`: install it the same way (cp + mv), no restart needed.
    - Use `-9`: exit code 143/130 (SIGTERM/SIGINT) means "stopped on purpose" and the supervisor exits, leaving no shell.
    - If the shell dies within 30 s of starting, the supervisor starts swaync and retries every 30 s (log path in the notification).
 4. Verify the UI with `grim` screenshots. Don't rely on ydotool mouse positioning (inaccurate).
