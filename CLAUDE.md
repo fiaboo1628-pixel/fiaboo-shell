@@ -37,7 +37,7 @@ UI text is English. Current state and history live in auto memory.
 - Work on a feature branch, merge into `main` with `git merge --no-ff` ("Merge <branch>: <summary>"), push to Forgejo `sever/fiaboo-shell`.
 
 ## Owner's taste
-- One font everywhere: JetBrainsMono Nerd Font.
+- One font everywhere: JetBrainsMono Nerd Font, set on every panel root (`.font_family(NF)`); GPUI otherwise falls back to the system sans. Type scale 12 meta / 14 content / 16 titles.
 - Glass background: constant `GLASS` (alpha 0xC8) so Hyprland blur shows. Text ≥ 12px, heaviest weight `SEMIBOLD`.
 - Motion must be soft and slow; the owner has rejected "fast/snappy" easing several times (current: `smoothOut` = easeOutQuint).
-- Visualizer: only a small WayVes-style pair of crossing waves (cyan -> white -> magenta) inside the taskbar, behind the icons, shown while music plays. No fullscreen view. Rejected: separate bars, spikes, filled rings, blurred cover background, the vinyl view, a fullscreen Shadertoy shader and WayVes itself (ugly and too heavy on the iGPU: 37-87 % busy).
+- Visualizer: only a small WayVes-style pair of crossing waves (wallpaper primary -> foreground -> tertiary, from matugen) inside the taskbar, behind the icons, shown while music plays. No fullscreen view. Rejected: separate bars, spikes, filled rings, blurred cover background, the vinyl view, a fullscreen Shadertoy shader and WayVes itself (ugly and too heavy on the iGPU: 37-87 % busy).
