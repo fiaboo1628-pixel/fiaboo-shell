@@ -20,6 +20,36 @@ use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1, zwlr_l
 
 static AUDIO: Mutex<(f32, f32)> = Mutex::new((0., 0.)); // (bass, loud)
 
+/// Uniforms for wave.wgsl: resolution, time, bass, then the 60 squares of the original shader laid
+/// out for this frame (its per-pixel maths, moved here).
+fn uniforms(res: (u32, u32), time: f32, bass: f32) -> Vec<f32> {
+    const TOTAL: f32 = 60.;
+    const MIN_SIZE: f32 = 0.03;
+    const MAX_SIZE: f32 = 0.05;
+    let mut u = vec![res.0 as f32, res.1 as f32, time, bass];
+    let mut turns = Vec::with_capacity(60 * 4);
+    for i in 0..60 {
+        let index = i as f32 / TOTAL;
+        let rnd = ((index * 12.9898 + index * 78.233).sin() * 43758.5453).rem_euclid(1.);
+        let x = (-time / 8. * rnd + index).rem_euclid(1.) * 4. - 2.;
+        let y = (index * rnd * 1000. + time / 10.).sin() * 0.5;
+        let z = MAX_SIZE * rnd + MIN_SIZE;
+        let (s, c) = (i as f32 + time / 2.).sin_cos();
+        // where the square lands on screen: uv with rotate(uv - p + h) + p + h == p
+        let h = z / 2.;
+        let centre = (x - h - c * h + s * h, y - h - s * h - c * h);
+        u.extend([x, y, z, 0.]);
+        turns.push([c, s, centre.0, centre.1]);
+    }
+    // interleave: [2i] position, [2i + 1] turn
+    let pos = u.split_off(4);
+    for (p, t) in pos.chunks(4).zip(turns) {
+        u.extend_from_slice(p);
+        u.extend(t);
+    }
+    u
+}
+
 #[derive(Default)]
 struct Wl {
     compositor: Option<wl_compositor::WlCompositor>,
@@ -152,16 +182,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         multiview_mask: None,
         cache: None,
     });
-    let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
+    let uniform_buf = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("wave uniforms"),
-        size: 16,
+        size: (4 + 120 * 4) * 4,
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
     let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: None,
         layout: &pipeline.get_bind_group_layout(0),
-        entries: &[wgpu::BindGroupEntry { binding: 0, resource: uniforms.as_entire_binding() }],
+        entries: &[wgpu::BindGroupEntry { binding: 0, resource: uniform_buf.as_entire_binding() }],
     });
 
     let (mut time, mut bass, mut last, mut ready) = (0f32, 0f32, Instant::now(), false);
@@ -184,8 +214,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         // soft: the scene drifts at 60 % speed in silence and up to ~1.8x with loud music
         time += dt * (0.6 + 1.2 * loud);
         bass += (b - bass) * (1. - (-dt * 6.).exp());
-        let data: [f32; 4] = [size.0 as f32, size.1 as f32, time, bass];
-        gpu_queue.write_buffer(&uniforms, 0, &data.iter().flat_map(|v| v.to_ne_bytes()).collect::<Vec<u8>>());
+        let data = uniforms(size, time, bass);
+        gpu_queue.write_buffer(&uniform_buf, 0, &data.iter().flat_map(|v| v.to_ne_bytes()).collect::<Vec<u8>>());
 
         let frame = match gpu_surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(f) | wgpu::CurrentSurfaceTexture::Suboptimal(f) => f,
@@ -219,4 +249,20 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn square_layout() {
+        let u = super::uniforms((1920, 1080), 7., 0.3);
+        assert_eq!(u.len(), 4 + 120 * 4);
+        for i in 0..60 {
+            let (p, t) = (&u[4 + 8 * i..8 + 8 * i], &u[8 + 8 * i..12 + 8 * i]);
+            assert!(p[0] >= -2. && p[0] < 2. && p[2] >= 0.03 && p[2] <= 0.08, "square {i}: {p:?}");
+            assert!((t[0] * t[0] + t[1] * t[1] - 1.).abs() < 1e-4, "square {i} turn {t:?}");
+            // the square's centre is near its position (it only turns around a nearby corner)
+            assert!((t[2] - p[0]).abs() < 0.1 && (t[3] - p[1]).abs() < 0.1, "square {i} centre {t:?} vs {p:?}");
+        }
+    }
 }

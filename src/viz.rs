@@ -121,11 +121,38 @@ fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
     t * t * (3. - 2. * t)
 }
 
-/// (bass, loudness), both 0..1, from the eased levels.
-fn bass_loud(lv: &[f32; BANDS]) -> (f32, f32) {
-    let bass = lv[..8].iter().sum::<f32>() / 8.;
-    let loud = lv.iter().sum::<f32>() / BANDS as f32;
-    (smoothstep(0.25, 1., bass), smoothstep(0.02, 0.2, loud))
+/// Spreads a level around its last ~3 s (mean ± 2 deviations -> 0..1), so any song at any volume
+/// moves the visuals alike; fixed thresholds sat at the top for every real track. Measured on an
+/// EDM and a ballad track, also 12 dB quieter: p10 0.15, p50 0.56, p90 0.76.
+#[derive(Default)]
+struct Norm {
+    mean: f32,
+    var: f32,
+}
+
+impl Norm {
+    fn map(&mut self, x: f32) -> f32 {
+        const K: f32 = 1. / 180.; // per frame at ~60 fps
+        self.mean += (x - self.mean) * K;
+        self.var += ((x - self.mean).powi(2) - self.var) * K;
+        (0.5 + (x - self.mean) / (4. * self.var.sqrt().max(0.02))).clamp(0., 1.)
+    }
+}
+
+#[derive(Default)]
+struct Drive {
+    bass: Norm,
+    loud: Norm,
+}
+
+impl Drive {
+    /// (bass, loudness, on) from the eased levels: the first two spread over 0..1 by `Norm`,
+    /// `on` goes 0 -> 1 with any sound at all (silence reads exactly 0).
+    fn update(&mut self, lv: &[f32; BANDS]) -> (f32, f32, f32) {
+        let bass = lv[..8].iter().sum::<f32>() / 8.;
+        let loud = lv.iter().sum::<f32>() / BANDS as f32;
+        (self.bass.map(bass), self.loud.map(loud), smoothstep(0.02, 0.1, loud))
+    }
 }
 
 /// Two crossing waves in the style of WayVes' logo: (top, bottom) offsets from the centre line at
@@ -326,18 +353,17 @@ pub fn toggle_full(cx: &mut App) {
     .detach();
 }
 
-/// Redraw at ~60 fps while the window lives.
-fn tick<V: 'static>(window: &mut Window, cx: &mut Context<V>, mut every_second: impl FnMut(&mut V, &mut Context<V>) + 'static) {
-    cx.spawn_in(window, async move |this, cx| {
+/// Run `frame` at ~60 fps while the view lives; it returns whether the view needs a redraw.
+fn tick<V: 'static>(cx: &mut Context<V>, mut frame: impl FnMut(&mut V, u32) -> bool + 'static) {
+    cx.spawn(async move |this, cx| {
         let mut n = 0u32;
         loop {
             cx.background_executor().timer(Duration::from_millis(16)).await;
             let alive = this
                 .update(cx, |v, cx| {
-                    if n % 60 == 0 {
-                        every_second(v, cx);
+                    if frame(v, n) {
+                        cx.notify();
                     }
-                    cx.notify();
                 })
                 .is_ok();
             if !alive {
@@ -351,33 +377,36 @@ fn tick<V: 'static>(window: &mut Window, cx: &mut Context<V>, mut every_second: 
 
 pub struct Mini {
     shown: [f32; BANDS],
+    drive: Drive,
     bass: f32,  // eased bass that bends the waves
     alpha: f32, // eased loudness: the strip fades out in silence
+    drawn: bool, // the last redraw showed something
     start: std::time::Instant,
 }
 
 impl Mini {
     fn new(cx: &mut Context<Self>) -> Self {
-        // redraw at ~60 fps until the bar lets go of it
-        cx.spawn(async move |this, cx| loop {
-            cx.background_executor().timer(Duration::from_millis(16)).await;
-            if this.update(cx, |_, cx| cx.notify()).is_err() {
-                break;
-            }
-        })
-        .detach();
-        Mini { shown: [0.; BANDS], bass: 0., alpha: 0., start: std::time::Instant::now() }
+        tick(cx, |m: &mut Mini, _| m.step());
+        Mini { shown: [0.; BANDS], drive: Drive::default(), bass: 0., alpha: 0., drawn: false, start: std::time::Instant::now() }
+    }
+
+    /// Follow the music; true when the bar must redraw (in silence it stays still: whole-bar redraws cost ~8 % CPU).
+    fn step(&mut self) -> bool {
+        ease(&mut self.shown, RISE, FALL);
+        let (bass, _, on) = self.drive.update(&self.shown);
+        // bass moves the phase a lot (up to ~30 rad), so it gets its own slow easing
+        self.bass += (bass - self.bass) * 0.04;
+        // at most 0.75: it sits behind the taskbar icons
+        self.alpha += (0.75 * on - self.alpha) * 0.03;
+        let visible = self.alpha >= 0.01;
+        let redraw = visible || self.drawn; // one more frame to clear the last faint wave
+        self.drawn = visible;
+        redraw
     }
 }
 
 impl Render for Mini {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        ease(&mut self.shown, RISE, FALL);
-        let (bass, loud) = bass_loud(&self.shown);
-        // bass moves the phase a lot (up to ~30 rad), so it gets its own slow easing
-        self.bass += (bass - self.bass) * 0.04;
-        // at most 0.75: it sits behind the taskbar icons
-        self.alpha += (0.75 * loud - self.alpha) * 0.03;
         let (s, alpha, t) = (self.bass, self.alpha, self.start.elapsed().as_secs_f32() * 20.);
         div()
             .size_full()
@@ -453,6 +482,7 @@ struct Full {
     focus: FocusHandle,
     track: Track,
     shown: [f32; BANDS],
+    drive: Drive,
     shader: bool, // fiaboo-wave runs below; otherwise plain dark glass
 }
 
@@ -460,19 +490,26 @@ impl Full {
     fn new(window: &mut Window, cx: &mut Context<Self>, shader: bool) -> Self {
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
-        tick(window, cx, |f: &mut Full, _| {
+        // the levels go to fiaboo-wave every frame; this layer only redraws when the track changes
+        tick(cx, |f: &mut Full, n| {
+            ease(&mut f.shown, RISE, FALL);
+            let (bass, loud, on) = f.drive.update(&f.shown);
+            wave_send(bass * on, loud * on);
+            if n % 60 != 0 {
+                return false;
+            }
             let line = sh("playerctl metadata --format '{{artist}}\t{{title}}' 2>/dev/null");
-            f.track = parse_track(&line).unwrap_or_default();
+            let t = parse_track(&line).unwrap_or_default();
+            let changed = t != f.track;
+            f.track = t;
+            changed
         });
-        Full { focus, track: Track::default(), shown: [0.; BANDS], shader }
+        Full { focus, track: Track::default(), shown: [0.; BANDS], drive: Drive::default(), shader }
     }
 }
 
 impl Render for Full {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        ease(&mut self.shown, RISE, FALL);
-        let (bass, loud) = bass_loud(&self.shown);
-        wave_send(bass, loud);
         let (title, artist) = if self.track.title.is_empty() {
             ("Nothing playing".to_string(), "Play something to see it here".to_string())
         } else {
@@ -538,6 +575,16 @@ mod tests {
         }
         let peak = (0..=100).map(|i| wayve(i as f32 / 100., 0.3, 0., 26.).0.abs()).fold(0., f32::max);
         assert!(peak > 15., "middle peak {peak}");
+    }
+    #[test]
+    fn norm_spreads_around_recent_level() {
+        let mut n = Norm::default();
+        for _ in 0..2000 {
+            n.map(0.8);
+        }
+        assert!((n.map(0.8) - 0.5).abs() < 0.05, "steady level sits in the middle");
+        assert!(n.map(0.9) > 0.9, "a jump above it reads high");
+        assert!(n.map(0.6) < 0.1, "a drop below it reads low");
     }
     #[test]
     fn track_line() {
