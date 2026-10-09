@@ -1,24 +1,22 @@
-//! Music visualizer ("studio"): a thin spectrum strip above the taskbar while working (mini),
-//! and a fullscreen view on dark glass over the desktop, the cover in the middle and a circular
-//! spectrum around it (full). Audio comes from the default sink monitor via `parec`; the spectrum
+//! Music visualizer: two crossing waves inside the taskbar while working (mini), and a fullscreen
+//! shader view (full: `fiaboo-wave` draws the shader, this window the title on top). Audio comes from the default sink monitor via `parec`; the spectrum
 //! is a plain windowed DFT over log-spaced bands, no extra dependency.
 
 use std::{
     f32::consts::PI,
     io::Read,
-    path::PathBuf,
     process::{Child, Command, Stdio},
     sync::Mutex,
     time::Duration,
 };
 
 use gpui::{
-    canvas, div, img, linear_color_stop, linear_gradient, layer_shell::*, point, prelude::*, px, rgb, rgba, size, AnyWindowHandle, App, Bounds,
-    Context, Entity, FocusHandle, FontWeight, Global, KeyDownEvent, MouseButton, ObjectFit, PathBuilder, Window,
+    canvas, div, linear_color_stop, linear_gradient, layer_shell::*, point, prelude::*, px, rgb, rgba, size, AnyWindowHandle, App, Bounds,
+    Context, Entity, FocusHandle, FontWeight, Global, KeyDownEvent, MouseButton, PathBuilder, Window,
     WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions,
 };
 
-use crate::{home, palette, sh, Palette, BAR_HEIGHT, NF};
+use crate::{home, sh, BAR_HEIGHT};
 
 pub const BANDS: usize = 48;
 const RATE: usize = 44100;
@@ -118,14 +116,16 @@ fn ease(shown: &mut [f32; BANDS], rise: f32, fall: f32) {
     }
 }
 
-/// Level for slot `i` of `2 * BANDS` going round: bass at both ends of the run, treble in the middle.
-fn mirrored(lv: &[f32; BANDS], i: usize) -> f32 {
-    lv[if i < BANDS { i } else { 2 * BANDS - 1 - i }]
-}
-
 fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
     let t = ((x - e0) / (e1 - e0)).clamp(0., 1.);
     t * t * (3. - 2. * t)
+}
+
+/// (bass, loudness), both 0..1, from the eased levels.
+fn bass_loud(lv: &[f32; BANDS]) -> (f32, f32) {
+    let bass = lv[..8].iter().sum::<f32>() / 8.;
+    let loud = lv.iter().sum::<f32>() / BANDS as f32;
+    (smoothstep(0.25, 1., bass), smoothstep(0.02, 0.2, loud))
 }
 
 /// Two crossing waves in the style of WayVes' logo: (top, bottom) offsets from the centre line at
@@ -138,87 +138,51 @@ fn wayve(x: f32, s: f32, t: f32, amp: f32) -> (f32, f32) {
     (top * env, bottom * env)
 }
 
-// ---------- now playing + cover art ----------
-#[derive(Clone, Default, PartialEq)]
+// ---------- now playing ----------
+#[derive(Clone, Debug, Default, PartialEq)]
 struct Track {
-    playing: bool,
-    art: String,
     artist: String,
     title: String,
 }
 
-/// `playerctl metadata --format '{{status}}\t{{mpris:artUrl}}\t{{artist}}\t{{title}}'`
+/// `playerctl metadata --format '{{artist}}\t{{title}}'`
 fn parse_track(line: &str) -> Option<Track> {
-    let mut f = line.splitn(4, '\t');
-    let (status, art, artist, title) = (f.next()?, f.next()?, f.next()?, f.next()?);
-    Some(Track { playing: status == "Playing", art: art.into(), artist: artist.trim().into(), title: title.trim().into() })
+    let (artist, title) = line.split_once('\t')?;
+    Some(Track { artist: artist.trim().into(), title: title.trim().into() })
 }
 
-/// `file:///a%20b.jpg` -> `/a b.jpg`
-fn file_url_path(url: &str) -> Option<String> {
-    let s = url.strip_prefix("file://")?.as_bytes();
-    let mut out = Vec::with_capacity(s.len());
-    let mut i = 0;
-    while i < s.len() {
-        if s[i] == b'%' && i + 2 < s.len() {
-            if let Ok(b) = u8::from_str_radix(std::str::from_utf8(&s[i + 1..i + 3]).unwrap_or(""), 16) {
-                out.push(b);
-                i += 3;
-                continue;
-            }
+// ---------- fiaboo-wave: the fullscreen shader, a separate process (GPUI has no custom shaders) ----------
+static WAVE: Mutex<Option<Child>> = Mutex::new(None);
+
+/// Start `fiaboo-wave` (next to this binary); the receiver fires once its first frame is up.
+fn wave_start() -> Option<std::sync::mpsc::Receiver<()>> {
+    use std::io::BufRead;
+    let exe = std::env::current_exe().ok()?.with_file_name("fiaboo-wave");
+    let mut child = Command::new(exe).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
+    let out = child.stdout.take()?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        if std::io::BufReader::new(out).read_line(&mut line).is_ok() && line.trim() == "ready" {
+            let _ = tx.send(());
         }
-        out.push(s[i]);
-        i += 1;
-    }
-    // absolute only: the artUrl comes from any MPRIS player, never let it become a magick flag or coder ("-x", "msl:")
-    String::from_utf8(out).ok().filter(|p| p.starts_with('/'))
+    });
+    *WAVE.lock().unwrap() = Some(child);
+    Some(rx)
 }
 
-#[derive(Clone)]
-struct Cover {
-    sharp: PathBuf,
-    accent: Option<u32>,
+fn wave_send(bass: f32, loud: f32) {
+    use std::io::Write;
+    if let Some(stdin) = WAVE.lock().unwrap().as_mut().and_then(|c| c.stdin.as_mut()) {
+        let _ = writeln!(stdin, "{bass:.3} {loud:.3}");
+    }
 }
 
-/// Square cover and matugen accent for an artUrl, cached by URL hash.
-fn load_cover(url: &str) -> Option<Cover> {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    url.hash(&mut h);
-    // Chromium hands out temp files (/tmp/.org.chromium.Chromium.*) that can be rewritten: key on size+mtime too
-    if let Some(m) = file_url_path(url).and_then(|p| std::fs::metadata(p).ok()) {
-        (m.len(), m.modified().ok()).hash(&mut h);
+fn wave_stop() {
+    if let Some(mut c) = WAVE.lock().unwrap().take() {
+        let _ = c.kill();
+        let _ = c.wait();
     }
-    let dir = format!("{}/.cache/fiaboo-shell/viz", home());
-    let key = format!("{dir}/{:016x}", h.finish());
-    let (sharp, acc) = (format!("{key}.jpg"), format!("{key}.accent"));
-    if !std::path::Path::new(&acc).exists() {
-        let _ = std::fs::create_dir_all(&dir);
-        let src = match file_url_path(url) {
-            Some(p) => p,
-            None if url.starts_with("http") => {
-                let tmp = format!("{key}.src");
-                Command::new("curl").args(["-sfL", "--max-time", "10", "-o", &tmp, url]).status().ok()?.success().then_some(tmp)?
-            }
-            None => return None,
-        };
-        let ok = Command::new("magick")
-            .args([&src, "-resize", "600x600^", "-gravity", "center", "-extent", "600x600", &sharp])
-            .status()
-            .ok()?
-            .success();
-        if !ok {
-            return None;
-        }
-        let json = sh(&format!("matugen image '{sharp}' --dry-run -j hex --prefer saturation 2>/dev/null"));
-        let hex = serde_json::from_str::<serde_json::Value>(&json)
-            .ok()
-            .and_then(|v| v["colors"]["primary"]["dark"]["color"].as_str().map(String::from))
-            .unwrap_or_default();
-        let _ = std::fs::write(&acc, hex);
-    }
-    let accent = std::fs::read_to_string(&acc).ok().and_then(|h| u32::from_str_radix(h.trim().trim_start_matches('#'), 16).ok());
-    Some(Cover { sharp: sharp.into(), accent })
 }
 
 // ---------- windows ----------
@@ -226,6 +190,7 @@ fn load_cover(url: &str) -> Option<Cover> {
 struct VizState {
     mini: Option<Entity<Mini>>, // drawn inside the taskbar, behind its icons
     full: Option<AnyWindowHandle>,
+    opening: bool, // waiting for fiaboo-wave's first frame
 }
 impl Global for VizState {}
 
@@ -280,6 +245,9 @@ fn close(handle: Option<AnyWindowHandle>, cx: &mut App) {
         let _ = h.update(cx, |_, window, _| window.remove_window());
     }
     let s = state(cx);
+    if s.full.is_none() {
+        wave_stop();
+    }
     if s.mini.is_none() && s.full.is_none() {
         capture_stop();
     }
@@ -322,17 +290,40 @@ pub fn toggle_full(cx: &mut App) {
     if let Some(h) = state(cx).full.take() {
         return close(Some(h), cx);
     }
+    if state(cx).opening {
+        return;
+    }
+    state(cx).opening = true;
     capture_start();
-    let h = layer_window(
-        cx,
-        "fiaboo-viz-full",
-        Layer::Overlay,
-        Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
-        0.,
-        KeyboardInteractivity::Exclusive,
-        |w, cx| Full::new(w, cx),
-    );
-    state(cx).full = h;
+    let ready = wave_start();
+    cx.spawn(async move |cx| {
+        // open the title layer only once the shader is on screen, so it maps above it
+        let shader = match ready {
+            Some(rx) => cx.background_executor().spawn(async move { rx.recv_timeout(Duration::from_secs(3)).is_ok() }).await,
+            None => false,
+        };
+        let _ = cx.update(|cx| {
+            if !shader {
+                wave_stop(); // no GPU or no layer shell: the view falls back to dark glass
+            }
+            let h = layer_window(
+                cx,
+                "fiaboo-viz-full",
+                Layer::Overlay,
+                Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
+                0.,
+                KeyboardInteractivity::Exclusive,
+                move |w, cx| Full::new(w, cx, shader),
+            );
+            let s = state(cx);
+            s.opening = false;
+            s.full = h;
+            if h.is_none() {
+                close(None, cx);
+            }
+        });
+    })
+    .detach();
 }
 
 /// Redraw at ~60 fps while the window lives.
@@ -382,12 +373,11 @@ impl Mini {
 impl Render for Mini {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         ease(&mut self.shown, RISE, FALL);
-        let bass = self.shown[..8].iter().sum::<f32>() / 8.;
-        let loud = self.shown.iter().sum::<f32>() / BANDS as f32;
+        let (bass, loud) = bass_loud(&self.shown);
         // bass moves the phase a lot (up to ~30 rad), so it gets its own slow easing
-        self.bass += (smoothstep(0.25, 1., bass) - self.bass) * 0.04;
+        self.bass += (bass - self.bass) * 0.04;
         // at most 0.75: it sits behind the taskbar icons
-        self.alpha += (0.75 * smoothstep(0.02, 0.2, loud) - self.alpha) * 0.03;
+        self.alpha += (0.75 * loud - self.alpha) * 0.03;
         let (s, alpha, t) = (self.bass, self.alpha, self.start.elapsed().as_secs_f32() * 20.);
         div()
             .size_full()
@@ -460,76 +450,29 @@ impl Render for Mini {
 }
 
 struct Full {
-    pal: Palette,
     focus: FocusHandle,
     track: Track,
-    cover: Option<Cover>,
     shown: [f32; BANDS],
-    slow: [f32; BANDS], // lags behind `shown`, drawn as the faint outer echo
-    spin: f32,          // record angle, advances while playing
+    shader: bool, // fiaboo-wave runs below; otherwise plain dark glass
 }
 
 impl Full {
-    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(window: &mut Window, cx: &mut Context<Self>, shader: bool) -> Self {
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
-        tick(window, cx, |f: &mut Full, cx| {
-            let line = sh("playerctl metadata --format '{{status}}\t{{mpris:artUrl}}\t{{artist}}\t{{title}}' 2>/dev/null");
-            let t = parse_track(&line).unwrap_or_default();
-            if t.art != f.track.art {
-                f.cover = None;
-                let url = t.art.clone();
-                cx.spawn(async move |this, cx| {
-                    let u = url.clone();
-                    let cover = cx.background_executor().spawn(async move { load_cover(&u) }).await;
-                    let _ = this.update(cx, |f, _| {
-                        if f.track.art == url {
-                            f.cover = cover;
-                        }
-                    });
-                })
-                .detach();
-            }
-            f.track = t;
+        tick(window, cx, |f: &mut Full, _| {
+            let line = sh("playerctl metadata --format '{{artist}}\t{{title}}' 2>/dev/null");
+            f.track = parse_track(&line).unwrap_or_default();
         });
-        Full { pal: palette(), focus, track: Track::default(), cover: None, shown: [0.; BANDS], slow: [0.; BANDS], spin: 0. }
+        Full { focus, track: Track::default(), shown: [0.; BANDS], shader }
     }
 }
 
 impl Render for Full {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let p = self.pal.clone();
-        let accent = self.cover.as_ref().and_then(|c| c.accent).unwrap_or(p.accent);
         ease(&mut self.shown, RISE, FALL);
-        ease(&mut self.slow, RISE / 3., FALL / 2.);
-        if self.track.playing {
-            self.spin += 2. * PI * (100. / 3.) / 60. / 60.; // 33⅓ rpm at ~60 fps
-        }
-        let (lv, slow, spin) = (self.shown, self.slow, self.spin);
-        const COVER: f32 = 300.; // record diameter
-        const LABEL: f32 = 116.;
-        const RING: f32 = COVER + 2. * (12. + 3. + 120. + 8.); // cover + gap + longest echo tick, each side
-        // record label: the thumbnail (YouTube art is a 16:9 frame, small and centred reads fine), else a note
-        let label = match &self.cover {
-            Some(c) => img(c.sharp.clone()).size_full().rounded_full().object_fit(ObjectFit::Cover).into_any_element(),
-            None => div()
-                .size_full()
-                .rounded_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .bg(rgb(accent))
-                .font_family(NF)
-                .text_size(px(40.))
-                .text_color(rgb(0x111111))
-                .child("\u{f075a}")
-                .into_any_element(),
-        };
-        let center = div()
-            .relative()
-            .size(px(LABEL))
-            .child(label)
-            .child(div().absolute().top(px(LABEL / 2. - 5.)).left(px(LABEL / 2. - 5.)).size(px(10.)).rounded_full().bg(rgb(0x0a0a0a)));
+        let (bass, loud) = bass_loud(&self.shown);
+        wave_send(bass, loud);
         let (title, artist) = if self.track.title.is_empty() {
             ("Nothing playing".to_string(), "Play something to see it here".to_string())
         } else {
@@ -537,7 +480,11 @@ impl Render for Full {
         };
         div()
             .size_full()
-            .relative()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_end()
+            .pb(px(BAR_HEIGHT / 2.))
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|_, ev: &KeyDownEvent, window, cx| match ev.keystroke.key.as_str() {
                 "escape" => close_full_here(window, cx),
@@ -547,122 +494,23 @@ impl Render for Full {
                 _ => {}
             }))
             .on_mouse_down(MouseButton::Right, |_, window, cx| close_full_here(window, cx))
-            .bg(rgba(0x0000008c)) // dark glass: Hyprland's layer blur shows the desktop through it
+            // dark glass only without the shader: Hyprland's layer blur shows the desktop through it
+            .when(!self.shader, |d| d.bg(rgba(0x0000008c)))
             .child(
                 div()
-                    .absolute()
-                    .size_full()
-                    .flex()
-                    .flex_col()
-                    .items_center()
-                    .justify_center()
-                    .child(
-                        // ring and cover share one square so they stay concentric
-                        div()
-                            .relative()
-                            .size(px(RING))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .child(
-                                canvas(
-                    |_, _, _| (),
-                    move |b, _, window, _| {
-                        let (cx0, cy0) = (f32::from(b.origin.x) + f32::from(b.size.width) / 2., f32::from(b.origin.y) + f32::from(b.size.height) / 2.);
-                        let at_r = |r: f32, a: f32| point(px(cx0 + r * a.cos()), px(cy0 + r * a.sin()));
-                        let circle = |r: f32| (0..128).map(|i| at_r(r, i as f32 * 2. * PI / 128.)).collect::<Vec<_>>();
-                        let arc = |pb: &mut PathBuilder, r: f32, a0: f32, a1: f32| {
-                            pb.move_to(at_r(r, a0));
-                            for k in 1..=16 {
-                                pb.line_to(at_r(r, a0 + (a1 - a0) * k as f32 / 16.));
-                            }
-                        };
-                        let rec = COVER / 2.;
-                        // vinyl body
-                        let mut pb = PathBuilder::fill();
-                        pb.add_polygon(&circle(rec), true);
-                        if let Ok(p) = pb.build() {
-                            window.paint_path(p, rgb(0x121212));
-                        }
-                        // grooves
-                        let mut pb = PathBuilder::stroke(px(1.));
-                        let mut r = LABEL / 2. + 8.;
-                        while r < rec - 4. {
-                            pb.add_polygon(&circle(r), true);
-                            r += 3.5;
-                        }
-                        if let Ok(p) = pb.build() {
-                            window.paint_path(p, rgba(0xffffff0d));
-                        }
-                        // light reflection: stays put while the record turns, like a real one
-                        for a0 in [-2.2f32, 0.94] {
-                            let mut pb = PathBuilder::fill();
-                            let pts: Vec<_> = (0..=12)
-                                .map(|k| at_r(rec - 6., a0 + 0.5 * k as f32 / 12.))
-                                .chain((0..=12).rev().map(|k| at_r(LABEL / 2. + 10., a0 + 0.5 * k as f32 / 12.)))
-                                .collect();
-                            pb.add_polygon(&pts, true);
-                            if let Ok(p) = pb.build() {
-                                window.paint_path(p, rgba(0xffffff0c));
-                            }
-                        }
-                        // a few brighter groove marks that turn with the record
-                        let mut pb = PathBuilder::stroke(px(1.5));
-                        for (r, off, len) in [(rec - 14., 0.3, 0.45), (rec - 32., 2.4, 0.3), (LABEL / 2. + 22., 4.2, 0.6)] {
-                            arc(&mut pb, r, spin + off, spin + off + len);
-                        }
-                        if let Ok(p) = pb.build() {
-                            window.paint_path(p, rgba(0xffffff26));
-                        }
-                        // fine ticks growing out of the cover's edge: bass at the top, mirrored left/right;
-                        // the slow levels draw a faint longer echo behind them
-                        const TICKS: usize = 120;
-                        let r0 = rec + 12.;
-                        let at = |lv: &[f32; BANDS], t: usize| {
-                            let u = t as f32 * (2 * BANDS) as f32 / TICKS as f32;
-                            let (i, f) = (u as usize, u.fract());
-                            mirrored(lv, i) * (1. - f) + mirrored(lv, (i + 1) % (2 * BANDS)) * f
-                        };
-                        for (lv, amp, width, alpha) in [(&slow, 120., 3., 0x30), (&lv, 90., 3., 0xe0)] {
-                            let mut pb = PathBuilder::stroke(px(width));
-                            for t in 0..TICKS {
-                                let a = -PI / 2. + t as f32 * 2. * PI / TICKS as f32;
-                                let (c, s) = (a.cos(), a.sin());
-                                let r1 = r0 + 3. + at(lv, t) * amp;
-                                pb.move_to(point(px(cx0 + r0 * c), px(cy0 + r0 * s)));
-                                pb.line_to(point(px(cx0 + r1 * c), px(cy0 + r1 * s)));
-                            }
-                            if let Ok(p) = pb.build() {
-                                window.paint_path(p, rgba((accent << 8) | alpha));
-                            }
-                        }
-                    },
-                )
-                                .absolute()
-                                .size_full(),
-                            )
-                            .child(div().id("viz-cover").cursor_pointer().on_click(|_, _, _| crate::run_bg("playerctl play-pause")).child(center)),
-                    )
-                    .child(
-                        div()
-                            .max_w(px(900.))
-                            .text_size(px(28.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(rgb(0xffffff))
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .text_ellipsis()
-                            .child(title),
-                    )
-                    .child(div().mt_1().text_size(px(17.)).text_color(rgba(0xffffffb0)).child(artist)),
+                    .max_w(px(900.))
+                    .text_size(px(28.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(rgb(0xffffff))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .child(title),
             )
+            .child(div().mt_1().text_size(px(17.)).text_color(rgba(0xffffffb0)).child(artist))
             .child(
                 div()
-                    .absolute()
-                    .bottom(px(BAR_HEIGHT / 2.))
-                    .w_full()
-                    .flex()
-                    .justify_center()
+                    .mt(px(48.))
                     .text_size(px(12.))
                     .text_color(rgba(0xffffff80))
                     .child("Space: play/pause   ·   ← →: previous/next   ·   Esc: back"),
@@ -692,11 +540,9 @@ mod tests {
         assert!(peak > 15., "middle peak {peak}");
     }
     #[test]
-    fn track_and_file_url() {
-        let t = parse_track("Playing\tfile:///tmp/a%20b.jpg\tArtist\tSong").unwrap();
-        assert!(t.playing && t.title == "Song" && t.artist == "Artist");
-        assert_eq!(file_url_path(&t.art).as_deref(), Some("/tmp/a b.jpg"));
-        assert_eq!(file_url_path("https://x/y.jpg"), None);
-        assert_eq!(file_url_path("file://-density"), None);
+    fn track_line() {
+        let t = parse_track("Artist\tSong").unwrap();
+        assert!(t.title == "Song" && t.artist == "Artist");
+        assert_eq!(parse_track(""), None);
     }
 }
