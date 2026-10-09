@@ -538,7 +538,7 @@ impl Render for Quick {
                     div()
                         .flex()
                         .flex_col()
-                        .child(div().font_weight(FontWeight::SEMIBOLD).text_size(px(13.)).child(title))
+                        .child(div().font_weight(FontWeight::SEMIBOLD).text_size(px(14.)).child(title))
                         .child(div().text_size(px(12.)).text_color(rgb(p.dim)).child(sub)),
                 )
         };
@@ -611,7 +611,7 @@ impl Render for Quick {
                         .min_w(px(0.))
                         .flex()
                         .flex_col()
-                        .child(div().overflow_hidden().whitespace_nowrap().text_ellipsis().font_weight(FontWeight::SEMIBOLD).text_size(px(13.)).child(m.title.clone()))
+                        .child(div().overflow_hidden().whitespace_nowrap().text_ellipsis().font_weight(FontWeight::SEMIBOLD).text_size(px(14.)).child(m.title.clone()))
                         .child(div().overflow_hidden().whitespace_nowrap().text_ellipsis().text_size(px(12.)).text_color(rgb(p.dim)).child(m.artist.clone())),
                 )
                 .child(media_btn("m-prev", "\u{f04ae}", "previous"))
@@ -628,7 +628,7 @@ impl Render for Quick {
                 .justify_center()
                 .py_2()
                 .rounded_lg()
-                .text_size(px(13.))
+                .text_size(px(14.))
                 .bg(rgba((p.dim << 8) | 0x28))
                 .hover(|s| s.bg(rgba((p.accent << 8) | 0x40)))
                 .on_click(move |_, window, cx| {
@@ -639,6 +639,7 @@ impl Render for Quick {
         };
 
         div()
+            .font_family(NF)
             .size_full()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
@@ -666,10 +667,10 @@ impl Render for Quick {
             .rounded_2xl()
             .bg(rgba((p.bg << 8) | GLASS))
             .border_1()
-            .border_color(rgba((p.dim << 8) | 0x40))
+            .border_color(rgba((p.dim << 8) | 0x70))
             .text_color(rgb(p.fg))
             .text_size(px(14.))
-            .child(div().font_weight(FontWeight::SEMIBOLD).text_size(px(15.)).child("Quick settings"))
+            .child(div().font_weight(FontWeight::SEMIBOLD).text_size(px(16.)).child("Quick settings"))
             .child(
                 div()
                     .flex()
@@ -871,6 +872,7 @@ impl Render for TrayMenu {
                 .into_any_element()
         });
         div()
+            .font_family(NF)
             .size_full()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|_, ev: &KeyDownEvent, window, cx| {
@@ -897,8 +899,8 @@ impl Render for TrayMenu {
             .rounded_xl()
             .bg(rgba((p.bg << 8) | GLASS))
             .border_1()
-            .border_color(rgba((p.dim << 8) | 0x40))
-            .text_size(px(13.5))
+            .border_color(rgba((p.dim << 8) | 0x70))
+            .text_size(px(14.))
             .children(rows)
             )
     }
@@ -1202,7 +1204,7 @@ impl Render for CalendarPopup {
                             div()
                                 .flex()
                                 .flex_col()
-                                .child(div().text_size(px(13.)).text_color(rgb(p.fg)).child(w.city.clone()))
+                                .child(div().text_size(px(14.)).text_color(rgb(p.fg)).child(w.city.clone()))
                                 .child(
                                     div()
                                         .flex()
@@ -1215,7 +1217,7 @@ impl Render for CalendarPopup {
                                         )
                                         .child(div().text_size(px(22.)).pt_2().child("\u{b0}C")),
                                 )
-                                .child(div().text_size(px(15.)).child(weather_text(w.code))),
+                                .child(div().text_size(px(16.)).child(weather_text(w.code))),
                         )
                         .child(
                             div()
@@ -1229,7 +1231,7 @@ impl Render for CalendarPopup {
                     div()
                         .flex()
                         .gap_4()
-                        .text_size(px(12.5))
+                        .text_size(px(12.))
                         .text_color(rgb(p.fg))
                         .child(format!("Feels like {:.0}\u{b0}", w.feels))
                         .child(format!("Humidity {}%", w.humidity))
@@ -1262,7 +1264,7 @@ impl Render for CalendarPopup {
                     .bg(if i == 0 { rgba((p.accent << 8) | 0x30) } else { rgba((p.dim << 8) | 0x1c) })
                     .child(div().text_size(px(12.)).text_color(rgb(p.dim)).child(if i == 0 { "Today".to_string() } else { d.label.clone() }))
                     .child(div().font_family(NF).text_size(px(24.)).text_color(rgb(p.accent)).child(weather_glyph(d.code, true)))
-                    .child(div().text_size(px(12.5)).font_weight(FontWeight::SEMIBOLD).child(format!("{:.0}\u{b0}", d.tmax)))
+                    .child(div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).child(format!("{:.0}\u{b0}", d.tmax)))
                     .child(div().text_size(px(12.)).text_color(rgb(p.dim)).child(format!("{:.0}\u{b0}", d.tmin)))
                     .child(div().text_size(px(12.)).text_color(rgb(p.accent)).child(format!("{}%", d.rain)))
             }),
@@ -1321,7 +1323,7 @@ impl Render for CalendarPopup {
                         .items_center()
                         .justify_center()
                         .rounded_full()
-                        .text_size(px(13.5))
+                        .text_size(px(14.))
                         .when(is_today, |d| d.bg(rgb(p.accent)).text_color(rgb(p.bg)).font_weight(FontWeight::SEMIBOLD))
                         .when(!is_today, |d| {
                             d.text_color(if !current {
@@ -1387,6 +1389,7 @@ impl Render for CalendarPopup {
             .children(weeks);
 
         div()
+            .font_family(NF)
             .size_full()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
@@ -1423,7 +1426,7 @@ impl Render for CalendarPopup {
             .rounded_2xl()
             .bg(rgba((p.bg << 8) | GLASS))
             .border_1()
-            .border_color(rgba((p.dim << 8) | 0x40))
+            .border_color(rgba((p.dim << 8) | 0x70))
             .text_color(rgb(p.fg))
             .text_size(px(14.))
             .child(card)
@@ -1491,6 +1494,7 @@ impl Render for Osd {
         let frac = if self.muted { 0. } else { self.vol.clamp(0., 1.) };
         let glyph = if self.muted || pct == 0 { "\u{f0581}" } else if pct < 34 { "\u{f057f}" } else if pct < 67 { "\u{f0580}" } else { "\u{f057e}" };
         div()
+            .font_family(NF)
             .size_full()
             .flex()
             .items_center()
@@ -1499,7 +1503,7 @@ impl Render for Osd {
             .rounded_2xl()
             .bg(rgba((p.bg << 8) | GLASS))
             .border_1()
-            .border_color(rgba((p.dim << 8) | 0x40))
+            .border_color(rgba((p.dim << 8) | 0x70))
             .text_color(rgb(p.fg))
             .child(div().font_family(NF).text_size(px(20.)).w(px(24.)).child(glyph))
             .child(
@@ -1515,7 +1519,7 @@ impl Render for Osd {
                     .w(px(44.))
                     .flex()
                     .justify_end()
-                    .text_size(px(13.))
+                    .text_size(px(14.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(if self.muted { "Muted".to_string() } else { format!("{pct}%") }),
             )
@@ -1777,6 +1781,7 @@ impl Render for Bar {
 
         let (clock_time, clock_date) = st.time.split_once('|').unwrap_or((st.time.as_str(), ""));
         div()
+            .font_family(NF)
             .size_full()
             .relative()
             .flex()
@@ -1785,7 +1790,7 @@ impl Render for Bar {
             .px_3()
             .bg(rgba((p.bg << 8) | GLASS))
             .border_t_1()
-            .border_color(rgba(0xffffff1f))
+            .border_color(rgba(0xffffff2e))
             .text_color(rgb(p.fg))
             .text_size(px(14.))
             // music wave behind everything (first child paints first)
@@ -1948,7 +1953,7 @@ impl Render for Bar {
                             .flex_col()
                             .items_end()
                             .px_2()
-                            .child(div().text_size(px(12.5)).font_weight(FontWeight::SEMIBOLD).child(clock_time.to_string()))
+                            .child(div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).child(clock_time.to_string()))
                             .child(div().text_size(px(12.)).text_color(rgb(p.dim)).child(clock_date.to_string())),
                     )
                     .child(
@@ -1969,7 +1974,6 @@ impl Render for Bar {
                             .when(self.notif_count > 0, |d| {
                                 d.child(
                                     div()
-                                        .font_family(".SystemUIFont")
                                         .text_size(px(12.))
                                         .font_weight(FontWeight::SEMIBOLD)
                                         .text_color(rgb(p.accent))
@@ -2000,7 +2004,7 @@ fn notif_card(n: &notify::Notif, p: &Palette, in_center: bool, id: usize, today:
         .bg(rgba((p.bg << 8) | if in_center { 0x00 } else { GLASS }))
         .when(in_center, |d| d.bg(rgba((p.dim << 8) | 0x22)))
         .border_1()
-        .border_color(if n.critical { rgba((0xf85149 << 8) | 0xcc) } else { rgba((p.dim << 8) | 0x40) })
+        .border_color(if n.critical { rgba((0xf85149 << 8) | 0xcc) } else { rgba((p.dim << 8) | 0x70) })
         .hover(|s| s.bg(rgba((p.accent << 8) | 0x30)))
         .text_color(rgb(p.fg))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -2045,7 +2049,7 @@ fn notif_card(n: &notify::Notif, p: &Palette, in_center: bool, id: usize, today:
                         .whitespace_nowrap()
                         .text_ellipsis()
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_size(px(13.5))
+                        .text_size(px(14.))
                         .child(n.summary.clone()),
                 )
                 .child(div().max_h(px(34.)).line_height(px(17.)).overflow_hidden().text_size(px(12.)).text_color(rgb(p.fg)).opacity(0.85).child(n.body.clone())),
@@ -2084,6 +2088,7 @@ impl Render for NotifPopup {
         let p = self.pal.clone();
         let today = today_dm();
         div()
+            .font_family(NF)
             .size_full()
             .flex()
             .flex_col()
@@ -2174,6 +2179,7 @@ struct NotifCenter {
     pal: Palette,
     focus: FocusHandle,
     gen: u64,
+    confirm_clear: bool, // "Clear all" asks once before deleting every notification
 }
 
 impl NotifCenter {
@@ -2197,7 +2203,7 @@ impl NotifCenter {
             }
         })
         .detach();
-        NotifCenter { pal: palette(), focus, gen: notify::generation() }
+        NotifCenter { pal: palette(), focus, gen: notify::generation(), confirm_clear: false }
     }
 }
 
@@ -2220,6 +2226,7 @@ impl Render for NotifCenter {
                 .child(label)
         };
         div()
+            .font_family(NF)
             .size_full()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|_, ev: &KeyDownEvent, window, cx| {
@@ -2248,7 +2255,7 @@ impl Render for NotifCenter {
                     .rounded_2xl()
                     .bg(rgba((p.bg << 8) | GLASS))
                     .border_1()
-                    .border_color(rgba((p.dim << 8) | 0x40))
+                    .border_color(rgba((p.dim << 8) | 0x70))
                     .text_color(rgb(p.fg))
                     .text_size(px(14.))
                     .child(
@@ -2256,17 +2263,35 @@ impl Render for NotifCenter {
                             .flex()
                             .items_center()
                             .gap_2()
-                            .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).text_size(px(15.)).child("Notifications"))
+                            .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).text_size(px(16.)).child("Notifications"))
                             .child(pill("nc-dnd", format!("Do not disturb: {}", if dnd { "On" } else { "Off" }), dnd).on_click(
                                 cx.listener(|_, _, _, cx| {
                                     notify::toggle_dnd();
                                     cx.notify();
                                 }),
                             ))
-                            .child(pill("nc-clear", "Clear all".into(), false).on_click(cx.listener(|_, _, _, cx| {
-                                notify::clear_all();
-                                cx.notify();
-                            }))),
+                            .children(if self.confirm_clear {
+                                let n = notify::all().len();
+                                vec![
+                                    pill("nc-keep", "Keep".into(), false).on_click(cx.listener(|this, _, _, cx| {
+                                        this.confirm_clear = false;
+                                        cx.notify();
+                                    })),
+                                    pill("nc-clear-yes", if n == 1 { "Delete 1 notification".into() } else { format!("Delete {n} notifications") }, false)
+                                        .bg(rgba((0xf85149 << 8) | 0xcc))
+                                        .text_color(rgb(0xffffff))
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            notify::clear_all();
+                                            this.confirm_clear = false;
+                                            cx.notify();
+                                        })),
+                                ]
+                            } else {
+                                vec![pill("nc-clear", "Clear all".into(), false).on_click(cx.listener(|this, _, _, cx| {
+                                    this.confirm_clear = true;
+                                    cx.notify();
+                                }))]
+                            }),
                     )
                     .child(
                         div()
@@ -2384,6 +2409,7 @@ struct ClipPanel {
     query: String,
     sel: usize,
     last_input: std::time::Instant,
+    confirm_wipe: bool, // "Clear all" asks once before deleting the whole history
 }
 
 impl ClipPanel {
@@ -2400,7 +2426,7 @@ impl ClipPanel {
             }
         })
         .detach();
-        ClipPanel { pal: palette(), focus, clips: read_clips(), query: String::new(), sel: 0, last_input: std::time::Instant::now() }
+        ClipPanel { pal: palette(), focus, clips: read_clips(), query: String::new(), sel: 0, last_input: std::time::Instant::now(), confirm_wipe: false }
     }
 
     fn visible(&self) -> Vec<Clip> {
@@ -2412,6 +2438,18 @@ impl ClipPanel {
 impl Render for ClipPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.pal.clone();
+        let small_btn = |id: &'static str, label: String| {
+            div()
+                .id(id)
+                .cursor_pointer()
+                .px_3()
+                .py_2()
+                .rounded_lg()
+                .text_size(px(12.))
+                .bg(rgba((p.dim << 8) | 0x28))
+                .hover(|s| s.bg(rgba((p.accent << 8) | 0x50)))
+                .child(label)
+        };
         let list = self.visible();
         let sel = self.sel.min(list.len().saturating_sub(1));
         let rows = list.iter().enumerate().map(|(i, c)| {
@@ -2451,6 +2489,7 @@ impl Render for ClipPanel {
                 })
         });
         div()
+            .font_family(NF)
             .size_full()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
@@ -2514,7 +2553,7 @@ impl Render for ClipPanel {
                     .rounded_2xl()
                     .bg(rgba((p.bg << 8) | GLASS))
                     .border_1()
-                    .border_color(rgba((p.dim << 8) | 0x40))
+                    .border_color(rgba((p.dim << 8) | 0x70))
                     .text_color(rgb(p.fg))
                     .text_size(px(14.))
                     .child(
@@ -2531,29 +2570,37 @@ impl Render for ClipPanel {
                                     .px_4()
                                     .rounded_xl()
                                     .bg(rgba((p.dim << 8) | 0x28))
+                                    .gap_2()
+                                    .child(div().text_color(rgb(p.dim)).child("\u{f002}"))
                                     .child(if self.query.is_empty() {
                                         div().text_color(rgb(p.dim)).child("Search clipboard history…")
                                     } else {
                                         div().child(format!("{}\u{258f}", self.query))
                                     }),
                             )
-                            .child(
-                                div()
-                                    .id("clip-wipe")
-                                    .cursor_pointer()
-                                    .px_3()
-                                    .py_2()
-                                    .rounded_lg()
-                                    .text_size(px(12.))
-                                    .bg(rgba((p.dim << 8) | 0x28))
-                                    .hover(|s| s.bg(rgba((p.accent << 8) | 0x50)))
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        run_bg("cliphist wipe");
-                                        this.clips.clear();
+                            .children(if self.confirm_wipe {
+                                let n = self.clips.len();
+                                vec![
+                                    small_btn("clip-keep", "Keep".into()).on_click(cx.listener(|this, _, _, cx| {
+                                        this.confirm_wipe = false;
                                         cx.notify();
-                                    }))
-                                    .child("Clear all"),
-                            ),
+                                    })),
+                                    small_btn("clip-wipe-yes", if n == 1 { "Delete 1 item".to_string() } else { format!("Delete {n} items") })
+                                        .bg(rgba((0xf85149 << 8) | 0xcc))
+                                        .text_color(rgb(0xffffff))
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            run_bg("cliphist wipe");
+                                            this.clips.clear();
+                                            this.confirm_wipe = false;
+                                            cx.notify();
+                                        })),
+                                ]
+                            } else {
+                                vec![small_btn("clip-wipe", "Clear all".into()).on_click(cx.listener(|this, _, _, cx| {
+                                    this.confirm_wipe = true;
+                                    cx.notify();
+                                }))]
+                            }),
                     )
                     .child(
                         div()
@@ -2729,7 +2776,7 @@ impl Render for ShotOverlay {
             (None, Some(win)) => format!("{}  ({} × {})", win.title, win.w as i32, win.h as i32),
             _ => "Drag to select a region · click a window · F for the whole screen".to_string(),
         };
-        let mut root = div()
+        let mut root = div().font_family(NF)
             .size_full()
             .relative()
             .cursor_crosshair()
@@ -2806,7 +2853,7 @@ impl Render for ShotOverlay {
                         .border_1()
                         .border_color(rgba((p.dim << 8) | 0x50))
                         .text_color(rgb(p.fg))
-                        .text_size(px(13.))
+                        .text_size(px(14.))
                         .child(label),
                 ),
         )
@@ -2975,6 +3022,7 @@ impl Render for WpPicker {
                 .when(thumb.exists(), |d| d.child(img(thumb).size_full().object_fit(ObjectFit::Cover)))
         });
         div()
+            .font_family(NF)
             .size_full()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
@@ -3022,7 +3070,7 @@ impl Render for WpPicker {
                     .rounded_2xl()
                     .bg(rgba((p.bg << 8) | GLASS))
                     .border_1()
-                    .border_color(rgba((p.dim << 8) | 0x40))
+                    .border_color(rgba((p.dim << 8) | 0x70))
                     .text_color(rgb(p.fg))
                     .text_size(px(14.))
                     .child(
@@ -3030,7 +3078,7 @@ impl Render for WpPicker {
                             .flex()
                             .items_center()
                             .gap_2()
-                            .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).text_size(px(15.)).child("Wallpaper"))
+                            .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).text_size(px(16.)).child("Wallpaper"))
                             .child(
                                 div()
                                     .id("wp-random")
@@ -3045,7 +3093,7 @@ impl Render for WpPicker {
                                         run_bg("setsid ~/.local/bin/fiaboo-wallpaper --random");
                                         close_wp(window, cx);
                                     })
-                                    .child("Random"),
+                                    .child("Shuffle"),
                             ),
                     )
                     .child(
@@ -3065,7 +3113,7 @@ impl Render for WpPicker {
                         div()
                             .text_size(px(12.))
                             .text_color(rgb(p.dim))
-                            .child(format!("{} images   ·   Arrows + Enter or click: apply   ·   R: random   ·   Esc: close", self.list.len())),
+                            .child(format!("{} images   ·   Arrows + Enter or click: apply   ·   R: shuffle   ·   Esc: close", self.list.len())),
                     ),
             )
     }
@@ -3324,12 +3372,13 @@ impl Render for SettingsPanel {
                 .px_3()
                 .py_2p5()
                 .rounded_lg()
-                .text_size(px(13.))
+                .text_size(px(14.))
                 .bg(rgba((p.dim << 8) | 0x28))
                 .hover(|s| s.bg(rgba((p.accent << 8) | 0x40)))
                 .child(label)
         };
         div()
+            .font_family(NF)
             .size_full()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
@@ -3356,10 +3405,21 @@ impl Render for SettingsPanel {
                     .rounded_2xl()
                     .bg(rgba((p.bg << 8) | GLASS))
                     .border_1()
-                    .border_color(rgba((p.dim << 8) | 0x40))
+                    .border_color(rgba((p.dim << 8) | 0x70))
                     .text_color(rgb(p.fg))
-                    .text_size(px(13.5))
-                    .child(div().font_weight(FontWeight::SEMIBOLD).text_size(px(15.)).child("Settings"))
+                    .text_size(px(14.))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).text_size(px(16.)).child("Settings"))
+                            .child(btn("s-wp", "Change wallpaper").on_click(|_, window, cx| {
+                                close_settings(window, cx);
+                                toggle_wp(cx);
+                            }))
+                            .child(btn("s-theme", "Switch theme").on_click(|_, _, _| run_bg("setsid ~/.local/bin/fiaboo-wallpaper --toggle-theme"))),
+                    )
                     .child(
                         div()
                             .id("settings-body")
@@ -3387,17 +3447,7 @@ impl Render for SettingsPanel {
                             .child(section("About"))
                             .children(info.about.iter().map(|(a, b)| row(a.to_string(), b.clone()))),
                     )
-                    .child(
-                        div()
-                            .flex()
-                            .gap_2()
-                            .justify_end()
-                            .child(btn("s-wp", "Wallpaper").on_click(|_, window, cx| {
-                                close_settings(window, cx);
-                                toggle_wp(cx);
-                            }))
-                            .child(btn("s-theme", "Light / dark").on_click(|_, _, _| run_bg("setsid ~/.local/bin/fiaboo-wallpaper --toggle-theme"))),
-                    ),
+
             )
     }
 }
@@ -3547,7 +3597,9 @@ impl Render for StartMenu {
             .px_4()
             .rounded_xl()
             .bg(rgba((p.dim << 8) | 0x28))
-            .text_size(px(15.))
+            .text_size(px(16.))
+            .gap_2()
+            .child(div().text_color(rgb(p.dim)).child("\u{f002}"))
             .child(if searching {
                 div().text_color(rgb(p.fg)).child(format!("{}\u{258f}", self.query))
             } else {
@@ -3654,7 +3706,7 @@ impl Render for StartMenu {
                 .px_3()
                 .py_1p5()
                 .rounded_lg()
-                .text_size(px(13.))
+                .text_size(px(14.))
                 .bg(rgba((p.dim << 8) | 0x28))
                 .hover(|s| s.bg(rgba((p.accent << 8) | 0x40)))
                 .on_click(move |_, window, cx| {
@@ -3671,7 +3723,7 @@ impl Render for StartMenu {
                 .px_3()
                 .py_1p5()
                 .rounded_lg()
-                .text_size(px(13.))
+                .text_size(px(14.))
                 .bg(rgba((p.dim << 8) | 0x28))
                 .hover(|s| s.bg(rgba((p.accent << 8) | 0x40)))
                 .child(label)
@@ -3723,6 +3775,7 @@ impl Render for StartMenu {
             })));
 
         div()
+            .font_family(NF)
             .size_full()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
@@ -3778,7 +3831,7 @@ impl Render for StartMenu {
             .rounded_2xl()
             .bg(rgba((p.bg << 8) | GLASS))
             .border_1()
-            .border_color(rgba((p.dim << 8) | 0x40))
+            .border_color(rgba((p.dim << 8) | 0x70))
             .text_color(rgb(p.fg))
             .text_size(px(14.))
             .child(search)
@@ -3956,7 +4009,7 @@ impl Render for TaskView {
                 .rounded_xl()
                 .bg(rgba((p.dim << 8) | 0x26))
                 .border_1()
-                .border_color(rgba((p.dim << 8) | 0x40))
+                .border_color(rgba((p.dim << 8) | 0x70))
                 .when(i == sel, |d| d.border_2().border_color(rgb(p.accent)))
                 .hover(|s| s.bg(rgba((p.accent << 8) | 0x38)))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -3996,12 +4049,13 @@ impl Render for TaskView {
                         .overflow_hidden()
                         .whitespace_nowrap()
                         .text_ellipsis()
-                        .text_size(px(13.))
+                        .text_size(px(14.))
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(w.title.clone()),
                 )
         });
         div()
+            .font_family(NF)
             .size_full()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
