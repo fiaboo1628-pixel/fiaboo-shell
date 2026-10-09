@@ -14,7 +14,7 @@ use std::{
 
 use gpui::{
     canvas, div, img, linear_color_stop, linear_gradient, layer_shell::*, point, prelude::*, px, rgb, rgba, size, AnyWindowHandle, App, Bounds,
-    Context, FocusHandle, FontWeight, Global, KeyDownEvent, MouseButton, ObjectFit, PathBuilder, Pixels, Point, Window,
+    Context, Entity, FocusHandle, FontWeight, Global, KeyDownEvent, MouseButton, ObjectFit, PathBuilder, Window,
     WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions,
 };
 
@@ -33,7 +33,6 @@ const TILT_DB_PER_OCT: f32 = 3.; // lifts the treble, music energy falls ~3 dB p
 // display easing per frame (~60 fps): how far the drawn level moves toward the new one
 const RISE: f32 = 0.09;
 const FALL: f32 = 0.035;
-const MINI_H: f32 = 72.;
 
 /// Latest band levels 0..1 (bass first), written by the capture thread.
 static LEVELS: Mutex<[f32; BANDS]> = Mutex::new([0.; BANDS]);
@@ -124,27 +123,19 @@ fn mirrored(lv: &[f32; BANDS], i: usize) -> f32 {
     lv[if i < BANDS { i } else { 2 * BANDS - 1 - i }]
 }
 
-/// Smooth curve through `pts` (quadratic segments between midpoints); `closed` joins the ends.
-fn smooth(pb: &mut PathBuilder, pts: &[Point<Pixels>], closed: bool, start: bool) {
-    let mid = |a: Point<Pixels>, b: Point<Pixels>| point((a.x + b.x) / 2., (a.y + b.y) / 2.);
-    let n = pts.len();
-    if closed {
-        pb.move_to(mid(pts[n - 1], pts[0]));
-        for i in 0..n {
-            pb.curve_to(mid(pts[i], pts[(i + 1) % n]), pts[i]);
-        }
-        pb.close();
-    } else {
-        if start {
-            pb.move_to(pts[0]);
-        } else {
-            pb.line_to(pts[0]);
-        }
-        for i in 1..n - 1 {
-            pb.curve_to(mid(pts[i], pts[i + 1]), pts[i]);
-        }
-        pb.line_to(pts[n - 1]);
-    }
+fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
+    let t = ((x - e0) / (e1 - e0)).clamp(0., 1.);
+    t * t * (3. - 2. * t)
+}
+
+/// Two crossing waves in the style of WayVes' logo: (top, bottom) offsets from the centre line at
+/// `x` (0..1) for bass `s` (0..1) and phase `t`; flat in the middle 20 %, fading out towards both ends.
+fn wayve(x: f32, s: f32, t: f32, amp: f32) -> (f32, f32) {
+    let top = amp * (0.03 * (x * 500. * (1. + 0.5 * s) + 1000. * s + t)).sin();
+    let bottom = 0.77 * amp * (0.03 * (x * 400. * (1. + 0.5 * s) + 400. * s - 12. + 2. * t)).sin();
+    let e = (((x * 2. - 1.).abs() - 0.2) / 0.8).max(0.);
+    let env = (-5. * e * e).exp();
+    (top * env, bottom * env)
 }
 
 // ---------- now playing + cover art ----------
@@ -233,7 +224,7 @@ fn load_cover(url: &str) -> Option<Cover> {
 // ---------- windows ----------
 #[derive(Default)]
 struct VizState {
-    mini: Option<AnyWindowHandle>,
+    mini: Option<Entity<Mini>>, // drawn inside the taskbar, behind its icons
     full: Option<AnyWindowHandle>,
 }
 impl Global for VizState {}
@@ -306,19 +297,24 @@ pub fn restore(cx: &mut App) {
     }
 }
 
-/// `fiaboo-shell viz`: show/hide the strip above the taskbar.
+/// `fiaboo-shell viz`: show/hide the wave inside the taskbar.
 pub fn toggle_mini(cx: &mut App) {
-    if let Some(h) = state(cx).mini.take() {
+    if state(cx).mini.take().is_some() {
         let _ = std::fs::remove_file(mini_flag());
-        return close(Some(h), cx);
+        cx.refresh_windows();
+        return close(None, cx);
     }
     let _ = std::fs::create_dir_all(format!("{}/.cache/fiaboo-shell/viz", home()));
     let _ = std::fs::write(mini_flag(), "");
     capture_start();
-    let h = layer_window(cx, "fiaboo-viz", Layer::Bottom, Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT, MINI_H, KeyboardInteractivity::None, |w, cx| {
-        Mini::new(w, cx)
-    });
-    state(cx).mini = h;
+    let m = cx.new(Mini::new);
+    state(cx).mini = Some(m);
+    cx.refresh_windows();
+}
+
+/// The taskbar wave while it is on, for the bar to draw behind its contents.
+pub fn mini(cx: &App) -> Option<Entity<Mini>> {
+    cx.try_global::<VizState>().and_then(|s| s.mini.clone())
 }
 
 /// `fiaboo-shell viz-full` (or double-click the strip): fullscreen studio; Esc leaves.
@@ -362,22 +358,37 @@ fn tick<V: 'static>(window: &mut Window, cx: &mut Context<V>, mut every_second: 
     .detach();
 }
 
-struct Mini {
-    pal: Palette,
+pub struct Mini {
     shown: [f32; BANDS],
+    bass: f32,  // eased bass that bends the waves
+    alpha: f32, // eased loudness: the strip fades out in silence
+    start: std::time::Instant,
 }
 
 impl Mini {
-    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        tick(window, cx, |m: &mut Mini, _| m.pal = palette());
-        Mini { pal: palette(), shown: [0.; BANDS] }
+    fn new(cx: &mut Context<Self>) -> Self {
+        // redraw at ~60 fps until the bar lets go of it
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor().timer(Duration::from_millis(16)).await;
+            if this.update(cx, |_, cx| cx.notify()).is_err() {
+                break;
+            }
+        })
+        .detach();
+        Mini { shown: [0.; BANDS], bass: 0., alpha: 0., start: std::time::Instant::now() }
     }
 }
 
 impl Render for Mini {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         ease(&mut self.shown, RISE, FALL);
-        let (lv, accent) = (self.shown, self.pal.accent);
+        let bass = self.shown[..8].iter().sum::<f32>() / 8.;
+        let loud = self.shown.iter().sum::<f32>() / BANDS as f32;
+        // bass moves the phase a lot (up to ~30 rad), so it gets its own slow easing
+        self.bass += (smoothstep(0.25, 1., bass) - self.bass) * 0.04;
+        // at most 0.75: it sits behind the taskbar icons
+        self.alpha += (0.75 * smoothstep(0.02, 0.2, loud) - self.alpha) * 0.03;
+        let (s, alpha, t) = (self.bass, self.alpha, self.start.elapsed().as_secs_f32() * 20.);
         div()
             .size_full()
             .on_mouse_down(MouseButton::Left, |ev, _, cx| {
@@ -389,30 +400,57 @@ impl Render for Mini {
                 canvas(
                     |_, _, _| (),
                     move |b, _, window, _| {
-                        // one soft wave across the screen (fill only): treble at the edges, bass in the middle
+                        if alpha < 0.01 {
+                            return;
+                        }
+                        const CYAN: u32 = 0x00fff2;
+                        const WHITE: u32 = 0xffffff;
+                        const MAGENTA: u32 = 0xf700ff;
+                        const STEP: f32 = 4.;
                         let (x0, w) = (f32::from(b.origin.x), f32::from(b.size.width));
-                        let bottom = f32::from(b.origin.y) + f32::from(b.size.height);
-                        let n = BANDS * 2;
-                        let pts: Vec<_> = (0..n)
+                        let h = f32::from(b.size.height);
+                        let mid = f32::from(b.origin.y) + h / 2.;
+                        let amp = (h - 12.) * 7. / 16.;
+                        let n = (w / STEP) as usize + 1;
+                        // (x, top y, bottom y) along the screen
+                        let wave: Vec<(f32, f32, f32)> = (0..=n)
                             .map(|i| {
-                                let v = lv[if i < BANDS { BANDS - 1 - i } else { i - BANDS }];
-                                point(px(x0 + w * i as f32 / (n - 1) as f32), px(bottom - 2. - v * (MINI_H - 10.)))
+                                let x = (i as f32 * STEP).min(w);
+                                let (a, b) = wayve(x / w, s, t, amp);
+                                (x0 + x, mid - a, mid - b)
                             })
                             .collect();
-                        let mut area = PathBuilder::fill();
-                        area.move_to(point(px(x0), px(bottom)));
-                        smooth(&mut area, &pts, false, false);
-                        area.line_to(point(px(x0 + w), px(bottom)));
-                        area.close();
-                        if let Ok(p) = area.build() {
-                            window.paint_path(
-                                p,
-                                linear_gradient(
-                                    180.,
-                                    linear_color_stop(rgba((accent << 8) | 0x10), 0.),
-                                    linear_color_stop(rgba((accent << 8) | 0x48), 1.),
-                                ),
-                            );
+                        let a = |v: f32| ((v * alpha) as u32).min(0xff);
+                        // the blue body between the two waves
+                        let mut pb = PathBuilder::fill();
+                        let body: Vec<_> = wave.iter().map(|p| point(px(p.0), px(p.1))).chain(wave.iter().rev().map(|p| point(px(p.0), px(p.2)))).collect();
+                        pb.add_polygon(&body, true);
+                        if let Ok(p) = pb.build() {
+                            window.paint_path(p, rgba(0x004cff00 | a(48.)));
+                        }
+                        // the lines: a ribbon `half` px thick each side, thinning over the last 100 px at the ends;
+                        // wide faint ribbons under the core fake the glow. Two halves: cyan -> white -> magenta.
+                        let taper = |x: f32| smoothstep(0., 100., x - x0) * smoothstep(0., 100., x0 + w - x);
+                        let half_n = wave.len() / 2;
+                        for (half, v) in [(7., 20.), (4., 48.), (1.5, 255.)] {
+                            for top in [true, false] {
+                                for (part, from, to) in [(&wave[..=half_n], CYAN, WHITE), (&wave[half_n..], WHITE, MAGENTA)] {
+                                    let y = |p: &(f32, f32, f32)| if top { p.1 } else { p.2 };
+                                    let pts: Vec<_> = part
+                                        .iter()
+                                        .map(|p| point(px(p.0), px(y(p) - half * taper(p.0))))
+                                        .chain(part.iter().rev().map(|p| point(px(p.0), px(y(p) + half * taper(p.0)))))
+                                        .collect();
+                                    let mut pb = PathBuilder::fill();
+                                    pb.add_polygon(&pts, true);
+                                    if let Ok(p) = pb.build() {
+                                        window.paint_path(
+                                            p,
+                                            linear_gradient(90., linear_color_stop(rgba((from << 8) | a(v)), 0.), linear_color_stop(rgba((to << 8) | a(v)), 1.)),
+                                        );
+                                    }
+                                }
+                            }
                         }
                     },
                 )
@@ -642,6 +680,16 @@ mod tests {
         let (lo, hi) = (peak(bands(&tone(100.))), peak(bands(&tone(5000.))));
         assert!(lo < 10 && hi > 35, "100 Hz -> band {lo}, 5 kHz -> band {hi}");
         assert!(bands(&vec![0.; N]).iter().all(|&v| v == 0.));
+    }
+    #[test]
+    fn wayve_tapers_to_nothing_at_the_ends() {
+        for s in [0., 0.5, 1.] {
+            let (a, b) = wayve(0., s, 3., 26.);
+            let (c, d) = wayve(1., s, 3., 26.);
+            assert!([a, b, c, d].iter().all(|v| v.abs() < 0.2), "edges {a} {b} {c} {d}");
+        }
+        let peak = (0..=100).map(|i| wayve(i as f32 / 100., 0.3, 0., 26.).0.abs()).fold(0., f32::max);
+        assert!(peak > 15., "middle peak {peak}");
     }
     #[test]
     fn track_and_file_url() {

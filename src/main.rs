@@ -1686,9 +1686,10 @@ impl Bar {
 }
 
 impl Render for Bar {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.pal.clone();
         let st = &self.st;
+        let wave = viz::mini(cx);
 
         let dots = (1..=5).map(|id| {
             let is_active = id == st.active_ws;
@@ -1778,6 +1779,7 @@ impl Render for Bar {
         let (clock_time, clock_date) = st.time.split_once('|').unwrap_or((st.time.as_str(), ""));
         div()
             .size_full()
+            .relative()
             .flex()
             .flex_row()
             .items_center()
@@ -1787,6 +1789,8 @@ impl Render for Bar {
             .border_color(rgba(0xffffff1f))
             .text_color(rgb(p.fg))
             .text_size(px(14.))
+            // music wave behind everything (first child paints first)
+            .children(wave.map(|w| div().absolute().top_0().left_0().size_full().child(w)))
             // left: start button + workspaces
             .child(
                 div()
