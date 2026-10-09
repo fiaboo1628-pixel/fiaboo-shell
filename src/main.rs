@@ -35,6 +35,7 @@ struct Palette {
     bg: u32,
     fg: u32,
     accent: u32,
+    accent2: u32, // tertiary, for two-colour accents (the taskbar wave)
     dim: u32,
 }
 
@@ -54,6 +55,7 @@ fn palette() -> Palette {
         bg: get("background", 0x0f1417),
         fg: get("foreground", 0xdfe3e7),
         accent: get("color4", 0x8fcff3),
+        accent2: get("color5", 0xd5bee5),
         dim: get("color6", 0xb5c9d7),
     }
 }

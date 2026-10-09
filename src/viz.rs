@@ -15,7 +15,7 @@ use std::{
 
 use gpui::{canvas, div, linear_color_stop, linear_gradient, point, prelude::*, px, rgba, App, Context, Entity, Global, PathBuilder, Window};
 
-use crate::home;
+use crate::{home, palette, Palette};
 
 pub const BANDS: usize = 48;
 const RATE: usize = 44100;
@@ -255,6 +255,7 @@ fn tick<V: 'static>(cx: &mut Context<V>, mut frame: impl FnMut(&mut V, u32) -> b
 }
 
 pub struct Mini {
+    pal: Palette, // the wave takes its colours from the wallpaper (matugen)
     shown: [f32; BANDS],
     drive: Drive,
     bass: f32,  // eased bass that bends the waves
@@ -265,8 +266,13 @@ pub struct Mini {
 
 impl Mini {
     fn new(cx: &mut Context<Self>) -> Self {
-        tick(cx, |m: &mut Mini, _| m.step());
-        Mini { shown: [0.; BANDS], drive: Drive::default(), bass: 0., alpha: 0., drawn: false, start: std::time::Instant::now() }
+        tick(cx, |m: &mut Mini, n| {
+            if n % 120 == 0 {
+                m.pal = palette(); // picks up a new wallpaper within ~2 s
+            }
+            m.step()
+        });
+        Mini { pal: palette(), shown: [0.; BANDS], drive: Drive::default(), bass: 0., alpha: 0., drawn: false, start: std::time::Instant::now() }
     }
 
     /// Follow the music; true when the bar must redraw (in silence it stays still: whole-bar redraws cost ~8 % CPU).
@@ -293,6 +299,7 @@ impl Mini {
 impl Render for Mini {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         let (s, alpha, t) = (self.bass, self.alpha, self.start.elapsed().as_secs_f32() * 20.);
+        let (c_left, c_mid, c_right) = (self.pal.accent, self.pal.fg, self.pal.accent2);
         div()
             .size_full()
             .child(
@@ -302,9 +309,6 @@ impl Render for Mini {
                         if alpha < 0.01 {
                             return;
                         }
-                        const CYAN: u32 = 0x00fff2;
-                        const WHITE: u32 = 0xffffff;
-                        const MAGENTA: u32 = 0xf700ff;
                         const STEP: f32 = 8.;
                         let (x0, w) = (f32::from(b.origin.x), f32::from(b.size.width));
                         let h = f32::from(b.size.height);
@@ -325,15 +329,15 @@ impl Render for Mini {
                         let body: Vec<_> = wave.iter().map(|p| point(px(p.0), px(p.1))).chain(wave.iter().rev().map(|p| point(px(p.0), px(p.2)))).collect();
                         pb.add_polygon(&body, true);
                         if let Ok(p) = pb.build() {
-                            window.paint_path(p, rgba(0x004cff00 | a(48.)));
+                            window.paint_path(p, rgba((c_left << 8) | a(48.)));
                         }
                         // the lines: a ribbon `half` px thick each side, thinning over the last 100 px at the ends;
-                        // wide faint ribbons under the core fake the glow. Two halves: cyan -> white -> magenta.
+                        // wide faint ribbons under the core fake the glow. Two halves: wallpaper primary -> foreground -> tertiary.
                         let taper = |x: f32| smoothstep(0., 100., x - x0) * smoothstep(0., 100., x0 + w - x);
                         let half_n = wave.len() / 2;
                         for (half, v) in [(4., 16.), (2.5, 40.), (1., 230.)] {
                             for top in [true, false] {
-                                for (part, from, to) in [(&wave[..=half_n], CYAN, WHITE), (&wave[half_n..], WHITE, MAGENTA)] {
+                                for (part, from, to) in [(&wave[..=half_n], c_left, c_mid), (&wave[half_n..], c_mid, c_right)] {
                                     let y = |p: &(f32, f32, f32)| if top { p.1 } else { p.2 };
                                     let pts: Vec<_> = part
                                         .iter()
