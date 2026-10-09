@@ -42,6 +42,7 @@ static LIST: Mutex<Vec<Notif>> = Mutex::new(Vec::new()); // newest first
 static NEXT_ID: AtomicU32 = AtomicU32::new(1);
 static GEN: AtomicU64 = AtomicU64::new(0); // bumps on every change, the UI re-renders when it moves
 static DND: AtomicBool = AtomicBool::new(false);
+static SEEN: AtomicU32 = AtomicU32::new(0); // ids up to this one were on screen in the center
 static CONN: OnceLock<Connection> = OnceLock::new();
 
 fn changed() {
@@ -54,6 +55,18 @@ pub fn generation() -> u64 {
 
 pub fn all() -> Vec<Notif> {
     LIST.lock().unwrap().clone()
+}
+
+/// How many arrived since the center was last opened (the bell count).
+pub fn unseen() -> usize {
+    let seen = SEEN.load(Ordering::Relaxed);
+    LIST.lock().unwrap().iter().filter(|n| n.id > seen).count()
+}
+
+/// The center was opened: everything in it now counts as seen.
+pub fn mark_seen() {
+    SEEN.store(NEXT_ID.load(Ordering::Relaxed).saturating_sub(1), Ordering::Relaxed);
+    changed();
 }
 
 pub fn popups() -> Vec<Notif> {
@@ -295,7 +308,9 @@ fn load() {
             })
         })
         .collect();
-    NEXT_ID.store(list.iter().map(|n| n.id).max().unwrap_or(0) + 1, Ordering::Relaxed);
+    let max = list.iter().map(|n| n.id).max().unwrap_or(0);
+    NEXT_ID.store(max + 1, Ordering::Relaxed);
+    SEEN.store(max, Ordering::Relaxed); // what was stored before a restart is not news
     // drop cached notification images nothing refers to any more
     if let Ok(rd) = fs::read_dir(cache_dir()) {
         for e in rd.flatten() {
@@ -365,6 +380,30 @@ pub fn start() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bell_counts_only_unseen() {
+        let base = NEXT_ID.load(Ordering::Relaxed);
+        SEEN.store(base.saturating_sub(1), Ordering::Relaxed);
+        let before = unseen();
+        for _ in 0..2 {
+            let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+            LIST.lock().unwrap().insert(0, Notif {
+                id,
+                app: "t".into(),
+                summary: "s".into(),
+                body: String::new(),
+                icon: String::new(),
+                actions: vec![],
+                critical: false,
+                time: String::new(),
+                popup_until: None,
+            });
+        }
+        assert_eq!(unseen(), before + 2);
+        mark_seen();
+        assert_eq!(unseen(), 0);
+        LIST.lock().unwrap().retain(|n| n.id < base);
+    }
     #[test]
     fn markup_is_stripped() {
         assert_eq!(strip_markup("<b>Hi</b> &amp; <i>bye</i> &lt;3"), "Hi & bye <3");

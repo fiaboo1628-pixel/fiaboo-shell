@@ -1447,6 +1447,7 @@ struct Bar {
     notif_gen: u64,
     notif_count: usize,
     recording: bool,
+    panels_open: bool, // popups were hidden for an open panel
 }
 
 static HYPR_DIRTY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
@@ -1663,9 +1664,11 @@ impl Bar {
                     hide_osd_if_due(cx);
                     notify::expire_popups();
                     let g = notify::generation();
-                    if g != bar.notif_gen {
+                    let panels = panel_open(cx);
+                    if g != bar.notif_gen || panels != bar.panels_open {
                         bar.notif_gen = g;
-                        bar.notif_count = notify::all().len();
+                        bar.panels_open = panels;
+                        bar.notif_count = notify::unseen();
                         sync_notif_popups(cx);
                         changed = true;
                     }
@@ -1686,7 +1689,7 @@ impl Bar {
             }
         })
         .detach();
-        Bar { pal: palette(), st: State::default(), sys: Sys::default(), tray: tray::items(), notif_gen: u64::MAX, notif_count: 0, recording: false }
+        Bar { pal: palette(), st: State::default(), sys: Sys::default(), tray: tray::items(), notif_gen: u64::MAX, notif_count: 0, recording: false, panels_open: false }
     }
 }
 
@@ -2101,8 +2104,26 @@ impl Render for NotifPopup {
 }
 
 /// Open, resize (by reopening) or close the popup window so it matches notify::popups().
+/// Any shell panel or the screenshot overlay is open.
+fn panel_open(cx: &App) -> bool {
+    fn on<G: Global>(cx: &App, open: impl Fn(&G) -> bool) -> bool {
+        cx.try_global::<G>().is_some_and(open)
+    }
+    on::<QuickState>(cx, |s| s.0.is_some())
+        || on::<TrayMenuState>(cx, |s| s.0.is_some())
+        || on::<CalState>(cx, |s| s.0.is_some())
+        || on::<NotifCenterState>(cx, |s| s.0.is_some())
+        || on::<ClipState>(cx, |s| s.0.is_some())
+        || on::<ShotState>(cx, |s| s.0.is_some())
+        || on::<WpState>(cx, |s| s.0.is_some())
+        || on::<SettingsState>(cx, |s| s.0.is_some())
+        || on::<StartState>(cx, |s| s.0.is_some())
+        || on::<TaskViewState>(cx, |s| s.0.is_some())
+}
+
 fn sync_notif_popups(cx: &mut App) {
-    let list = notify::popups();
+    // popups would cover the open panel, or end up in a screenshot; they come back when it closes
+    let list = if panel_open(cx) { Vec::new() } else { notify::popups() };
     let cur = cx.try_global::<NotifPopupState>().and_then(|s| s.0);
     if let Some((h, n)) = cur {
         if n == list.len() && h.update(cx, |v, _, cx| { v.list = list.clone(); cx.notify(); }).is_ok() {
@@ -2149,6 +2170,7 @@ fn toggle_notif_center(cx: &mut App) {
             return;
         }
     }
+    notify::mark_seen();
     let opened = cx.open_window(
         WindowOptions {
             titlebar: None,
@@ -2266,7 +2288,7 @@ impl Render for NotifCenter {
                             .items_center()
                             .gap_2()
                             .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).text_size(px(16.)).child("Notifications"))
-                            .child(pill("nc-dnd", format!("Do not disturb: {}", if dnd { "On" } else { "Off" }), dnd).on_click(
+                            .child(pill("nc-dnd", if dnd { "\u{f009b} DND".into() } else { "\u{f009c} DND".into() }, dnd).on_click(
                                 cx.listener(|_, _, _, cx| {
                                     notify::toggle_dnd();
                                     cx.notify();
@@ -2279,7 +2301,7 @@ impl Render for NotifCenter {
                                         this.confirm_clear = false;
                                         cx.notify();
                                     })),
-                                    pill("nc-clear-yes", if n == 1 { "Delete 1 notification".into() } else { format!("Delete {n} notifications") }, false)
+                                    pill("nc-clear-yes", if n == 1 { "Delete 1".into() } else { format!("Delete all {n}") }, false)
                                         .bg(rgba((0xf85149 << 8) | 0xcc))
                                         .text_color(rgb(0xffffff))
                                         .on_click(cx.listener(|this, _, _, cx| {
@@ -3515,7 +3537,8 @@ struct StartMenu {
     focus: FocusHandle,
     all: Vec<Entry>,
     pins: Vec<Entry>,
-    sel: usize, // highlighted search result (arrow keys)
+    sel: usize, // highlighted result (arrow keys); with no query it walks the all-apps list
+    scroll: gpui::ScrollHandle,
     last_input: std::time::Instant,
     power: bool,            // power row shown
     confirm: Option<usize>, // POWER action waiting for confirmation
@@ -3548,6 +3571,7 @@ impl StartMenu {
             all,
             pins,
             sel: 0,
+            scroll: gpui::ScrollHandle::new(),
             last_input: std::time::Instant::now(),
             power: false,
             confirm: None,
@@ -3646,6 +3670,7 @@ impl Render for StartMenu {
                 .id("results")
                 .flex_1()
                 .overflow_y_scroll()
+                .track_scroll(&self.scroll)
                 .flex()
                 .flex_col()
                 .children(list)
@@ -3685,7 +3710,7 @@ impl Render for StartMenu {
                             .child(e.name.clone()),
                     )
             });
-            let all: Vec<_> = self.all.iter().enumerate().map(|(i, e)| row(e, 1000 + i, false)).collect();
+            let all: Vec<_> = self.all.iter().enumerate().map(|(i, e)| row(e, 1000 + i, i == self.sel)).collect();
             div()
                 .flex_1()
                 .flex()
@@ -3696,7 +3721,7 @@ impl Render for StartMenu {
                 .child(div().flex().flex_row().flex_wrap().children(tiles))
                 .child(section("All apps"))
                 .child(
-                    div().id("all").flex_1().overflow_y_scroll().flex().flex_col().children(all),
+                    div().id("all").flex_1().overflow_y_scroll().track_scroll(&self.scroll).flex().flex_col().children(all),
                 )
                 .into_any_element()
         };
@@ -3794,6 +3819,7 @@ impl Render for StartMenu {
                         let n = this.results().len().min(40);
                         if n > 0 {
                             this.sel = if k.key == "down" { (this.sel + 1) % n } else { (this.sel + n - 1) % n };
+                            this.scroll.scroll_to_item(this.sel);
                             cx.notify();
                         }
                     }
