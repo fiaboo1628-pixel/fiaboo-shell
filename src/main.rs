@@ -1612,7 +1612,6 @@ impl Bar {
                         "settings" => toggle_settings(cx),
                         "calendar" => toggle_calendar(cx),
                         "viz" => viz::toggle_mini(cx),
-                        "viz-full" => viz::toggle_full(cx),
                         _ => {}
                     });
                 }

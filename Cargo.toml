@@ -11,11 +11,6 @@ serde_json = "1"
 futures = "0.3"
 zbus = "5"
 png = "0.17"
-# fiaboo-wave (the music view's shader): same versions gpui already pulls in
-wgpu = "29"
-wayland-client = "0.31"
-wayland-protocols-wlr = { version = "0.3", features = ["client"] }
-raw-window-handle = "0.6"
 
 [profile.dev]
 opt-level = 1

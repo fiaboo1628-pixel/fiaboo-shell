@@ -1517,11 +1517,7 @@ dependencies = [
  "gpui-pre",
  "gpui-pre-platform",
  "png 0.17.16",
- "raw-window-handle",
  "serde_json",
- "wayland-client",
- "wayland-protocols-wlr",
- "wgpu",
  "zbus",
 ]
 

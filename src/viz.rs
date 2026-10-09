@@ -1,22 +1,21 @@
-//! Music visualizer: two crossing waves inside the taskbar while working (mini), and a fullscreen
-//! shader view (full: `fiaboo-wave` draws the shader, this window the title on top). Audio comes from the default sink monitor via `parec`; the spectrum
-//! is a plain windowed DFT over log-spaced bands, no extra dependency.
+//! Music visualizer: two crossing waves inside the taskbar, on by itself while a player plays.
+//! Audio comes from the default sink monitor via `parec`; the spectrum is a plain windowed DFT over
+//! log-spaced bands, no extra dependency.
 
 use std::{
     f32::consts::PI,
-    io::Read,
+    io::{BufRead, BufReader, Read},
     process::{Child, Command, Stdio},
-    sync::Mutex,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
     time::Duration,
 };
 
-use gpui::{
-    canvas, div, linear_color_stop, linear_gradient, layer_shell::*, point, prelude::*, px, rgb, rgba, size, AnyWindowHandle, App, Bounds,
-    Context, Entity, FocusHandle, FontWeight, Global, KeyDownEvent, MouseButton, PathBuilder, Window,
-    WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions,
-};
+use gpui::{canvas, div, linear_color_stop, linear_gradient, point, prelude::*, px, rgba, App, Context, Entity, Global, PathBuilder, Window};
 
-use crate::{home, sh, BAR_HEIGHT};
+use crate::home;
 
 pub const BANDS: usize = 48;
 const RATE: usize = 44100;
@@ -165,59 +164,31 @@ fn wayve(x: f32, s: f32, t: f32, amp: f32) -> (f32, f32) {
     (top * env, bottom * env)
 }
 
-// ---------- now playing ----------
-#[derive(Clone, Debug, Default, PartialEq)]
-struct Track {
-    artist: String,
-    title: String,
-}
+// ---------- the wave in the taskbar ----------
+/// Whether a player is playing, kept current by `playerctl --follow` (no polling).
+static PLAYING: AtomicBool = AtomicBool::new(false);
 
-/// `playerctl metadata --format '{{artist}}\t{{title}}'`
-fn parse_track(line: &str) -> Option<Track> {
-    let (artist, title) = line.split_once('\t')?;
-    Some(Track { artist: artist.trim().into(), title: title.trim().into() })
-}
-
-// ---------- fiaboo-wave: the fullscreen shader, a separate process (GPUI has no custom shaders) ----------
-static WAVE: Mutex<Option<Child>> = Mutex::new(None);
-
-/// Start `fiaboo-wave` (next to this binary); the receiver fires once its first frame is up.
-fn wave_start() -> Option<std::sync::mpsc::Receiver<()>> {
-    use std::io::BufRead;
-    let exe = std::env::current_exe().ok()?.with_file_name("fiaboo-wave");
-    let mut child = Command::new(exe).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
-    let out = child.stdout.take()?;
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let mut line = String::new();
-        if std::io::BufReader::new(out).read_line(&mut line).is_ok() && line.trim() == "ready" {
-            let _ = tx.send(());
-        }
+fn start_player_watch() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        std::thread::spawn(|| loop {
+            if let Ok(mut child) = Command::new("playerctl").args(["--follow", "status"]).stdout(Stdio::piped()).stderr(Stdio::null()).spawn() {
+                if let Some(out) = child.stdout.take() {
+                    for line in BufReader::new(out).lines().map_while(Result::ok) {
+                        PLAYING.store(line.trim() == "Playing", Ordering::Relaxed);
+                    }
+                }
+                let _ = child.wait();
+            }
+            PLAYING.store(false, Ordering::Relaxed);
+            std::thread::sleep(Duration::from_secs(5)); // playerctl gone: retry
+        });
     });
-    *WAVE.lock().unwrap() = Some(child);
-    Some(rx)
 }
 
-fn wave_send(bass: f32, loud: f32) {
-    use std::io::Write;
-    if let Some(stdin) = WAVE.lock().unwrap().as_mut().and_then(|c| c.stdin.as_mut()) {
-        let _ = writeln!(stdin, "{bass:.3} {loud:.3}");
-    }
-}
-
-fn wave_stop() {
-    if let Some(mut c) = WAVE.lock().unwrap().take() {
-        let _ = c.kill();
-        let _ = c.wait();
-    }
-}
-
-// ---------- windows ----------
 #[derive(Default)]
 struct VizState {
     mini: Option<Entity<Mini>>, // drawn inside the taskbar, behind its icons
-    full: Option<AnyWindowHandle>,
-    opening: bool, // waiting for fiaboo-wave's first frame
 }
 impl Global for VizState {}
 
@@ -228,80 +199,29 @@ fn state(cx: &mut App) -> &mut VizState {
     cx.global_mut::<VizState>()
 }
 
-fn layer_window<V: 'static + Render>(
-    cx: &mut App,
-    ns: &str,
-    layer: Layer,
-    anchor: Anchor,
-    height: f32,
-    keyboard: KeyboardInteractivity,
-    build: impl FnOnce(&mut Window, &mut Context<V>) -> V + 'static,
-) -> Option<AnyWindowHandle> {
-    cx.open_window(
-        WindowOptions {
-            titlebar: None,
-            window_bounds: Some(WindowBounds::Windowed(Bounds { origin: point(px(0.), px(0.)), size: size(px(0.), px(height)) })),
-            app_id: Some(ns.to_string()),
-            window_background: WindowBackgroundAppearance::Transparent,
-            kind: WindowKind::LayerShell(LayerShellOptions {
-                namespace: ns.to_string(),
-                layer,
-                anchor,
-                exclusive_zone: (layer == Layer::Overlay).then_some(px(-1.)), // fullscreen covers the taskbar too
-                keyboard_interactivity: keyboard,
-                ..Default::default()
-            }),
-            ..Default::default()
-        },
-        |window, cx| cx.new(|cx| build(window, cx)),
-    )
-    .ok()
-    .map(|h| h.into())
+/// Present when the wave was switched off, so it stays off after a shell restart or a new login.
+fn off_flag() -> String {
+    format!("{}/.cache/fiaboo-shell/viz/mini-off", home())
 }
 
-/// Close the fullscreen view from inside its own handlers: `handle.update` on the window being
-/// updated fails silently, which left the view stuck on screen and opened a new one per toggle.
-fn close_full_here(window: &mut Window, cx: &mut App) {
-    state(cx).full = None;
-    window.remove_window();
-    close(None, cx);
-}
-
-fn close(handle: Option<AnyWindowHandle>, cx: &mut App) {
-    if let Some(h) = handle {
-        let _ = h.update(cx, |_, window, _| window.remove_window());
-    }
-    let s = state(cx);
-    if s.full.is_none() {
-        wave_stop();
-    }
-    if s.mini.is_none() && s.full.is_none() {
-        capture_stop();
-    }
-}
-
-/// Present while the strip is on, so it comes back after a shell restart or a new login.
-fn mini_flag() -> String {
-    format!("{}/.cache/fiaboo-shell/viz/mini-on", home())
-}
-
-/// Reopen the strip if it was on when the shell last stopped.
+/// Turn the wave on at startup unless it was switched off.
 pub fn restore(cx: &mut App) {
-    if std::path::Path::new(&mini_flag()).exists() && state(cx).mini.is_none() {
+    if !std::path::Path::new(&off_flag()).exists() && state(cx).mini.is_none() {
         toggle_mini(cx);
     }
 }
 
-/// `fiaboo-shell viz`: show/hide the wave inside the taskbar.
+/// `fiaboo-shell viz`: switch the taskbar wave on/off (while on, it shows whenever music plays).
 pub fn toggle_mini(cx: &mut App) {
     if state(cx).mini.take().is_some() {
-        let _ = std::fs::remove_file(mini_flag());
+        let _ = std::fs::create_dir_all(format!("{}/.cache/fiaboo-shell/viz", home()));
+        let _ = std::fs::write(off_flag(), "");
+        capture_stop();
         cx.refresh_windows();
-        return close(None, cx);
+        return;
     }
-    let _ = std::fs::create_dir_all(format!("{}/.cache/fiaboo-shell/viz", home()));
-    let _ = std::fs::write(mini_flag(), "");
-    capture_start();
+    let _ = std::fs::remove_file(off_flag());
+    start_player_watch();
     let m = cx.new(Mini::new);
     state(cx).mini = Some(m);
     cx.refresh_windows();
@@ -310,47 +230,6 @@ pub fn toggle_mini(cx: &mut App) {
 /// The taskbar wave while it is on, for the bar to draw behind its contents.
 pub fn mini(cx: &App) -> Option<Entity<Mini>> {
     cx.try_global::<VizState>().and_then(|s| s.mini.clone())
-}
-
-/// `fiaboo-shell viz-full` (or double-click the strip): fullscreen studio; Esc leaves.
-pub fn toggle_full(cx: &mut App) {
-    if let Some(h) = state(cx).full.take() {
-        return close(Some(h), cx);
-    }
-    if state(cx).opening {
-        return;
-    }
-    state(cx).opening = true;
-    capture_start();
-    let ready = wave_start();
-    cx.spawn(async move |cx| {
-        // open the title layer only once the shader is on screen, so it maps above it
-        let shader = match ready {
-            Some(rx) => cx.background_executor().spawn(async move { rx.recv_timeout(Duration::from_secs(3)).is_ok() }).await,
-            None => false,
-        };
-        let _ = cx.update(|cx| {
-            if !shader {
-                wave_stop(); // no GPU or no layer shell: the view falls back to dark glass
-            }
-            let h = layer_window(
-                cx,
-                "fiaboo-viz-full",
-                Layer::Overlay,
-                Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
-                0.,
-                KeyboardInteractivity::Exclusive,
-                move |w, cx| Full::new(w, cx, shader),
-            );
-            let s = state(cx);
-            s.opening = false;
-            s.full = h;
-            if h.is_none() {
-                close(None, cx);
-            }
-        });
-    })
-    .detach();
 }
 
 /// Run `frame` at ~60 fps while the view lives; it returns whether the view needs a redraw.
@@ -392,6 +271,12 @@ impl Mini {
 
     /// Follow the music; true when the bar must redraw (in silence it stays still: whole-bar redraws cost ~8 % CPU).
     fn step(&mut self) -> bool {
+        // audio capture only while something plays (and until the wave has faded out)
+        if PLAYING.load(Ordering::Relaxed) {
+            capture_start();
+        } else if self.alpha < 0.01 {
+            capture_stop();
+        }
         ease(&mut self.shown, RISE, FALL);
         let (bass, _, on) = self.drive.update(&self.shown);
         // bass moves the phase a lot (up to ~30 rad), so it gets its own slow easing
@@ -410,11 +295,6 @@ impl Render for Mini {
         let (s, alpha, t) = (self.bass, self.alpha, self.start.elapsed().as_secs_f32() * 20.);
         div()
             .size_full()
-            .on_mouse_down(MouseButton::Left, |ev, _, cx| {
-                if ev.click_count == 2 {
-                    toggle_full(cx);
-                }
-            })
             .child(
                 canvas(
                     |_, _, _| (),
@@ -425,11 +305,11 @@ impl Render for Mini {
                         const CYAN: u32 = 0x00fff2;
                         const WHITE: u32 = 0xffffff;
                         const MAGENTA: u32 = 0xf700ff;
-                        const STEP: f32 = 4.;
+                        const STEP: f32 = 8.;
                         let (x0, w) = (f32::from(b.origin.x), f32::from(b.size.width));
                         let h = f32::from(b.size.height);
                         let mid = f32::from(b.origin.y) + h / 2.;
-                        let amp = (h - 12.) * 7. / 16.;
+                        let amp = h * 0.18; // ~9 px each way on the 48 px bar
                         let n = (w / STEP) as usize + 1;
                         // (x, top y, bottom y) along the screen
                         let wave: Vec<(f32, f32, f32)> = (0..=n)
@@ -451,7 +331,7 @@ impl Render for Mini {
                         // wide faint ribbons under the core fake the glow. Two halves: cyan -> white -> magenta.
                         let taper = |x: f32| smoothstep(0., 100., x - x0) * smoothstep(0., 100., x0 + w - x);
                         let half_n = wave.len() / 2;
-                        for (half, v) in [(7., 20.), (4., 48.), (1.5, 255.)] {
+                        for (half, v) in [(4., 16.), (2.5, 40.), (1., 230.)] {
                             for top in [true, false] {
                                 for (part, from, to) in [(&wave[..=half_n], CYAN, WHITE), (&wave[half_n..], WHITE, MAGENTA)] {
                                     let y = |p: &(f32, f32, f32)| if top { p.1 } else { p.2 };
@@ -474,83 +354,6 @@ impl Render for Mini {
                     },
                 )
                 .size_full(),
-            )
-    }
-}
-
-struct Full {
-    focus: FocusHandle,
-    track: Track,
-    shown: [f32; BANDS],
-    drive: Drive,
-    shader: bool, // fiaboo-wave runs below; otherwise plain dark glass
-}
-
-impl Full {
-    fn new(window: &mut Window, cx: &mut Context<Self>, shader: bool) -> Self {
-        let focus = cx.focus_handle();
-        window.focus(&focus, cx);
-        // the levels go to fiaboo-wave every frame; this layer only redraws when the track changes
-        tick(cx, |f: &mut Full, n| {
-            ease(&mut f.shown, RISE, FALL);
-            let (bass, loud, on) = f.drive.update(&f.shown);
-            wave_send(bass * on, loud * on);
-            if n % 60 != 0 {
-                return false;
-            }
-            let line = sh("playerctl metadata --format '{{artist}}\t{{title}}' 2>/dev/null");
-            let t = parse_track(&line).unwrap_or_default();
-            let changed = t != f.track;
-            f.track = t;
-            changed
-        });
-        Full { focus, track: Track::default(), shown: [0.; BANDS], drive: Drive::default(), shader }
-    }
-}
-
-impl Render for Full {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (title, artist) = if self.track.title.is_empty() {
-            ("Nothing playing".to_string(), "Play something to see it here".to_string())
-        } else {
-            (self.track.title.clone(), self.track.artist.clone())
-        };
-        div()
-            .size_full()
-            .flex()
-            .flex_col()
-            .items_center()
-            .justify_end()
-            .pb(px(BAR_HEIGHT / 2.))
-            .track_focus(&self.focus)
-            .on_key_down(cx.listener(|_, ev: &KeyDownEvent, window, cx| match ev.keystroke.key.as_str() {
-                "escape" => close_full_here(window, cx),
-                "space" => crate::run_bg("playerctl play-pause"),
-                "left" => crate::run_bg("playerctl previous"),
-                "right" => crate::run_bg("playerctl next"),
-                _ => {}
-            }))
-            .on_mouse_down(MouseButton::Right, |_, window, cx| close_full_here(window, cx))
-            // dark glass only without the shader: Hyprland's layer blur shows the desktop through it
-            .when(!self.shader, |d| d.bg(rgba(0x0000008c)))
-            .child(
-                div()
-                    .max_w(px(900.))
-                    .text_size(px(28.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(rgb(0xffffff))
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .child(title),
-            )
-            .child(div().mt_1().text_size(px(17.)).text_color(rgba(0xffffffb0)).child(artist))
-            .child(
-                div()
-                    .mt(px(48.))
-                    .text_size(px(12.))
-                    .text_color(rgba(0xffffff80))
-                    .child("Space: play/pause   ·   ← →: previous/next   ·   Esc: back"),
             )
     }
 }
@@ -585,11 +388,5 @@ mod tests {
         assert!((n.map(0.8) - 0.5).abs() < 0.05, "steady level sits in the middle");
         assert!(n.map(0.9) > 0.9, "a jump above it reads high");
         assert!(n.map(0.6) < 0.1, "a drop below it reads low");
-    }
-    #[test]
-    fn track_line() {
-        let t = parse_track("Artist\tSong").unwrap();
-        assert!(t.title == "Song" && t.artist == "Artist");
-        assert_eq!(parse_track(""), None);
     }
 }
