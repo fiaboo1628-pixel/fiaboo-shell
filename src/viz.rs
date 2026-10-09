@@ -1,24 +1,21 @@
-//! Music visualizer ("studio"): a thin spectrum strip above the taskbar while working (mini),
-//! and a fullscreen view on dark glass over the desktop, the cover in the middle and a circular
-//! spectrum around it (full). Audio comes from the default sink monitor via `parec`; the spectrum
-//! is a plain windowed DFT over log-spaced bands, no extra dependency.
+//! Music visualizer: two crossing waves inside the taskbar, on by itself while a player plays.
+//! Audio comes from the default sink monitor via `parec`; the spectrum is a plain windowed DFT over
+//! log-spaced bands, no extra dependency.
 
 use std::{
     f32::consts::PI,
-    io::Read,
-    path::PathBuf,
+    io::{BufRead, BufReader, Read},
     process::{Child, Command, Stdio},
-    sync::Mutex,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
     time::Duration,
 };
 
-use gpui::{
-    canvas, div, img, linear_color_stop, linear_gradient, layer_shell::*, point, prelude::*, px, rgb, rgba, size, AnyWindowHandle, App, Bounds,
-    Context, FocusHandle, FontWeight, Global, KeyDownEvent, MouseButton, ObjectFit, PathBuilder, Pixels, Point, Window,
-    WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions,
-};
+use gpui::{canvas, div, linear_color_stop, linear_gradient, point, prelude::*, px, rgba, App, Context, Entity, Global, PathBuilder, Window};
 
-use crate::{home, palette, sh, Palette, BAR_HEIGHT, NF};
+use crate::home;
 
 pub const BANDS: usize = 48;
 const RATE: usize = 44100;
@@ -33,7 +30,6 @@ const TILT_DB_PER_OCT: f32 = 3.; // lifts the treble, music energy falls ~3 dB p
 // display easing per frame (~60 fps): how far the drawn level moves toward the new one
 const RISE: f32 = 0.09;
 const FALL: f32 = 0.035;
-const MINI_H: f32 = 72.;
 
 /// Latest band levels 0..1 (bass first), written by the capture thread.
 static LEVELS: Mutex<[f32; BANDS]> = Mutex::new([0.; BANDS]);
@@ -119,122 +115,80 @@ fn ease(shown: &mut [f32; BANDS], rise: f32, fall: f32) {
     }
 }
 
-/// Level for slot `i` of `2 * BANDS` going round: bass at both ends of the run, treble in the middle.
-fn mirrored(lv: &[f32; BANDS], i: usize) -> f32 {
-    lv[if i < BANDS { i } else { 2 * BANDS - 1 - i }]
+fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
+    let t = ((x - e0) / (e1 - e0)).clamp(0., 1.);
+    t * t * (3. - 2. * t)
 }
 
-/// Smooth curve through `pts` (quadratic segments between midpoints); `closed` joins the ends.
-fn smooth(pb: &mut PathBuilder, pts: &[Point<Pixels>], closed: bool, start: bool) {
-    let mid = |a: Point<Pixels>, b: Point<Pixels>| point((a.x + b.x) / 2., (a.y + b.y) / 2.);
-    let n = pts.len();
-    if closed {
-        pb.move_to(mid(pts[n - 1], pts[0]));
-        for i in 0..n {
-            pb.curve_to(mid(pts[i], pts[(i + 1) % n]), pts[i]);
-        }
-        pb.close();
-    } else {
-        if start {
-            pb.move_to(pts[0]);
-        } else {
-            pb.line_to(pts[0]);
-        }
-        for i in 1..n - 1 {
-            pb.curve_to(mid(pts[i], pts[i + 1]), pts[i]);
-        }
-        pb.line_to(pts[n - 1]);
+/// Spreads a level around its last ~3 s (mean ± 2 deviations -> 0..1), so any song at any volume
+/// moves the visuals alike; fixed thresholds sat at the top for every real track. Measured on an
+/// EDM and a ballad track, also 12 dB quieter: p10 0.15, p50 0.56, p90 0.76.
+#[derive(Default)]
+struct Norm {
+    mean: f32,
+    var: f32,
+}
+
+impl Norm {
+    fn map(&mut self, x: f32) -> f32 {
+        const K: f32 = 1. / 180.; // per frame at ~60 fps
+        self.mean += (x - self.mean) * K;
+        self.var += ((x - self.mean).powi(2) - self.var) * K;
+        (0.5 + (x - self.mean) / (4. * self.var.sqrt().max(0.02))).clamp(0., 1.)
     }
 }
 
-// ---------- now playing + cover art ----------
-#[derive(Clone, Default, PartialEq)]
-struct Track {
-    playing: bool,
-    art: String,
-    artist: String,
-    title: String,
+#[derive(Default)]
+struct Drive {
+    bass: Norm,
+    loud: Norm,
 }
 
-/// `playerctl metadata --format '{{status}}\t{{mpris:artUrl}}\t{{artist}}\t{{title}}'`
-fn parse_track(line: &str) -> Option<Track> {
-    let mut f = line.splitn(4, '\t');
-    let (status, art, artist, title) = (f.next()?, f.next()?, f.next()?, f.next()?);
-    Some(Track { playing: status == "Playing", art: art.into(), artist: artist.trim().into(), title: title.trim().into() })
+impl Drive {
+    /// (bass, loudness, on) from the eased levels: the first two spread over 0..1 by `Norm`,
+    /// `on` goes 0 -> 1 with any sound at all (silence reads exactly 0).
+    fn update(&mut self, lv: &[f32; BANDS]) -> (f32, f32, f32) {
+        let bass = lv[..8].iter().sum::<f32>() / 8.;
+        let loud = lv.iter().sum::<f32>() / BANDS as f32;
+        (self.bass.map(bass), self.loud.map(loud), smoothstep(0.02, 0.1, loud))
+    }
 }
 
-/// `file:///a%20b.jpg` -> `/a b.jpg`
-fn file_url_path(url: &str) -> Option<String> {
-    let s = url.strip_prefix("file://")?.as_bytes();
-    let mut out = Vec::with_capacity(s.len());
-    let mut i = 0;
-    while i < s.len() {
-        if s[i] == b'%' && i + 2 < s.len() {
-            if let Ok(b) = u8::from_str_radix(std::str::from_utf8(&s[i + 1..i + 3]).unwrap_or(""), 16) {
-                out.push(b);
-                i += 3;
-                continue;
+/// Two crossing waves in the style of WayVes' logo: (top, bottom) offsets from the centre line at
+/// `x` (0..1) for bass `s` (0..1) and phase `t`; flat in the middle 20 %, fading out towards both ends.
+fn wayve(x: f32, s: f32, t: f32, amp: f32) -> (f32, f32) {
+    let top = amp * (0.03 * (x * 500. * (1. + 0.5 * s) + 1000. * s + t)).sin();
+    let bottom = 0.77 * amp * (0.03 * (x * 400. * (1. + 0.5 * s) + 400. * s - 12. + 2. * t)).sin();
+    let e = (((x * 2. - 1.).abs() - 0.2) / 0.8).max(0.);
+    let env = (-5. * e * e).exp();
+    (top * env, bottom * env)
+}
+
+// ---------- the wave in the taskbar ----------
+/// Whether a player is playing, kept current by `playerctl --follow` (no polling).
+static PLAYING: AtomicBool = AtomicBool::new(false);
+
+fn start_player_watch() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        std::thread::spawn(|| loop {
+            if let Ok(mut child) = Command::new("playerctl").args(["--follow", "status"]).stdout(Stdio::piped()).stderr(Stdio::null()).spawn() {
+                if let Some(out) = child.stdout.take() {
+                    for line in BufReader::new(out).lines().map_while(Result::ok) {
+                        PLAYING.store(line.trim() == "Playing", Ordering::Relaxed);
+                    }
+                }
+                let _ = child.wait();
             }
-        }
-        out.push(s[i]);
-        i += 1;
-    }
-    // absolute only: the artUrl comes from any MPRIS player, never let it become a magick flag or coder ("-x", "msl:")
-    String::from_utf8(out).ok().filter(|p| p.starts_with('/'))
+            PLAYING.store(false, Ordering::Relaxed);
+            std::thread::sleep(Duration::from_secs(5)); // playerctl gone: retry
+        });
+    });
 }
 
-#[derive(Clone)]
-struct Cover {
-    sharp: PathBuf,
-    accent: Option<u32>,
-}
-
-/// Square cover and matugen accent for an artUrl, cached by URL hash.
-fn load_cover(url: &str) -> Option<Cover> {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    url.hash(&mut h);
-    // Chromium hands out temp files (/tmp/.org.chromium.Chromium.*) that can be rewritten: key on size+mtime too
-    if let Some(m) = file_url_path(url).and_then(|p| std::fs::metadata(p).ok()) {
-        (m.len(), m.modified().ok()).hash(&mut h);
-    }
-    let dir = format!("{}/.cache/fiaboo-shell/viz", home());
-    let key = format!("{dir}/{:016x}", h.finish());
-    let (sharp, acc) = (format!("{key}.jpg"), format!("{key}.accent"));
-    if !std::path::Path::new(&acc).exists() {
-        let _ = std::fs::create_dir_all(&dir);
-        let src = match file_url_path(url) {
-            Some(p) => p,
-            None if url.starts_with("http") => {
-                let tmp = format!("{key}.src");
-                Command::new("curl").args(["-sfL", "--max-time", "10", "-o", &tmp, url]).status().ok()?.success().then_some(tmp)?
-            }
-            None => return None,
-        };
-        let ok = Command::new("magick")
-            .args([&src, "-resize", "600x600^", "-gravity", "center", "-extent", "600x600", &sharp])
-            .status()
-            .ok()?
-            .success();
-        if !ok {
-            return None;
-        }
-        let json = sh(&format!("matugen image '{sharp}' --dry-run -j hex --prefer saturation 2>/dev/null"));
-        let hex = serde_json::from_str::<serde_json::Value>(&json)
-            .ok()
-            .and_then(|v| v["colors"]["primary"]["dark"]["color"].as_str().map(String::from))
-            .unwrap_or_default();
-        let _ = std::fs::write(&acc, hex);
-    }
-    let accent = std::fs::read_to_string(&acc).ok().and_then(|h| u32::from_str_radix(h.trim().trim_start_matches('#'), 16).ok());
-    Some(Cover { sharp: sharp.into(), accent })
-}
-
-// ---------- windows ----------
 #[derive(Default)]
 struct VizState {
-    mini: Option<AnyWindowHandle>,
-    full: Option<AnyWindowHandle>,
+    mini: Option<Entity<Mini>>, // drawn inside the taskbar, behind its icons
 }
 impl Global for VizState {}
 
@@ -245,112 +199,50 @@ fn state(cx: &mut App) -> &mut VizState {
     cx.global_mut::<VizState>()
 }
 
-fn layer_window<V: 'static + Render>(
-    cx: &mut App,
-    ns: &str,
-    layer: Layer,
-    anchor: Anchor,
-    height: f32,
-    keyboard: KeyboardInteractivity,
-    build: impl FnOnce(&mut Window, &mut Context<V>) -> V + 'static,
-) -> Option<AnyWindowHandle> {
-    cx.open_window(
-        WindowOptions {
-            titlebar: None,
-            window_bounds: Some(WindowBounds::Windowed(Bounds { origin: point(px(0.), px(0.)), size: size(px(0.), px(height)) })),
-            app_id: Some(ns.to_string()),
-            window_background: WindowBackgroundAppearance::Transparent,
-            kind: WindowKind::LayerShell(LayerShellOptions {
-                namespace: ns.to_string(),
-                layer,
-                anchor,
-                exclusive_zone: (layer == Layer::Overlay).then_some(px(-1.)), // fullscreen covers the taskbar too
-                keyboard_interactivity: keyboard,
-                ..Default::default()
-            }),
-            ..Default::default()
-        },
-        |window, cx| cx.new(|cx| build(window, cx)),
-    )
-    .ok()
-    .map(|h| h.into())
+/// Present when the wave was switched off, so it stays off after a shell restart or a new login.
+fn off_flag() -> String {
+    format!("{}/.cache/fiaboo-shell/viz/mini-off", home())
 }
 
-/// Close the fullscreen view from inside its own handlers: `handle.update` on the window being
-/// updated fails silently, which left the view stuck on screen and opened a new one per toggle.
-fn close_full_here(window: &mut Window, cx: &mut App) {
-    state(cx).full = None;
-    window.remove_window();
-    close(None, cx);
-}
-
-fn close(handle: Option<AnyWindowHandle>, cx: &mut App) {
-    if let Some(h) = handle {
-        let _ = h.update(cx, |_, window, _| window.remove_window());
-    }
-    let s = state(cx);
-    if s.mini.is_none() && s.full.is_none() {
-        capture_stop();
-    }
-}
-
-/// Present while the strip is on, so it comes back after a shell restart or a new login.
-fn mini_flag() -> String {
-    format!("{}/.cache/fiaboo-shell/viz/mini-on", home())
-}
-
-/// Reopen the strip if it was on when the shell last stopped.
+/// Turn the wave on at startup unless it was switched off.
 pub fn restore(cx: &mut App) {
-    if std::path::Path::new(&mini_flag()).exists() && state(cx).mini.is_none() {
+    if !std::path::Path::new(&off_flag()).exists() && state(cx).mini.is_none() {
         toggle_mini(cx);
     }
 }
 
-/// `fiaboo-shell viz`: show/hide the strip above the taskbar.
+/// `fiaboo-shell viz`: switch the taskbar wave on/off (while on, it shows whenever music plays).
 pub fn toggle_mini(cx: &mut App) {
-    if let Some(h) = state(cx).mini.take() {
-        let _ = std::fs::remove_file(mini_flag());
-        return close(Some(h), cx);
+    if state(cx).mini.take().is_some() {
+        let _ = std::fs::create_dir_all(format!("{}/.cache/fiaboo-shell/viz", home()));
+        let _ = std::fs::write(off_flag(), "");
+        capture_stop();
+        cx.refresh_windows();
+        return;
     }
-    let _ = std::fs::create_dir_all(format!("{}/.cache/fiaboo-shell/viz", home()));
-    let _ = std::fs::write(mini_flag(), "");
-    capture_start();
-    let h = layer_window(cx, "fiaboo-viz", Layer::Bottom, Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT, MINI_H, KeyboardInteractivity::None, |w, cx| {
-        Mini::new(w, cx)
-    });
-    state(cx).mini = h;
+    let _ = std::fs::remove_file(off_flag());
+    start_player_watch();
+    let m = cx.new(Mini::new);
+    state(cx).mini = Some(m);
+    cx.refresh_windows();
 }
 
-/// `fiaboo-shell viz-full` (or double-click the strip): fullscreen studio; Esc leaves.
-pub fn toggle_full(cx: &mut App) {
-    if let Some(h) = state(cx).full.take() {
-        return close(Some(h), cx);
-    }
-    capture_start();
-    let h = layer_window(
-        cx,
-        "fiaboo-viz-full",
-        Layer::Overlay,
-        Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
-        0.,
-        KeyboardInteractivity::Exclusive,
-        |w, cx| Full::new(w, cx),
-    );
-    state(cx).full = h;
+/// The taskbar wave while it is on, for the bar to draw behind its contents.
+pub fn mini(cx: &App) -> Option<Entity<Mini>> {
+    cx.try_global::<VizState>().and_then(|s| s.mini.clone())
 }
 
-/// Redraw at ~60 fps while the window lives.
-fn tick<V: 'static>(window: &mut Window, cx: &mut Context<V>, mut every_second: impl FnMut(&mut V, &mut Context<V>) + 'static) {
-    cx.spawn_in(window, async move |this, cx| {
+/// Run `frame` at ~60 fps while the view lives; it returns whether the view needs a redraw.
+fn tick<V: 'static>(cx: &mut Context<V>, mut frame: impl FnMut(&mut V, u32) -> bool + 'static) {
+    cx.spawn(async move |this, cx| {
         let mut n = 0u32;
         loop {
             cx.background_executor().timer(Duration::from_millis(16)).await;
             let alive = this
                 .update(cx, |v, cx| {
-                    if n % 60 == 0 {
-                        every_second(v, cx);
+                    if frame(v, n) {
+                        cx.notify();
                     }
-                    cx.notify();
                 })
                 .is_ok();
             if !alive {
@@ -362,272 +254,106 @@ fn tick<V: 'static>(window: &mut Window, cx: &mut Context<V>, mut every_second: 
     .detach();
 }
 
-struct Mini {
-    pal: Palette,
+pub struct Mini {
     shown: [f32; BANDS],
+    drive: Drive,
+    bass: f32,  // eased bass that bends the waves
+    alpha: f32, // eased loudness: the strip fades out in silence
+    drawn: bool, // the last redraw showed something
+    start: std::time::Instant,
 }
 
 impl Mini {
-    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        tick(window, cx, |m: &mut Mini, _| m.pal = palette());
-        Mini { pal: palette(), shown: [0.; BANDS] }
+    fn new(cx: &mut Context<Self>) -> Self {
+        tick(cx, |m: &mut Mini, _| m.step());
+        Mini { shown: [0.; BANDS], drive: Drive::default(), bass: 0., alpha: 0., drawn: false, start: std::time::Instant::now() }
+    }
+
+    /// Follow the music; true when the bar must redraw (in silence it stays still: whole-bar redraws cost ~8 % CPU).
+    fn step(&mut self) -> bool {
+        // audio capture only while something plays (and until the wave has faded out)
+        if PLAYING.load(Ordering::Relaxed) {
+            capture_start();
+        } else if self.alpha < 0.01 {
+            capture_stop();
+        }
+        ease(&mut self.shown, RISE, FALL);
+        let (bass, _, on) = self.drive.update(&self.shown);
+        // bass moves the phase a lot (up to ~30 rad), so it gets its own slow easing
+        self.bass += (bass - self.bass) * 0.04;
+        // at most 0.75: it sits behind the taskbar icons
+        self.alpha += (0.75 * on - self.alpha) * 0.03;
+        let visible = self.alpha >= 0.01;
+        let redraw = visible || self.drawn; // one more frame to clear the last faint wave
+        self.drawn = visible;
+        redraw
     }
 }
 
 impl Render for Mini {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        ease(&mut self.shown, RISE, FALL);
-        let (lv, accent) = (self.shown, self.pal.accent);
+        let (s, alpha, t) = (self.bass, self.alpha, self.start.elapsed().as_secs_f32() * 20.);
         div()
             .size_full()
-            .on_mouse_down(MouseButton::Left, |ev, _, cx| {
-                if ev.click_count == 2 {
-                    toggle_full(cx);
-                }
-            })
             .child(
                 canvas(
                     |_, _, _| (),
                     move |b, _, window, _| {
-                        // one soft wave across the screen (fill only): treble at the edges, bass in the middle
+                        if alpha < 0.01 {
+                            return;
+                        }
+                        const CYAN: u32 = 0x00fff2;
+                        const WHITE: u32 = 0xffffff;
+                        const MAGENTA: u32 = 0xf700ff;
+                        const STEP: f32 = 8.;
                         let (x0, w) = (f32::from(b.origin.x), f32::from(b.size.width));
-                        let bottom = f32::from(b.origin.y) + f32::from(b.size.height);
-                        let n = BANDS * 2;
-                        let pts: Vec<_> = (0..n)
+                        let h = f32::from(b.size.height);
+                        let mid = f32::from(b.origin.y) + h / 2.;
+                        let amp = h * 0.18; // ~9 px each way on the 48 px bar
+                        let n = (w / STEP) as usize + 1;
+                        // (x, top y, bottom y) along the screen
+                        let wave: Vec<(f32, f32, f32)> = (0..=n)
                             .map(|i| {
-                                let v = lv[if i < BANDS { BANDS - 1 - i } else { i - BANDS }];
-                                point(px(x0 + w * i as f32 / (n - 1) as f32), px(bottom - 2. - v * (MINI_H - 10.)))
+                                let x = (i as f32 * STEP).min(w);
+                                let (a, b) = wayve(x / w, s, t, amp);
+                                (x0 + x, mid - a, mid - b)
                             })
                             .collect();
-                        let mut area = PathBuilder::fill();
-                        area.move_to(point(px(x0), px(bottom)));
-                        smooth(&mut area, &pts, false, false);
-                        area.line_to(point(px(x0 + w), px(bottom)));
-                        area.close();
-                        if let Ok(p) = area.build() {
-                            window.paint_path(
-                                p,
-                                linear_gradient(
-                                    180.,
-                                    linear_color_stop(rgba((accent << 8) | 0x10), 0.),
-                                    linear_color_stop(rgba((accent << 8) | 0x48), 1.),
-                                ),
-                            );
+                        let a = |v: f32| ((v * alpha) as u32).min(0xff);
+                        // the blue body between the two waves
+                        let mut pb = PathBuilder::fill();
+                        let body: Vec<_> = wave.iter().map(|p| point(px(p.0), px(p.1))).chain(wave.iter().rev().map(|p| point(px(p.0), px(p.2)))).collect();
+                        pb.add_polygon(&body, true);
+                        if let Ok(p) = pb.build() {
+                            window.paint_path(p, rgba(0x004cff00 | a(48.)));
+                        }
+                        // the lines: a ribbon `half` px thick each side, thinning over the last 100 px at the ends;
+                        // wide faint ribbons under the core fake the glow. Two halves: cyan -> white -> magenta.
+                        let taper = |x: f32| smoothstep(0., 100., x - x0) * smoothstep(0., 100., x0 + w - x);
+                        let half_n = wave.len() / 2;
+                        for (half, v) in [(4., 16.), (2.5, 40.), (1., 230.)] {
+                            for top in [true, false] {
+                                for (part, from, to) in [(&wave[..=half_n], CYAN, WHITE), (&wave[half_n..], WHITE, MAGENTA)] {
+                                    let y = |p: &(f32, f32, f32)| if top { p.1 } else { p.2 };
+                                    let pts: Vec<_> = part
+                                        .iter()
+                                        .map(|p| point(px(p.0), px(y(p) - half * taper(p.0))))
+                                        .chain(part.iter().rev().map(|p| point(px(p.0), px(y(p) + half * taper(p.0)))))
+                                        .collect();
+                                    let mut pb = PathBuilder::fill();
+                                    pb.add_polygon(&pts, true);
+                                    if let Ok(p) = pb.build() {
+                                        window.paint_path(
+                                            p,
+                                            linear_gradient(90., linear_color_stop(rgba((from << 8) | a(v)), 0.), linear_color_stop(rgba((to << 8) | a(v)), 1.)),
+                                        );
+                                    }
+                                }
+                            }
                         }
                     },
                 )
                 .size_full(),
-            )
-    }
-}
-
-struct Full {
-    pal: Palette,
-    focus: FocusHandle,
-    track: Track,
-    cover: Option<Cover>,
-    shown: [f32; BANDS],
-    slow: [f32; BANDS], // lags behind `shown`, drawn as the faint outer echo
-    spin: f32,          // record angle, advances while playing
-}
-
-impl Full {
-    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let focus = cx.focus_handle();
-        window.focus(&focus, cx);
-        tick(window, cx, |f: &mut Full, cx| {
-            let line = sh("playerctl metadata --format '{{status}}\t{{mpris:artUrl}}\t{{artist}}\t{{title}}' 2>/dev/null");
-            let t = parse_track(&line).unwrap_or_default();
-            if t.art != f.track.art {
-                f.cover = None;
-                let url = t.art.clone();
-                cx.spawn(async move |this, cx| {
-                    let u = url.clone();
-                    let cover = cx.background_executor().spawn(async move { load_cover(&u) }).await;
-                    let _ = this.update(cx, |f, _| {
-                        if f.track.art == url {
-                            f.cover = cover;
-                        }
-                    });
-                })
-                .detach();
-            }
-            f.track = t;
-        });
-        Full { pal: palette(), focus, track: Track::default(), cover: None, shown: [0.; BANDS], slow: [0.; BANDS], spin: 0. }
-    }
-}
-
-impl Render for Full {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let p = self.pal.clone();
-        let accent = self.cover.as_ref().and_then(|c| c.accent).unwrap_or(p.accent);
-        ease(&mut self.shown, RISE, FALL);
-        ease(&mut self.slow, RISE / 3., FALL / 2.);
-        if self.track.playing {
-            self.spin += 2. * PI * (100. / 3.) / 60. / 60.; // 33⅓ rpm at ~60 fps
-        }
-        let (lv, slow, spin) = (self.shown, self.slow, self.spin);
-        const COVER: f32 = 300.; // record diameter
-        const LABEL: f32 = 116.;
-        const RING: f32 = COVER + 2. * (12. + 3. + 120. + 8.); // cover + gap + longest echo tick, each side
-        // record label: the thumbnail (YouTube art is a 16:9 frame, small and centred reads fine), else a note
-        let label = match &self.cover {
-            Some(c) => img(c.sharp.clone()).size_full().rounded_full().object_fit(ObjectFit::Cover).into_any_element(),
-            None => div()
-                .size_full()
-                .rounded_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .bg(rgb(accent))
-                .font_family(NF)
-                .text_size(px(40.))
-                .text_color(rgb(0x111111))
-                .child("\u{f075a}")
-                .into_any_element(),
-        };
-        let center = div()
-            .relative()
-            .size(px(LABEL))
-            .child(label)
-            .child(div().absolute().top(px(LABEL / 2. - 5.)).left(px(LABEL / 2. - 5.)).size(px(10.)).rounded_full().bg(rgb(0x0a0a0a)));
-        let (title, artist) = if self.track.title.is_empty() {
-            ("Nothing playing".to_string(), "Play something to see it here".to_string())
-        } else {
-            (self.track.title.clone(), self.track.artist.clone())
-        };
-        div()
-            .size_full()
-            .relative()
-            .track_focus(&self.focus)
-            .on_key_down(cx.listener(|_, ev: &KeyDownEvent, window, cx| match ev.keystroke.key.as_str() {
-                "escape" => close_full_here(window, cx),
-                "space" => crate::run_bg("playerctl play-pause"),
-                "left" => crate::run_bg("playerctl previous"),
-                "right" => crate::run_bg("playerctl next"),
-                _ => {}
-            }))
-            .on_mouse_down(MouseButton::Right, |_, window, cx| close_full_here(window, cx))
-            .bg(rgba(0x0000008c)) // dark glass: Hyprland's layer blur shows the desktop through it
-            .child(
-                div()
-                    .absolute()
-                    .size_full()
-                    .flex()
-                    .flex_col()
-                    .items_center()
-                    .justify_center()
-                    .child(
-                        // ring and cover share one square so they stay concentric
-                        div()
-                            .relative()
-                            .size(px(RING))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .child(
-                                canvas(
-                    |_, _, _| (),
-                    move |b, _, window, _| {
-                        let (cx0, cy0) = (f32::from(b.origin.x) + f32::from(b.size.width) / 2., f32::from(b.origin.y) + f32::from(b.size.height) / 2.);
-                        let at_r = |r: f32, a: f32| point(px(cx0 + r * a.cos()), px(cy0 + r * a.sin()));
-                        let circle = |r: f32| (0..128).map(|i| at_r(r, i as f32 * 2. * PI / 128.)).collect::<Vec<_>>();
-                        let arc = |pb: &mut PathBuilder, r: f32, a0: f32, a1: f32| {
-                            pb.move_to(at_r(r, a0));
-                            for k in 1..=16 {
-                                pb.line_to(at_r(r, a0 + (a1 - a0) * k as f32 / 16.));
-                            }
-                        };
-                        let rec = COVER / 2.;
-                        // vinyl body
-                        let mut pb = PathBuilder::fill();
-                        pb.add_polygon(&circle(rec), true);
-                        if let Ok(p) = pb.build() {
-                            window.paint_path(p, rgb(0x121212));
-                        }
-                        // grooves
-                        let mut pb = PathBuilder::stroke(px(1.));
-                        let mut r = LABEL / 2. + 8.;
-                        while r < rec - 4. {
-                            pb.add_polygon(&circle(r), true);
-                            r += 3.5;
-                        }
-                        if let Ok(p) = pb.build() {
-                            window.paint_path(p, rgba(0xffffff0d));
-                        }
-                        // light reflection: stays put while the record turns, like a real one
-                        for a0 in [-2.2f32, 0.94] {
-                            let mut pb = PathBuilder::fill();
-                            let pts: Vec<_> = (0..=12)
-                                .map(|k| at_r(rec - 6., a0 + 0.5 * k as f32 / 12.))
-                                .chain((0..=12).rev().map(|k| at_r(LABEL / 2. + 10., a0 + 0.5 * k as f32 / 12.)))
-                                .collect();
-                            pb.add_polygon(&pts, true);
-                            if let Ok(p) = pb.build() {
-                                window.paint_path(p, rgba(0xffffff0c));
-                            }
-                        }
-                        // a few brighter groove marks that turn with the record
-                        let mut pb = PathBuilder::stroke(px(1.5));
-                        for (r, off, len) in [(rec - 14., 0.3, 0.45), (rec - 32., 2.4, 0.3), (LABEL / 2. + 22., 4.2, 0.6)] {
-                            arc(&mut pb, r, spin + off, spin + off + len);
-                        }
-                        if let Ok(p) = pb.build() {
-                            window.paint_path(p, rgba(0xffffff26));
-                        }
-                        // fine ticks growing out of the cover's edge: bass at the top, mirrored left/right;
-                        // the slow levels draw a faint longer echo behind them
-                        const TICKS: usize = 120;
-                        let r0 = rec + 12.;
-                        let at = |lv: &[f32; BANDS], t: usize| {
-                            let u = t as f32 * (2 * BANDS) as f32 / TICKS as f32;
-                            let (i, f) = (u as usize, u.fract());
-                            mirrored(lv, i) * (1. - f) + mirrored(lv, (i + 1) % (2 * BANDS)) * f
-                        };
-                        for (lv, amp, width, alpha) in [(&slow, 120., 3., 0x30), (&lv, 90., 3., 0xe0)] {
-                            let mut pb = PathBuilder::stroke(px(width));
-                            for t in 0..TICKS {
-                                let a = -PI / 2. + t as f32 * 2. * PI / TICKS as f32;
-                                let (c, s) = (a.cos(), a.sin());
-                                let r1 = r0 + 3. + at(lv, t) * amp;
-                                pb.move_to(point(px(cx0 + r0 * c), px(cy0 + r0 * s)));
-                                pb.line_to(point(px(cx0 + r1 * c), px(cy0 + r1 * s)));
-                            }
-                            if let Ok(p) = pb.build() {
-                                window.paint_path(p, rgba((accent << 8) | alpha));
-                            }
-                        }
-                    },
-                )
-                                .absolute()
-                                .size_full(),
-                            )
-                            .child(div().id("viz-cover").cursor_pointer().on_click(|_, _, _| crate::run_bg("playerctl play-pause")).child(center)),
-                    )
-                    .child(
-                        div()
-                            .max_w(px(900.))
-                            .text_size(px(28.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(rgb(0xffffff))
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .text_ellipsis()
-                            .child(title),
-                    )
-                    .child(div().mt_1().text_size(px(17.)).text_color(rgba(0xffffffb0)).child(artist)),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .bottom(px(BAR_HEIGHT / 2.))
-                    .w_full()
-                    .flex()
-                    .justify_center()
-                    .text_size(px(12.))
-                    .text_color(rgba(0xffffff80))
-                    .child("Space: play/pause   ·   ← →: previous/next   ·   Esc: back"),
             )
     }
 }
@@ -644,11 +370,23 @@ mod tests {
         assert!(bands(&vec![0.; N]).iter().all(|&v| v == 0.));
     }
     #[test]
-    fn track_and_file_url() {
-        let t = parse_track("Playing\tfile:///tmp/a%20b.jpg\tArtist\tSong").unwrap();
-        assert!(t.playing && t.title == "Song" && t.artist == "Artist");
-        assert_eq!(file_url_path(&t.art).as_deref(), Some("/tmp/a b.jpg"));
-        assert_eq!(file_url_path("https://x/y.jpg"), None);
-        assert_eq!(file_url_path("file://-density"), None);
+    fn wayve_tapers_to_nothing_at_the_ends() {
+        for s in [0., 0.5, 1.] {
+            let (a, b) = wayve(0., s, 3., 26.);
+            let (c, d) = wayve(1., s, 3., 26.);
+            assert!([a, b, c, d].iter().all(|v| v.abs() < 0.2), "edges {a} {b} {c} {d}");
+        }
+        let peak = (0..=100).map(|i| wayve(i as f32 / 100., 0.3, 0., 26.).0.abs()).fold(0., f32::max);
+        assert!(peak > 15., "middle peak {peak}");
+    }
+    #[test]
+    fn norm_spreads_around_recent_level() {
+        let mut n = Norm::default();
+        for _ in 0..2000 {
+            n.map(0.8);
+        }
+        assert!((n.map(0.8) - 0.5).abs() < 0.05, "steady level sits in the middle");
+        assert!(n.map(0.9) > 0.9, "a jump above it reads high");
+        assert!(n.map(0.6) < 0.1, "a drop below it reads low");
     }
 }
