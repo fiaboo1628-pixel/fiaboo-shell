@@ -8,7 +8,7 @@ A Rust GPUI desktop shell for Arch + Hyprland 0.56 (Lua config), replacing ML4W/
 UI text is English. Current state and history live in auto memory.
 
 ## Never break the running desktop
-- The shell is the owner's live desktop, often used remotely from an iPhone (Moonlight/SSH over Tailscale). Replace things gradually, always keep a fallback (swaync for notifications, rofi as launcher fallback, nm-applet).
+- The shell is the owner's live desktop, often used remotely from an iPhone (Moonlight/SSH over Tailscale). Replace things gradually, always keep a fallback (swaync for notifications, fuzzel as launcher fallback, nm-applet).
 - Never `pkill -f` (it matches your own command line and kills the wrong thing).
 - Back up a file before editing config outside the repo (`<file>.bakN` next to it).
 
