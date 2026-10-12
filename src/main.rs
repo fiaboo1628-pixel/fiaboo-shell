@@ -488,6 +488,18 @@ struct Quick {
     sys: Sys,
     focus: FocusHandle,
     last_input: std::time::Instant,
+    bt: BtUi,
+    /// Showing the Bluetooth page (opened with the › on the Bluetooth tile)
+    bt_view: bool,
+}
+
+impl HasBt for Quick {
+    fn bt(&mut self) -> &mut BtUi {
+        &mut self.bt
+    }
+    fn touch(&mut self) {
+        self.last_input = std::time::Instant::now();
+    }
 }
 
 impl Quick {
@@ -495,10 +507,14 @@ impl Quick {
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         cx.spawn_in(window, async move |this, cx| loop {
-            let sys = cx.background_executor().spawn(async { read_sys() }).await;
+            let bt_view = this.update(cx, |q, _| q.bt_view).unwrap_or(false);
+            let (sys, bt) = cx.background_executor().spawn(async move { (read_sys(), bt_view.then(read_bt)) }).await;
             let idle = this
                 .update(cx, |q, cx| {
                     q.sys = sys;
+                    if let Some(bt) = bt {
+                        q.bt.refresh(bt);
+                    }
                     cx.notify();
                     q.last_input.elapsed() > Duration::from_secs(60)
                 })
@@ -510,7 +526,7 @@ impl Quick {
             cx.background_executor().timer(Duration::from_millis(1200)).await;
         })
         .detach();
-        Quick { pal: palette(), sys: Sys::default(), focus, last_input: std::time::Instant::now() }
+        Quick { pal: palette(), sys: Sys::default(), focus, last_input: std::time::Instant::now(), bt: BtUi::default(), bt_view: false }
     }
 }
 
@@ -519,6 +535,8 @@ impl Render for Quick {
         let p = self.pal.clone();
         let sys = self.sys.clone();
         let (g_wifi, g_bt, g_vol) = sys_glyphs(&sys);
+        let bt_view = self.bt_view;
+        let bt_page = bt_view.then(|| bt_rows(&self.bt, &p, cx));
 
         let tile = |id: &'static str, glyph: &'static str, title: &'static str, sub: String, on: bool, cmd: String| {
             div()
@@ -656,7 +674,12 @@ impl Render for Quick {
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                 this.last_input = std::time::Instant::now();
                 if ev.keystroke.key == "escape" {
-                    close_quick(window, cx);
+                    if this.bt_view {
+                        this.bt_view = false;
+                        cx.notify();
+                    } else {
+                        close_quick(window, cx);
+                    }
                 }
             }))
             .flex()
@@ -669,7 +692,7 @@ impl Render for Quick {
             .child(
                 div()
                     .w(px(380.0))
-                    .h(px(if media.is_some() { 400. } else { 330. }))
+                    .h(px(if media.is_some() || bt_view { 400. } else { 330. }))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()).on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
                     .flex()
                     .flex_col()
@@ -681,6 +704,33 @@ impl Render for Quick {
             .border_color(rgba((p.dim << 8) | 0x70))
             .text_color(rgb(p.fg))
             .text_size(px(14.))
+            .when_some(bt_page, |d, rows| {
+                d.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .id("q-bt-back")
+                                .cursor_pointer()
+                                .px_1()
+                                .rounded_md()
+                                .font_family(NF)
+                                .text_size(px(18.))
+                                .hover(|s| s.bg(rgba((p.accent << 8) | 0x40)))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.last_input = std::time::Instant::now();
+                                    this.bt_view = false;
+                                    cx.notify();
+                                }))
+                                .child("\u{f0141}"),
+                        )
+                        .child(div().font_weight(FontWeight::SEMIBOLD).text_size(px(16.)).child("Bluetooth")),
+                )
+                .child(div().id("q-bt-list").flex_1().overflow_y_scroll().flex().flex_col().gap_1().children(rows))
+            })
+            .when(!bt_view, |d| d
             .child(div().font_weight(FontWeight::SEMIBOLD).text_size(px(16.)).child("Quick settings"))
             .child(
                 div()
@@ -700,14 +750,35 @@ impl Render for Quick {
                         sys.wifi_on,
                         wifi_cmd,
                     ))
-                    .child(tile(
-                        "q-bt",
-                        g_bt,
-                        "Bluetooth",
-                        if sys.bt_on { "On" } else { "Off" }.to_string(),
-                        sys.bt_on,
-                        bt_cmd,
-                    )),
+                    .child(
+                        tile(
+                            "q-bt",
+                            g_bt,
+                            "Bluetooth",
+                            if sys.bt_on { "On" } else { "Off" }.to_string(),
+                            sys.bt_on,
+                            bt_cmd,
+                        )
+                        .child(
+                            div()
+                                .id("q-bt-more")
+                                .ml_auto()
+                                .px_1()
+                                .rounded_md()
+                                .font_family(NF)
+                                .text_size(px(18.))
+                                .text_color(rgb(p.dim))
+                                .hover(|s| s.text_color(rgb(p.fg)).bg(rgba((p.accent << 8) | 0x40)))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    cx.stop_propagation(); // don't also toggle the tile
+                                    this.last_input = std::time::Instant::now();
+                                    this.bt.refresh(read_bt());
+                                    this.bt_view = true;
+                                    cx.notify();
+                                }))
+                                .child("\u{f0142}"),
+                        ),
+                    ),
             )
             .child(
                 div()
@@ -764,7 +835,7 @@ impl Render for Quick {
                     .gap_2()
                     .child(footer_btn("q-ctrl", "Control menu", "~/.local/bin/ctrl-menu"))
                     .child(footer_btn("q-lock", "Lock", "hyprlock")),
-            )
+            ))
             )
     }
 }
@@ -3162,8 +3233,6 @@ struct SettingsInfo {
     sinks: Vec<(String, String, bool)>,  // (name, description, default)
     displays: Vec<String>,
     about: Vec<(&'static str, String)>,
-    bt_on: bool,
-    bt_devices: Vec<(String, String, bool)>, // (mac, name, connected), paired devices
 }
 
 /// `bluetoothctl devices …` lines: "Device <MAC> <name>" -> (mac, name)
@@ -3238,24 +3307,138 @@ fn read_settings() -> SettingsInfo {
         ("Memory", sh("free -h | awk '/^Mem/ {print $3 \" / \" $2}'")),
         ("Disk /", sh("df -h / | awk 'NR==2 {print $3 \" / \" $2}'")),
     ];
+    SettingsInfo { net, sinks, displays, about }
+}
+
+// ---------- bluetooth list (Settings and the quick settings › page) ----------
+#[derive(Clone, Default)]
+struct BtInfo {
+    on: bool,
+    paired: Vec<(String, String, bool)>, // (mac, name, connected)
+    found: Vec<(String, String)>,        // (mac, name) known to bluez but not paired, named only
+}
+
+fn read_bt() -> BtInfo {
     let connected = bt_device_lines(&sh("bluetoothctl devices Connected"));
-    let bt_devices = bt_device_lines(&sh("bluetoothctl devices Paired"))
+    let paired: Vec<_> = bt_device_lines(&sh("bluetoothctl devices Paired"))
         .into_iter()
         .map(|(mac, name)| {
             let on = connected.iter().any(|c| c.0 == mac);
             (mac, name, on)
         })
         .collect();
-    let bt_on = sh("bluetoothctl show | grep -c 'Powered: yes'") == "1";
-    SettingsInfo { net, sinks, displays, about, bt_on, bt_devices }
+    let found = bt_device_lines(&sh("bluetoothctl devices"))
+        .into_iter()
+        .filter(|(mac, name)| name.replace('-', ":") != *mac && !paired.iter().any(|p| p.0 == *mac))
+        .collect();
+    BtInfo { on: sh("bluetoothctl show | grep -c 'Powered: yes'") == "1", paired, found }
 }
 
-/// Current on/off of a Bluetooth row: "power" or a device MAC.
-fn bt_state(info: &SettingsInfo, key: &str) -> Option<bool> {
+/// Current on/off of a Bluetooth row: "power" or a device MAC (on = connected).
+fn bt_state(info: &BtInfo, key: &str) -> Option<bool> {
     if key == "power" {
-        return Some(info.bt_on);
+        return Some(info.on);
     }
-    info.bt_devices.iter().find(|d| d.0 == key).map(|d| d.2)
+    info.paired.iter().find(|d| d.0 == key).map(|d| d.2)
+}
+
+const BT_SCAN_SECS: u64 = 20;
+
+#[derive(Default)]
+struct BtUi {
+    info: BtInfo,
+    /// Row clicked and not settled yet: (row key, target state, since)
+    busy: Option<(String, bool, std::time::Instant)>,
+    /// End of the current scan; Some once a scan was started in this panel (then found devices show).
+    scan_until: Option<std::time::Instant>,
+}
+
+impl BtUi {
+    fn refresh(&mut self, info: BtInfo) {
+        self.info = info;
+        if let Some((key, want, since)) = &self.busy {
+            // pair + trust + connect can take a while
+            if bt_state(&self.info, key) == Some(*want) || since.elapsed() > Duration::from_secs(30) {
+                self.busy = None;
+            }
+        }
+    }
+}
+
+/// A panel that shows `bt_rows`.
+trait HasBt: 'static {
+    fn bt(&mut self) -> &mut BtUi;
+    fn touch(&mut self);
+}
+
+/// Power, paired devices (click: connect/disconnect), scan, found devices (click: pair + connect).
+fn bt_rows<T: HasBt>(ui: &BtUi, p: &Palette, cx: &mut Context<T>) -> Vec<gpui::AnyElement> {
+    let (accent, dim) = (p.accent, p.dim);
+    let busy = ui.busy.as_ref().map(|b| b.0.clone());
+    let row = |id: gpui::ElementId, key: String, label: String, glyph: &'static str, on: bool, want: bool, cmd: String| {
+        let label = if busy.as_deref() == Some(key.as_str()) { format!("{label} · working…") } else { label };
+        div()
+            .id(id)
+            .cursor_pointer()
+            .flex()
+            .items_center()
+            .gap_3()
+            .px_3()
+            .py_2p5()
+            .rounded_lg()
+            .bg(if on { rgba((accent << 8) | 0x38) } else { rgba((dim << 8) | 0x1c) })
+            .hover(|s| s.bg(rgba((accent << 8) | 0x4a)))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.touch();
+                this.bt().busy = Some((key.clone(), want, std::time::Instant::now()));
+                run_bg(&cmd); // the next refresh shows the new state and clears busy
+                cx.notify();
+            }))
+            .child(div().font_family(NF).text_color(if on { rgb(accent) } else { rgb(dim) }).child(glyph))
+            .child(div().flex_1().min_w(px(0.)).overflow_hidden().whitespace_nowrap().text_ellipsis().child(label))
+            .into_any_element()
+    };
+    let info = &ui.info;
+    let power_cmd = if info.on { "bluetoothctl power off" } else { "rfkill unblock bluetooth; bluetoothctl power on" };
+    let glyph = |on: bool| if on { "\u{f00af}" } else { "\u{f00b2}" };
+    let mut rows = vec![row("bt-power".into(), "power".into(), (if info.on { "On" } else { "Off" }).into(), glyph(info.on), info.on, !info.on, power_cmd.into())];
+    if !info.on {
+        return rows;
+    }
+    rows.extend(info.paired.iter().enumerate().map(|(i, (mac, name, on))| {
+        let cmd = format!("bluetoothctl {} {mac}", if *on { "disconnect" } else { "connect" });
+        row(("bt-dev", i).into(), mac.clone(), format!("{name} · {}", if *on { "connected" } else { "paired" }), glyph(*on), *on, !*on, cmd)
+    }));
+    let scanning = ui.scan_until.is_some_and(|t| t > std::time::Instant::now());
+    rows.push(
+        div()
+            .id("bt-scan")
+            .cursor_pointer()
+            .px_3()
+            .py_2p5()
+            .rounded_lg()
+            .text_color(rgb(if scanning { dim } else { p.fg }))
+            .bg(rgba((dim << 8) | 0x28))
+            .hover(|s| s.bg(rgba((accent << 8) | 0x40)))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.touch();
+                if !scanning {
+                    this.bt().scan_until = Some(std::time::Instant::now() + Duration::from_secs(BT_SCAN_SECS));
+                    run_bg(&format!("bluetoothctl --timeout {BT_SCAN_SECS} scan on"));
+                }
+                cx.notify();
+            }))
+            .child(if scanning { "Scanning for new devices…" } else { "Scan for new devices" })
+            .into_any_element(),
+    );
+    if ui.scan_until.is_some() {
+        rows.extend(info.found.iter().enumerate().map(|(i, (mac, name))| {
+            // shortcut: devices that ask for a PIN or passkey are not handled, pair those with `bluetoothctl` in a terminal
+            let cmd = format!("bluetoothctl pairable on; bluetoothctl --timeout 25 pair {mac} && bluetoothctl trust {mac} && bluetoothctl connect {mac}");
+            row(("bt-new", i).into(), mac.clone(), format!("{name} · pair"), "\u{f00b1}", false, true, cmd)
+        }));
+    }
+    rows
 }
 
 fn toggle_settings(cx: &mut App) {
@@ -3298,8 +3481,16 @@ struct SettingsPanel {
     focus: FocusHandle,
     info: SettingsInfo,
     last_input: std::time::Instant,
-    /// Bluetooth row clicked and not settled yet: (row key, target state, since)
-    bt_busy: Option<(String, bool, std::time::Instant)>,
+    bt: BtUi,
+}
+
+impl HasBt for SettingsPanel {
+    fn bt(&mut self) -> &mut BtUi {
+        &mut self.bt
+    }
+    fn touch(&mut self) {
+        self.last_input = std::time::Instant::now();
+    }
 }
 
 impl SettingsPanel {
@@ -3308,15 +3499,11 @@ impl SettingsPanel {
         window.focus(&focus, cx);
         // refresh every few seconds; also the idle safety net (the panel holds exclusive keyboard focus)
         cx.spawn_in(window, async move |this, cx| loop {
-            let info = cx.background_executor().spawn(async { read_settings() }).await;
+            let (info, bt) = cx.background_executor().spawn(async { (read_settings(), read_bt()) }).await;
             let idle = this
                 .update(cx, |s, cx| {
                     s.info = info;
-                    if let Some((key, want, since)) = &s.bt_busy {
-                        if bt_state(&s.info, key) == Some(*want) || since.elapsed() > Duration::from_secs(20) {
-                            s.bt_busy = None;
-                        }
-                    }
+                    s.bt.refresh(bt);
                     cx.notify();
                     s.last_input.elapsed() > Duration::from_secs(120)
                 })
@@ -3328,7 +3515,7 @@ impl SettingsPanel {
             cx.background_executor().timer(Duration::from_secs(3)).await;
         })
         .detach();
-        SettingsPanel { pal: palette(), focus, info: SettingsInfo::default(), last_input: std::time::Instant::now(), bt_busy: None }
+        SettingsPanel { pal: palette(), focus, info: SettingsInfo::default(), last_input: std::time::Instant::now(), bt: BtUi::default() }
     }
 }
 
@@ -3349,30 +3536,6 @@ impl Render for SettingsPanel {
                 .bg(rgba((p.dim << 8) | 0x1c))
                 .child(div().w(px(170.)).flex_none().overflow_hidden().whitespace_nowrap().text_ellipsis().child(label))
                 .child(div().flex_1().min_w(px(0.)).overflow_hidden().whitespace_nowrap().text_ellipsis().text_color(rgb(p.dim)).child(value))
-        };
-        let busy = self.bt_busy.as_ref().map(|b| b.0.clone());
-        let toggle_row = |id: gpui::ElementId, key: String, label: String, on: bool, cmd: String| {
-            let pending = busy.as_deref() == Some(key.as_str());
-            let label = if pending { format!("{label} · working…") } else { label };
-            div()
-                .id(id)
-                .cursor_pointer()
-                .flex()
-                .items_center()
-                .gap_3()
-                .px_3()
-                .py_2p5()
-                .rounded_lg()
-                .bg(if on { rgba((p.accent << 8) | 0x38) } else { rgba((p.dim << 8) | 0x1c) })
-                .hover(|s| s.bg(rgba((p.accent << 8) | 0x4a)))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.last_input = std::time::Instant::now();
-                    this.bt_busy = Some((key.clone(), !on, std::time::Instant::now()));
-                    run_bg(&cmd); // the 3 s refresh shows the new state and clears bt_busy
-                    cx.notify();
-                }))
-                .child(div().font_family(NF).text_color(if on { rgb(p.accent) } else { rgb(p.dim) }).child(if on { "\u{f00af}" } else { "\u{f00b2}" }))
-                .child(div().flex_1().min_w(px(0.)).overflow_hidden().whitespace_nowrap().text_ellipsis().child(label))
         };
         let sinks = info.sinks.iter().enumerate().map(|(i, (name, desc, is_default))| {
             let name = name.clone();
@@ -3466,15 +3629,7 @@ impl Render for SettingsPanel {
                             .child(section("Sound output"))
                             .children(sinks)
                             .child(section("Bluetooth"))
-                            .child(toggle_row("bt-power".into(), "power".into(), if info.bt_on { "On" } else { "Off" }.to_string(), info.bt_on, if info.bt_on {
-                                "bluetoothctl power off".to_string()
-                            } else {
-                                "rfkill unblock bluetooth; bluetoothctl power on".to_string()
-                            }))
-                            .children(info.bt_devices.iter().enumerate().map(|(i, (mac, name, on))| {
-                                let cmd = format!("bluetoothctl {} {mac}", if *on { "disconnect" } else { "connect" });
-                                toggle_row(("bt-dev", i).into(), mac.clone(), format!("{name} · {}", if *on { "connected" } else { "paired" }), *on, cmd)
-                            }))
+                            .children(bt_rows(&self.bt, &p, cx))
                             .child(section("Displays"))
                             .children(info.displays.iter().map(|d| row(d.split(" · ").next().unwrap_or("").to_string(), d.split_once(" · ").map(|x| x.1).unwrap_or("").to_string())))
                             .child(section("About"))
@@ -4242,7 +4397,7 @@ mod tests {
             bt_device_lines("Device 4C:3C:8F:5D:76:9B JBL Go 4\nnoise"),
             [("4C:3C:8F:5D:76:9B".to_string(), "JBL Go 4".to_string())]
         );
-        let bt = SettingsInfo { bt_on: true, bt_devices: vec![("AA".into(), "JBL".into(), false)], ..Default::default() };
+        let bt = BtInfo { on: true, paired: vec![("AA".into(), "JBL".into(), false)], ..Default::default() };
         assert_eq!((bt_state(&bt, "power"), bt_state(&bt, "AA"), bt_state(&bt, "BB")), (Some(true), Some(false), None));
         assert_eq!(nmcli_fields("wlan0:wifi:connected:My\\:Net"), ["wlan0", "wifi", "connected", "My:Net"]);
         assert_eq!(nmcli_fields("p2p:wifi-p2p:disconnected:"), ["p2p", "wifi-p2p", "disconnected", ""]);
