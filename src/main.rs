@@ -1,4 +1,4 @@
-//! fiaboo-shell prototype: a GPUI layer-shell bar (top of the screen) with logo, workspaces,
+//! fiaboo-shell prototype: a GPUI layer-shell bar (bottom of the screen) with logo, workspaces,
 //! running apps (icons, click to focus) and clock. Colours follow the matugen palette used by kitty.
 mod lunar;
 mod notify;
@@ -37,6 +37,7 @@ struct Palette {
     accent: u32,
     accent2: u32, // tertiary, for two-colour accents (the taskbar wave)
     dim: u32,
+    err: u32, // matugen error (kitty color1)
 }
 
 fn palette() -> Palette {
@@ -57,6 +58,7 @@ fn palette() -> Palette {
         accent: get("color4", 0x8fcff3),
         accent2: get("color5", 0xd5bee5),
         dim: get("color6", 0xb5c9d7),
+        err: get("color1", 0xffb4ab),
     }
 }
 
@@ -1875,12 +1877,12 @@ impl Render for Bar {
             .px_3()
             .bg(rgba((p.bg << 8) | GLASS))
             .border_t_1()
-            .border_color(rgba(0xffffff2e))
+            .border_color(rgba((p.dim << 8) | 0x70))
             .text_color(rgb(p.fg))
             .text_size(px(14.))
             // music wave behind everything (first child paints first)
             .children(wave.map(|w| div().absolute().top_0().left_0().size_full().child(w)))
-            // left: start button + workspaces
+            // left: workspaces
             .child(
                 div()
                     .w(px(340.))
@@ -1888,6 +1890,34 @@ impl Render for Bar {
                     .flex_row()
                     .items_center()
                     .gap_3()
+                    .child(
+                        div()
+                            .id("ws-dots")
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .on_scroll_wheel({
+                                let active = st.active_ws;
+                                move |ev, _, _| {
+                                    let n = scroll_steps(&ev.delta) as i64;
+                                    let to = (active + n).clamp(1, 5);
+                                    if n != 0 && to != active {
+                                        hypr_dispatch(&format!("hl.dsp.focus({{ workspace = {to} }})"));
+                                    }
+                                }
+                            })
+                            .children(dots),
+                    ),
+            )
+            // center (Win11): Start, Task View, apps
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_center()
+                    .gap_1()
                     .child(
                         div()
                             .id("start-button")
@@ -1918,34 +1948,6 @@ impl Render for Bar {
                             .on_click(|_, _, cx| toggle_taskview(cx))
                             .child("\u{f056e}"),
                     )
-                    .child(
-                        div()
-                            .id("ws-dots")
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .on_scroll_wheel({
-                                let active = st.active_ws;
-                                move |ev, _, _| {
-                                    let n = scroll_steps(&ev.delta) as i64;
-                                    let to = (active + n).clamp(1, 5);
-                                    if n != 0 && to != active {
-                                        hypr_dispatch(&format!("hl.dsp.focus({{ workspace = {to} }})"));
-                                    }
-                                }
-                            })
-                            .children(dots),
-                    ),
-            )
-            // center: apps
-            .child(
-                div()
-                    .flex_1()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .justify_center()
-                    .gap_1()
                     .children(apps),
             )
             // right: tray, status icons, clock, notifications
@@ -1994,7 +1996,7 @@ impl Render for Bar {
                                 .rounded_lg()
                                 .font_family(NF)
                                 .text_size(px(16.))
-                                .text_color(rgb(0xf85149))
+                                .text_color(rgb(p.err))
                                 .hover(|s| s.bg(rgba((p.dim << 8) | 0x30)))
                                 .on_click(|_, _, _| run_bg("~/.local/bin/fiaboo-record"))
                                 .child("\u{f044a}"),
@@ -2089,7 +2091,7 @@ fn notif_card(n: &notify::Notif, p: &Palette, in_center: bool, id: usize, today:
         .bg(rgba((p.bg << 8) | if in_center { 0x00 } else { GLASS }))
         .when(in_center, |d| d.bg(rgba((p.dim << 8) | 0x22)))
         .border_1()
-        .border_color(if n.critical { rgba((0xf85149 << 8) | 0xcc) } else { rgba((p.dim << 8) | 0x70) })
+        .border_color(if n.critical { rgba((p.err << 8) | 0xcc) } else { rgba((p.dim << 8) | 0x70) })
         .hover(|s| s.bg(rgba((p.accent << 8) | 0x30)))
         .text_color(rgb(p.fg))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -2382,7 +2384,7 @@ impl Render for NotifCenter {
                                         cx.notify();
                                     })),
                                     pill("nc-clear-yes", if n == 1 { "Delete 1".into() } else { format!("Delete all {n}") }, false)
-                                        .bg(rgba((0xf85149 << 8) | 0xcc))
+                                        .bg(rgba((p.err << 8) | 0xcc))
                                         .text_color(rgb(0xffffff))
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             notify::clear_all();
@@ -2690,7 +2692,7 @@ impl Render for ClipPanel {
                                         cx.notify();
                                     })),
                                     small_btn("clip-wipe-yes", if n == 1 { "Delete 1 item".to_string() } else { format!("Delete {n} items") })
-                                        .bg(rgba((0xf85149 << 8) | 0xcc))
+                                        .bg(rgba((p.err << 8) | 0xcc))
                                         .text_color(rgb(0xffffff))
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             run_bg("cliphist wipe");
@@ -3930,7 +3932,7 @@ impl Render for StartMenu {
                     .items_center()
                     .gap_3()
                     .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).child(question))
-                    .child(footer_btn("p-ok", label, cmd).bg(rgba((0xf85149 << 8) | 0x60)))
+                    .child(footer_btn("p-ok", label, cmd).bg(rgba((p.err << 8) | 0x60)))
                     .child(small_btn("p-cancel", "Cancel").on_click(cx.listener(|this, _, _, cx| {
                         this.confirm = None;
                         cx.notify();
@@ -4010,8 +4012,7 @@ impl Render for StartMenu {
             .flex()
             .flex_col()
             .justify_end()
-            .items_start()
-            .pl(px(10.0))
+            .items_center() // Win11: opens centered above the Start button
             .pb(px(56.))
             .on_mouse_down(MouseButton::Left, |_, window, cx| close_start(window, cx)).on_mouse_down(MouseButton::Right, |_, window, cx| close_start(window, cx))
             .child(
