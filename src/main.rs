@@ -2385,7 +2385,7 @@ impl Render for NotifCenter {
                                     })),
                                     pill("nc-clear-yes", if n == 1 { "Delete 1".into() } else { format!("Delete all {n}") }, false)
                                         .bg(rgba((p.err << 8) | 0xcc))
-                                        .text_color(rgb(0xffffff))
+                                        .text_color(rgb(p.bg)) // on light error red: dark text (white was ~1.7:1)
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             notify::clear_all();
                                             this.confirm_clear = false;
@@ -2693,7 +2693,7 @@ impl Render for ClipPanel {
                                     })),
                                     small_btn("clip-wipe-yes", if n == 1 { "Delete 1 item".to_string() } else { format!("Delete {n} items") })
                                         .bg(rgba((p.err << 8) | 0xcc))
-                                        .text_color(rgb(0xffffff))
+                                        .text_color(rgb(p.bg)) // on light error red: dark text (white was ~1.7:1)
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             run_bg("cliphist wipe");
                                             this.clips.clear();
