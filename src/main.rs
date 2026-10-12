@@ -332,6 +332,15 @@ fn read_state() -> State {
 }
 
 fn launch_app(stem: &str) {
+    // Stems are stored lowercase, but gtk-launch needs the file's real case (com.system76.CosmicFiles).
+    let real = app_dirs()
+        .iter()
+        .filter_map(|d| fs::read_dir(d).ok())
+        .flatten()
+        .flatten()
+        .filter_map(|e| e.file_name().to_str()?.strip_suffix(".desktop").map(String::from))
+        .find(|s| s.to_lowercase() == stem);
+    let stem = real.as_deref().unwrap_or(stem);
     let _ = Command::new("sh")
         .args(["-c", &format!("setsid gtk-launch {stem} >/dev/null 2>&1 &")])
         .spawn();
