@@ -3436,7 +3436,8 @@ fn bt_rows<T: HasBt>(ui: &BtUi, p: &Palette, cx: &mut Context<T>) -> Vec<gpui::A
     if ui.scan_until.is_some() {
         rows.extend(info.found.iter().enumerate().map(|(i, (mac, name))| {
             // shortcut: devices that ask for a PIN or passkey are not handled, pair those with `bluetoothctl` in a terminal
-            let cmd = format!("bluetoothctl pairable on; bluetoothctl --timeout 25 pair {mac} && bluetoothctl trust {mac} && bluetoothctl connect {mac}");
+            // pairable only while pairing, so nearby devices can't pair on their own afterwards
+            let cmd = format!("bluetoothctl pairable on; bluetoothctl --timeout 25 pair {mac} && bluetoothctl trust {mac}; bluetoothctl pairable off; bluetoothctl connect {mac}");
             row(("bt-new", i).into(), mac.clone(), format!("{name} · pair"), "\u{f00b1}", false, true, cmd)
         }));
     }
