@@ -36,6 +36,13 @@ UI text is English. Current state and history live in auto memory.
 ## Git
 - Work on a feature branch, merge into `main` with `git merge --no-ff` ("Merge <branch>: <summary>"), push to Forgejo `sever/fiaboo-shell`.
 
+## UI/UX skills
+
+Taste, a11y, bans, voice, and icon library for this project live in `.ux-profile.md`.
+Run `setup-ui-ux-skills` again only to change those defaults.
+Before UI or microcopy work, read `.ux-profile.md`, then the matching domain skill (surfaces, loaders, empty-states, motion, typography, spacing, colour-palette).
+Before finishing UI, run `ux-audit`.
+
 ## Owner's taste
 - One font everywhere: JetBrainsMono Nerd Font, set on every panel root (`.font_family(NF)`); GPUI otherwise falls back to the system sans. Type scale 12 meta / 14 content / 16 titles.
 - Glass background: constant `GLASS` (alpha 0xC8) so Hyprland blur shows. Text ≥ 12px, heaviest weight `SEMIBOLD`.
