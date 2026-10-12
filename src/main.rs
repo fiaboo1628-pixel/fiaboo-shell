@@ -3241,7 +3241,9 @@ fn bt_device_lines(text: &str) -> Vec<(String, String)> {
         .filter_map(|l| {
             let mut it = l.strip_prefix("Device ")?.splitn(2, ' ');
             let mac = it.next()?.to_string();
-            Some((mac.clone(), it.next().unwrap_or(&mac).to_string()))
+            // the MAC goes into shell commands, so accept only AA:BB:CC:DD:EE:FF
+            let valid = mac.len() == 17 && mac.char_indices().all(|(i, c)| if i % 3 == 2 { c == ':' } else { c.is_ascii_hexdigit() });
+            valid.then(|| (mac.clone(), it.next().unwrap_or(&mac).to_string()))
         })
         .collect()
 }
@@ -4394,7 +4396,7 @@ mod tests {
         assert_eq!(parse_media("Paused\t\tVideo\twith tab").map(|m| (m.playing, m.title)), Some((false, "Video\twith tab".into())));
         assert_eq!(parse_media(""), None);
         assert_eq!(
-            bt_device_lines("Device 4C:3C:8F:5D:76:9B JBL Go 4\nnoise"),
+            bt_device_lines("Device 4C:3C:8F:5D:76:9B JBL Go 4\nnoise\nDevice ;rm${IFS}-rf:x evil"),
             [("4C:3C:8F:5D:76:9B".to_string(), "JBL Go 4".to_string())]
         );
         let bt = BtInfo { on: true, paired: vec![("AA".into(), "JBL".into(), false)], ..Default::default() };
