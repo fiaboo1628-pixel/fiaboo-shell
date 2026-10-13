@@ -1,6 +1,8 @@
 -- fiaboo-shell glass: hyprglass presets for the fiaboo-* layers.
--- Applied by fiaboo-session after `hyprctl plugin load`, and again by
--- ~/.config/hypr/custom.lua on every Hyprland reload (a reload resets the engine).
+-- Applied by fiaboo-session after `hyprctl plugin load` (hyprctl eval), and again by
+-- ~/.config/hypr/custom.lua on every Hyprland reload, which sets GLASS_IN_RELOAD first:
+-- during a reload the engine commits by itself once the config is parsed, and an early
+-- hg.commit() here would empty its pending presets and layers (the glass then vanished).
 local hg = hl.plugin.hyprglass
 if not hg then return end
 
@@ -17,15 +19,15 @@ local function matugen_bg()
   f:close()
   return hex and tonumber(hex, 16) or 0x111418
 end
-local BG, FILL = matugen_bg(), 0.14
+local BG, FILL = matugen_bg(), 0.0 -- 0: the panel fill is fully seen through, only the glass remains
 
--- clear glass (n = 1.52), mild colour split at the rim, a hairline glint from the
--- upper left, one thin bevel round every shape
+-- clear glass (n = 1.52), strong colour split at the rim (Abbe 4), a glint from the
+-- upper left, a clear bevel round every shape; the rim reflects the scene around it
 local glass = {
-  ior = 1.52, abbe = 8,
-  specular_angle = 315, light_elevation = 35, specular_strength = 0.3,
-  fresnel_strength = 0.2,
-  bevel_strength = 0.3, bevel_size = 1.4, bevel_angle = 315, bevel_shadow = 0.2,
+  ior = 1.52, abbe = 4,
+  specular_angle = 315, light_elevation = 35, specular_strength = 0.5,
+  fresnel_strength = 0.4,
+  bevel_strength = 0.5, bevel_size = 1.8, bevel_angle = 315, bevel_shadow = 0.3,
   tint_color = 0x16161606,
 }
 local function preset(over)
@@ -34,25 +36,23 @@ local function preset(over)
   for k, v in pairs(over) do p[k] = v end
   return p
 end
--- the bar and app windows: frosted glass with no rim (no bend, no bevel, no edge reflection)
-hg.preset("glass-window", preset({ thickness = 30, bezel_width = 0, blur_strength = 0.0, blur_iterations = 1,
-                                   bevel_strength = 0.0, bevel_shadow = 0.0, fresnel_strength = 0.0, specular_strength = 0.0 }))
-hg.preset("glass-bar",    preset({ thickness = 24, bezel_width = 0, blur_strength = 0.0, blur_iterations = 1, adaptive_dim = 0.1,
-                                   bevel_strength = 0.0, bevel_shadow = 0.0, fresnel_strength = 0.0, specular_strength = 0.0 }))
-hg.preset("glass-card",   preset({ thickness = 56, bezel_width = 44, blur_strength = 0.0, blur_iterations = 1, bevel_size = 1.6 }))
-hg.preset("glass-small",  preset({ thickness = 20, bezel_width = 16, blur_strength = 0.0, blur_iterations = 1 }))
+-- app windows and the bar: thick glass with a wide rim (the bend is what reads as glass)
+hg.preset("glass-window", preset({ thickness = 40, bezel_width = 36, blur_strength = 0.0, blur_iterations = 1, bevel_strength = 0.2 }))
+hg.preset("glass-bar",    preset({ thickness = 32, bezel_width = 32, blur_strength = 0.0, blur_iterations = 1, adaptive_dim = 0.1,
+                                   bevel_angle = 0, bevel_strength = 0.3, bevel_shadow = 0.0 }))
+hg.preset("glass-card",   preset({ thickness = 72, bezel_width = 60, blur_strength = 0.0, blur_iterations = 1, bevel_size = 2.0 }))
+hg.preset("glass-small",  preset({ thickness = 28, bezel_width = 24, blur_strength = 0.0, blur_iterations = 1 }))
 
 hg.config({
   enabled = true,
   default_theme = "dark",
   layers = { enabled = true, live_resample_fps = 30 },
-  -- frost 0.5 = auto: clear over the wallpaper, frosted over windows (text stays readable)
-  frost = { windows = 0.5, cards = 0.5, blur = 32, milk = 0 },
-  low_power = 1, -- Vega iGPU: no rim reflection, one background read
+  -- frost 0 = clear glass everywhere (0.5 = auto: frosted over windows; 1 = frosted)
+  frost = { windows = 0.0, cards = 0.0, blur = 32, milk = 0 },
+  low_power = 0, -- rim reflection and colour split on (Vega iGPU measured fine)
 })
 
--- owner's choice (2026-10-13): app windows and the bar keep the frost but lose the rim
--- (preset by tag, not default_preset: that is validated during a reload, before presets exist)
+-- windows get their preset by tag, not default_preset (that is validated during a reload, before presets exist)
 hl.window_rule({ name = "glass-window", match = { class = ".*" }, tag = "+hyprglass_preset_glass-window" })
 hg.layer("fiaboo-bar", { preset = "glass-bar", shape = { inset = { 0, -80, -80, -80 }, radius = 0 }, adaptive = true,
                          fill_key = BG, fill_alpha = FILL })
@@ -67,4 +67,4 @@ for _, ns in ipairs({ "fiaboo-notify", "fiaboo-osd" }) do
   hg.layer(ns, { preset = "glass-small", mask_mode = "contour", mask_threshold = 0.04, shadow = 0.16, held_close = false,
                  fill_key = BG, fill_alpha = FILL })
 end
-hg.commit()
+if not GLASS_IN_RELOAD then hg.commit() end
