@@ -25,9 +25,9 @@ local BG, FILL = matugen_bg(), 0.0 -- 0: the panel fill is fully seen through, o
 -- upper left, a clear bevel round every shape; the rim reflects the scene around it
 local glass = {
   ior = 1.52, abbe = 4,
-  specular_angle = 315, light_elevation = 35, specular_strength = 0.5,
+  specular_angle = 315, light_elevation = 35, specular_strength = 0.85,
   fresnel_strength = 0.4,
-  bevel_strength = 0.5, bevel_size = 1.8, bevel_angle = 315, bevel_shadow = 0.3,
+  bevel_strength = 0.5, bevel_size = 1.8, bevel_angle = 315, bevel_shadow = 0.15,
   tint_color = 0x16161606,
 }
 local function preset(over)
@@ -54,7 +54,7 @@ hg.config({
   -- frost 0 = clear glass everywhere (0.5 = auto: frosted over windows; 1 = frosted)
   frost = { windows = 0.0, cards = 0.0, blur = 32, milk = 0 },
   low_power = 0, -- rim reflection and colour split on (Vega iGPU measured fine)
-  dark_glass = 1, -- smoked glass everywhere (Omarchy's "Dark glass"): what is behind is dimmed, brights most
+  dark_glass = 0, -- 1 = smoked glass everywhere (Omarchy's "Dark glass"); off: clear panes, kitty darkened by its own adaptive_dim
 })
 
 -- windows get their preset by tag, not default_preset (that is validated during a reload, before presets exist)
