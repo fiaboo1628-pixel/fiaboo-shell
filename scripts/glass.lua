@@ -59,11 +59,13 @@ hg.layer("fiaboo-bar", { preset = "glass-bar", shape = { inset = { 0, -80, -80, 
 -- full-screen overlay layers that draw one card: the glass follows the card's outline
 for _, ns in ipairs({ "fiaboo-start", "fiaboo-quick", "fiaboo-calendar", "fiaboo-clip", "fiaboo-notifcenter",
                       "fiaboo-taskview", "fiaboo-settings", "fiaboo-wallpaper", "fiaboo-traymenu", "fiaboo-shot" }) do
-  -- held_close = false: the shell and Hyprland already animate the close; the engine's own
-  -- held copy on top of that showed two panels closing
-  hg.layer(ns, { preset = "glass-card", mask_mode = "contour", mask_threshold = 0.04, shadow = 0.2, held_close = false,
+  hg.layer(ns, { preset = "glass-card", mask_mode = "contour", mask_threshold = 0.04, shadow = 0.2,
                  fill_key = BG, fill_alpha = FILL })
 end
+-- the panels close with the engine's own motion (from the card it held): Hyprland's layer
+-- fade on top of it showed two panels closing, so it is off for them
+hl.layer_rule({ match = { namespace = "^fiaboo-(start|quick|calendar|clip|notifcenter|taskview|settings|wallpaper|traymenu|shot)$" },
+                no_anim = true, animation = "none" })
 -- toasts and the OSD: thin glass; the toast stack fades in place (one toast leaving is not the stack closing)
 for _, ns in ipairs({ "fiaboo-notify", "fiaboo-osd" }) do
   hg.layer(ns, { preset = "glass-small", mask_mode = "contour", mask_threshold = 0.04, shadow = 0.16, held_close = false,
