@@ -40,9 +40,8 @@ end
 hg.preset("glass-window", preset({ thickness = 40, bezel_width = 36, blur_strength = 0.0, blur_iterations = 1, bevel_strength = 0.2 }))
 hg.preset("glass-bar",    preset({ thickness = 32, bezel_width = 32, blur_strength = 0.0, blur_iterations = 1, adaptive_dim = 0.1,
                                    bevel_angle = 0, bevel_strength = 0.3, bevel_shadow = 0.0 }))
--- dark glass for kitty (by tag in custom.lua): the window-glass pane with a strong dark tint
-hg.preset("glass-dark",   preset({ thickness = 40, bezel_width = 36, blur_strength = 0.0, blur_iterations = 1, bevel_strength = 0.2,
-                                   tint_color = 0x000000A0 }))
+-- kitty: the window pane without the extra tint (dark_glass above already smokes it)
+hg.preset("glass-dark",   preset({ thickness = 40, bezel_width = 36, blur_strength = 0.0, blur_iterations = 1, bevel_strength = 0.2 }))
 hg.preset("glass-card",   preset({ thickness = 72, bezel_width = 60, blur_strength = 0.0, blur_iterations = 1, bevel_size = 2.0 }))
 hg.preset("glass-small",  preset({ thickness = 28, bezel_width = 24, blur_strength = 0.0, blur_iterations = 1 }))
 
@@ -53,6 +52,7 @@ hg.config({
   -- frost 0 = clear glass everywhere (0.5 = auto: frosted over windows; 1 = frosted)
   frost = { windows = 0.0, cards = 0.0, blur = 32, milk = 0 },
   low_power = 0, -- rim reflection and colour split on (Vega iGPU measured fine)
+  dark_glass = 1, -- smoked glass everywhere (Omarchy's "Dark glass"): what is behind is dimmed, brights most
 })
 
 -- windows get their preset by tag, not default_preset (that is validated during a reload, before presets exist)
