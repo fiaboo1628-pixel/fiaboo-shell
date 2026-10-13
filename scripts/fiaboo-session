@@ -27,7 +27,9 @@ glass() {
     if [ -n "$report" ] && [ "$report" -nt "$so" ] && grep -q hyprglass "$report"; then
         notify-send "fiaboo-shell" "Glass off: Hyprland crashed with it loaded ($report). Touch scripts/hyprglass to retry." 2>/dev/null; return
     fi
-    hyprctl plugin load "$so" >/dev/null 2>&1 && hyprctl eval "dofile('$GLASS_SRC/glass.lua')" >/dev/null 2>&1
+    # glass.lua is installed next to the .so: custom.lua reads it from there, not from the repo
+    cp "$GLASS_SRC/glass.lua" "$cache/glass.lua"
+    hyprctl plugin load "$so" >/dev/null 2>&1 && hyprctl eval "dofile('$cache/glass.lua')" >/dev/null 2>&1
 }
 glass &
 
