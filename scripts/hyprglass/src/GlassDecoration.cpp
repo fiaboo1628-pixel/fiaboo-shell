@@ -484,7 +484,9 @@ void CGlassDecoration::renderPass(PHLMONITOR monitor, const float& alpha) {
     // not the active/inactive dimming or opacity rules: those make the surface
     // more translucent — revealing more glass — and shouldn't wash out the
     // glass pane itself. Rebuild the fade-only alpha from its components.
-    float glassAlpha = window->alphaTotalWithout(Desktop::View::WINDOW_ALPHA_ACTIVE);
+    // fiaboo: the pane follows the active/inactive opacity too, so an unfocused window
+    // (opacity "1.0 0.45" on kitty) reads as clearly dimmer, not only its text
+    float glassAlpha = window->alphaTotal();
     if (const auto workspace = window->m_workspace; workspace && !window->m_pinned)
         glassAlpha *= workspace->m_alpha->value();
 
