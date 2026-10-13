@@ -6,6 +6,30 @@
 #  - if it dies within 30 s of starting, swaync takes over notifications and it is retried every 30 s
 BIN=${FIABOO_SHELL_BIN:-$HOME/.local/bin/fiaboo-shell}
 LOG=$HOME/.cache/fiaboo-shell.log
+GLASS_SRC=${FIABOO_GLASS_SRC:-$HOME/Projects/fiaboo-shell/scripts}   # hyprglass/ (engine) and glass.lua
+
+# True glass (hyprglass Hyprland plugin): built once per Hyprland version into ~/.cache, loaded, then
+# glass.lua applied (custom.lua re-applies it on every reload). If Hyprland crashed with the plugin
+# loaded (its crash report names hyprglass and is newer than the build), it stays off until rebuilt.
+glass() {
+    local ver so build cache=$HOME/.cache/fiaboo-shell report
+    ver=$(hyprctl version -j 2>/dev/null | jq -r '.version // empty'); [ -n "$ver" ] || return
+    so=$cache/hyprglass-$ver.so; mkdir -p "$cache"
+    if [ ! -f "$so" ] || [ -n "$(find "$GLASS_SRC/hyprglass" -newer "$so" -type f | head -1)" ]; then
+        build=$cache/hyprglass-build
+        rm -rf "$build" && cp -r "$GLASS_SRC/hyprglass" "$build" || return
+        if ! make -C "$build" -j4 HYPRGLASS_VERSION=1.0.1 >"$cache/hyprglass-build.log" 2>&1; then
+            notify-send "fiaboo-shell" "Glass: engine build failed (log: $cache/hyprglass-build.log)" 2>/dev/null; return
+        fi
+        cp "$build/hyprglass.so" "$so"
+    fi
+    report=$(ls -t "${XDG_CACHE_HOME:-$HOME/.cache}"/hyprland/hyprlandCrashReport*.txt 2>/dev/null | head -1)
+    if [ -n "$report" ] && [ "$report" -nt "$so" ] && grep -q hyprglass "$report"; then
+        notify-send "fiaboo-shell" "Glass off: Hyprland crashed with it loaded ($report). Touch scripts/hyprglass to retry." 2>/dev/null; return
+    fi
+    hyprctl plugin load "$so" >/dev/null 2>&1 && hyprctl eval "dofile('$GLASS_SRC/glass.lua')" >/dev/null 2>&1
+}
+glass &
 
 while true; do
     pkill -x swaync   # may have been D-Bus-activated while fiaboo-shell was down; the shell takes the name over
