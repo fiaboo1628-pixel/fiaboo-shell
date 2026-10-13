@@ -34,7 +34,9 @@ local function preset(over)
   for k, v in pairs(over) do p[k] = v end
   return p
 end
--- the bar: frosted glass with no rim (no bend, no bevel, no edge reflection)
+-- the bar and app windows: frosted glass with no rim (no bend, no bevel, no edge reflection)
+hg.preset("glass-window", preset({ thickness = 30, bezel_width = 0, blur_strength = 0.0, blur_iterations = 1,
+                                   bevel_strength = 0.0, bevel_shadow = 0.0, fresnel_strength = 0.0, specular_strength = 0.0 }))
 hg.preset("glass-bar",    preset({ thickness = 24, bezel_width = 0, blur_strength = 0.0, blur_iterations = 1, adaptive_dim = 0.1,
                                    bevel_strength = 0.0, bevel_shadow = 0.0, fresnel_strength = 0.0, specular_strength = 0.0 }))
 hg.preset("glass-card",   preset({ thickness = 56, bezel_width = 44, blur_strength = 0.0, blur_iterations = 1, bevel_size = 1.6 }))
@@ -49,8 +51,9 @@ hg.config({
   low_power = 1, -- Vega iGPU: no rim reflection, one background read
 })
 
--- owner's choice (2026-10-13): no glass rim around app windows; the bar keeps a rimless frost
-hl.window_rule({ name = "no-glass", match = { class = ".*" }, tag = "+hyprglass_disabled" })
+-- owner's choice (2026-10-13): app windows and the bar keep the frost but lose the rim
+-- (preset by tag, not default_preset: that is validated during a reload, before presets exist)
+hl.window_rule({ name = "glass-window", match = { class = ".*" }, tag = "+hyprglass_preset_glass-window" })
 hg.layer("fiaboo-bar", { preset = "glass-bar", shape = { inset = { 0, -80, -80, -80 }, radius = 0 }, adaptive = true,
                          fill_key = BG, fill_alpha = FILL })
 -- full-screen overlay layers that draw one card: the glass follows the card's outline
