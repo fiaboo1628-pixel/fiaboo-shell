@@ -34,23 +34,23 @@ local function preset(over)
   for k, v in pairs(over) do p[k] = v end
   return p
 end
-hg.preset("glass-bar",    preset({ thickness = 24, bezel_width = 24, blur_strength = 0.0, blur_iterations = 1, adaptive_dim = 0.1,
-                                   bevel_angle = 0, bevel_strength = 0.2, bevel_shadow = 0.0 }))
-hg.preset("glass-window", preset({ thickness = 30, bezel_width = 26, blur_strength = 0.0, blur_iterations = 1, bevel_strength = 0.0 }))
+-- the bar: frosted glass with no rim (no bend, no bevel, no edge reflection)
+hg.preset("glass-bar",    preset({ thickness = 24, bezel_width = 0, blur_strength = 0.0, blur_iterations = 1, adaptive_dim = 0.1,
+                                   bevel_strength = 0.0, bevel_shadow = 0.0, fresnel_strength = 0.0, specular_strength = 0.0 }))
 hg.preset("glass-card",   preset({ thickness = 56, bezel_width = 44, blur_strength = 0.0, blur_iterations = 1, bevel_size = 1.6 }))
 hg.preset("glass-small",  preset({ thickness = 20, bezel_width = 16, blur_strength = 0.0, blur_iterations = 1 }))
 
 hg.config({
   enabled = true,
   default_theme = "dark",
-  default_preset = "glass-window",
   layers = { enabled = true, live_resample_fps = 30 },
   -- frost 0.5 = auto: clear over the wallpaper, frosted over windows (text stays readable)
   frost = { windows = 0.5, cards = 0.5, blur = 32, milk = 0 },
   low_power = 1, -- Vega iGPU: no rim reflection, one background read
 })
 
--- taskbar at the bottom: glass runs past the screen's bottom and sides, rim only on top
+-- owner's choice (2026-10-13): no glass rim around app windows; the bar keeps a rimless frost
+hl.window_rule({ name = "no-glass", match = { class = ".*" }, tag = "+hyprglass_disabled" })
 hg.layer("fiaboo-bar", { preset = "glass-bar", shape = { inset = { 0, -80, -80, -80 }, radius = 0 }, adaptive = true,
                          fill_key = BG, fill_alpha = FILL })
 -- full-screen overlay layers that draw one card: the glass follows the card's outline
