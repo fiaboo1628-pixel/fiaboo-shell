@@ -54,8 +54,9 @@ hg.config({
 
 -- windows get their preset by tag, not default_preset (that is validated during a reload, before presets exist)
 hl.window_rule({ name = "glass-window", match = { class = ".*" }, tag = "+hyprglass_preset_glass-window" })
-hg.layer("fiaboo-bar", { preset = "glass-bar", shape = { inset = { 0, -80, -80, -80 }, radius = 0 }, adaptive = true,
-                         fill_key = BG, fill_alpha = FILL })
+-- the bar keeps 70 % of its fill, the same as kitty's background_opacity, so the two match where they meet
+hg.layer("fiaboo-bar", { preset = "glass-bar", shape = { inset = { 0, -80, -80, -80 }, radius = 0 }, adaptive = false,
+                         fill_key = BG, fill_alpha = 0.7 })
 -- full-screen overlay layers that draw one card: the glass follows the card's outline
 for _, ns in ipairs({ "fiaboo-start", "fiaboo-quick", "fiaboo-calendar", "fiaboo-clip", "fiaboo-notifcenter",
                       "fiaboo-taskview", "fiaboo-settings", "fiaboo-wallpaper", "fiaboo-traymenu", "fiaboo-shot" }) do
