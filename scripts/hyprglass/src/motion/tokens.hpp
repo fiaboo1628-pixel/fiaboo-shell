@@ -106,16 +106,17 @@ inline MorphSpec islandBouncy() {
 inline MorphGeometry islandBouncyGeometry() { return {0.7, 0.5, 56, 0, 20, 0.86, 10, 40, 0.55, 210, 0.45, 0.12}; }
 
 // A card that isn't attached to the bar (the menu, a dialog): it swells out of a smaller rounded shape where it is, the height a touch behind the width (the jelly), the content scaling in evenly behind it; closing, the content goes first and the glass flattens as it gathers in.
+// fiaboo: close timings doubled (the owner wants slow, soft motion)
 inline MorphSpec islandInPlace() {
     MorphSpec s;
     s.count = 8;
-    s.tracks[ch::Near] = Track::make(0.0, {Step{0.0, Spring::fromDuration(0.34, 0.2), 1.0}}, {Step{0.03, Spring::fromDuration(0.24, 0.0), 0.0}});
-    s.tracks[ch::Far] = Track::make(0.0, {Step{0.0, Spring::fromDuration(0.34, 0.2), 1.0}}, {Step{0.03, Spring::fromDuration(0.24, 0.0), 0.0}});
-    s.tracks[ch::Sides] = Track::make(0.0, {Step{0.0, Spring::fromDuration(0.3, 0.12), 1.0}}, {Step{0.04, Spring::fromDuration(0.24, 0.0), 0.0}});
+    s.tracks[ch::Near] = Track::make(0.0, {Step{0.0, Spring::fromDuration(0.34, 0.2), 1.0}}, {Step{0.06, Spring::fromDuration(0.48, 0.0), 0.0}});
+    s.tracks[ch::Far] = Track::make(0.0, {Step{0.0, Spring::fromDuration(0.34, 0.2), 1.0}}, {Step{0.06, Spring::fromDuration(0.48, 0.0), 0.0}});
+    s.tracks[ch::Sides] = Track::make(0.0, {Step{0.0, Spring::fromDuration(0.3, 0.12), 1.0}}, {Step{0.08, Spring::fromDuration(0.48, 0.0), 0.0}});
     s.tracks[ch::Source] = Track::make(0.0, {}, {});
-    s.tracks[ch::Scale] = Track::make(0.0, {Step{0.02, Spring::fromDuration(0.32, 0.1), 1.0}}, {Step{0.0, Spring::fromDuration(0.2, 0.0), 0.0}});
-    s.tracks[ch::Alpha] = Track::make(0.0, {Step{0.04, Spring::fromDuration(0.2, 0.0), 1.0}}, {Step{0.0, Spring::fromDuration(0.08, 0.0), 0.0}});
-    s.tracks[ch::Glass] = Track::make(0.0, {Step{0.0, Spring::fromDuration(0.1, 0.0), 1.0}}, {Step{0.08, Spring::fromDuration(0.18, 0.0), 0.0}});
+    s.tracks[ch::Scale] = Track::make(0.0, {Step{0.02, Spring::fromDuration(0.32, 0.1), 1.0}}, {Step{0.0, Spring::fromDuration(0.4, 0.0), 0.0}});
+    s.tracks[ch::Alpha] = Track::make(0.0, {Step{0.04, Spring::fromDuration(0.2, 0.0), 1.0}}, {Step{0.0, Spring::fromDuration(0.16, 0.0), 0.0}});
+    s.tracks[ch::Glass] = Track::make(0.0, {Step{0.0, Spring::fromDuration(0.1, 0.0), 1.0}}, {Step{0.16, Spring::fromDuration(0.36, 0.0), 0.0}});
     s.tracks[ch::Fall] = Track::make(0.0, {}, {});
     return s;
 }
