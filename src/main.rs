@@ -1686,8 +1686,6 @@ fn start_hypr_events() {
 
 impl Bar {
     fn new(cx: &mut Context<Self>) -> Self {
-        start_hypr_events();
-        start_volume_watch();
         if let Some(mut rx) = IPC_RX.lock().unwrap().take() {
             cx.spawn(async move |_, cx| {
                 use futures::StreamExt;
@@ -1727,7 +1725,7 @@ impl Bar {
                 };
                 let tray_now = tray::items();
                 let rec_flag = format!("{}/fiaboo-recording", std::env::var("XDG_RUNTIME_DIR").unwrap_or_default());
-                let _ = this.update(cx, |bar, cx| {
+                let alive = this.update(cx, |bar, cx| {
                     let mut changed = false;
                     if let Some(st) = st {
                         bar.st = st;
@@ -1767,6 +1765,9 @@ impl Bar {
                         cx.notify();
                     }
                 });
+                if alive.is_err() {
+                    break;
+                }
                 cx.background_executor().timer(Duration::from_millis(150)).await;
             }
         })
@@ -4343,32 +4344,55 @@ fn main() {
     start_ipc();
     notify::start();
     tray::start();
+    start_hypr_events();
+    start_volume_watch();
     application().run(|cx: &mut App| {
-        cx.open_window(
-            WindowOptions {
-                titlebar: None,
-                window_bounds: Some(WindowBounds::Windowed(Bounds {
-                    origin: point(px(0.), px(0.)),
-                    size: size(px(0.), px(BAR_HEIGHT)), // width 0 = compositor stretches it (anchored left+right)
-                })),
-                app_id: Some("fiaboo-shell".to_string()),
-                window_background: WindowBackgroundAppearance::Transparent,
-                kind: WindowKind::LayerShell(LayerShellOptions {
-                    namespace: "fiaboo-bar".to_string(),
-                    layer: Layer::Top,
-                    anchor: Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
-                    exclusive_zone: Some(px(BAR_HEIGHT)), // full-width taskbar at the bottom, windows tile above it
-                    margin: None,
-                    keyboard_interactivity: KeyboardInteractivity::None,
-                    ..Default::default()
-                }),
-                ..Default::default()
-            },
-            |_, cx| cx.new(Bar::new),
-        )
-        .unwrap();
+        open_bar(cx);
+        // Hyprland closes every layer surface when its monitor goes away (DP-1 re-plugs itself at login);
+        // GPUI then just drops the window, so put the bar back once a monitor is there again.
+        cx.on_window_closed(|cx, _| {
+            if cx.windows().iter().any(|w| w.downcast::<Bar>().is_some()) {
+                return;
+            }
+            cx.spawn(async move |cx| {
+                cx.background_executor().timer(Duration::from_millis(500)).await;
+                let _ = cx.update(|cx| {
+                    if cx.windows().iter().all(|w| w.downcast::<Bar>().is_none()) {
+                        open_bar(cx);
+                    }
+                });
+            })
+            .detach();
+        })
+        .detach();
         viz::restore(cx);
     });
+}
+
+fn open_bar(cx: &mut App) {
+    cx.open_window(
+        WindowOptions {
+            titlebar: None,
+            window_bounds: Some(WindowBounds::Windowed(Bounds {
+                origin: point(px(0.), px(0.)),
+                size: size(px(0.), px(BAR_HEIGHT)), // width 0 = compositor stretches it (anchored left+right)
+            })),
+            app_id: Some("fiaboo-shell".to_string()),
+            window_background: WindowBackgroundAppearance::Transparent,
+            kind: WindowKind::LayerShell(LayerShellOptions {
+                namespace: "fiaboo-bar".to_string(),
+                layer: Layer::Top,
+                anchor: Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
+                exclusive_zone: Some(px(BAR_HEIGHT)), // full-width taskbar at the bottom, windows tile above it
+                margin: None,
+                keyboard_interactivity: KeyboardInteractivity::None,
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        |_, cx| cx.new(Bar::new),
+    )
+    .unwrap();
 }
 
 #[cfg(test)]
