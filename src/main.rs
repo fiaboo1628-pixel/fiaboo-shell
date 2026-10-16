@@ -4346,7 +4346,8 @@ fn main() {
     tray::start();
     start_hypr_events();
     start_volume_watch();
-    application().run(|cx: &mut App| {
+    // Explicit: losing the bar (its only window) must not quit the app before on_window_closed reopens it.
+    application().with_quit_mode(gpui::QuitMode::Explicit).run(|cx: &mut App| {
         open_bar(cx);
         // Hyprland closes every layer surface when its monitor goes away (DP-1 re-plugs itself at login);
         // GPUI then just drops the window, so put the bar back once a monitor is there again.
