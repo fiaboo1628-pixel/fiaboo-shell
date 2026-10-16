@@ -709,7 +709,7 @@ impl Render for Quick {
                         },
                         sys.wifi_on,
                         wifi_cmd,
-                        Some("kitty --class tui-float-wifi nmtui connect"),
+                        Some("~/.local/bin/fiaboo tui --float Wi-Fi nmtui connect"),
                     ))
                     .child(tile(
                         "q-bt",
@@ -718,7 +718,7 @@ impl Render for Quick {
                         if sys.bt_on { "On" } else { "Off" }.to_string(),
                         sys.bt_on,
                         bt_cmd,
-                        Some("kitty --class tui-float-bt bluetui"),
+                        Some("~/.local/bin/fiaboo tui --float Bluetooth bluetui"),
                     )),
             )
             .child(
