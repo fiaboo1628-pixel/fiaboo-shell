@@ -640,25 +640,6 @@ impl Render for Quick {
                 .child(media_btn("m-next", "\u{f04ad}", "next"))
         });
 
-        let footer_btn = |id: &'static str, label: &'static str, cmd: &'static str| {
-            div()
-                .id(id)
-                .cursor_pointer()
-                .flex_1()
-                .flex()
-                .justify_center()
-                .py_2()
-                .rounded_lg()
-                .text_size(px(14.))
-                .bg(rgba((p.dim << 8) | 0x28))
-                .hover(|s| s.bg(rgba((p.accent << 8) | 0x40)))
-                .on_click(move |_, window, cx| {
-                    run_bg(&format!("setsid {cmd}"));
-                    close_quick(window, cx);
-                })
-                .child(label)
-        };
-
         div()
             .font_family(NF)
             .size_full()
@@ -679,7 +660,7 @@ impl Render for Quick {
             .child(
                 div()
                     .w(px(380.0))
-                    .h(px(if media.is_some() { 400. } else { 330. }))
+                    .h(px(if media.is_some() { 352. } else { 282. }))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()).on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
                     .flex()
                     .flex_col()
@@ -771,14 +752,7 @@ impl Render for Quick {
                         if sys.muted { "Muted".to_string() } else { format!("{level}%") },
                     )),
             )
-            .children(media)
-            .child(
-                div()
-                    .flex()
-                    .gap_2()
-                    .child(footer_btn("q-ctrl", "Control menu", "~/.local/bin/ctrl-menu"))
-                    .child(footer_btn("q-lock", "Lock", "hyprlock")),
-            ))
+            .children(media))
     }
 }
 
