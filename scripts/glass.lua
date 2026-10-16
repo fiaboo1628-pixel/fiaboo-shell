@@ -8,18 +8,21 @@ if not hg then return end
 
 -- the panels paint p.bg (matugen kitty background) at alpha 0xC8: the engine sees
 -- through that fill and keeps only FILL of it, so the glass reads underneath
-local function matugen_bg()
+local function matugen(key, default)
   local f = io.open(os.getenv("HOME") .. "/.config/kitty/colors-matugen.conf")
-  if not f then return 0x111418 end
+  if not f then return default end
   local hex
   for line in f:lines() do
-    hex = line:match("^background%s+#(%x%x%x%x%x%x)")
+    hex = line:match("^" .. key .. "%s+#(%x%x%x%x%x%x)")
     if hex then break end
   end
   f:close()
-  return hex and tonumber(hex, 16) or 0x111418
+  return hex and tonumber(hex, 16) or default
 end
-local BG, FILL = matugen_bg(), 0.0 -- 0: the panel fill is fully seen through, only the glass remains
+local BG, FILL = matugen("background", 0x111418), 0.0 -- 0: the panel fill is fully seen through, only the glass remains
+-- panels and toasts: clear glass tinted with the wallpaper's accent (matugen color4, ~19 %);
+-- a wallpaper change reloads Hyprland, which re-runs this file
+local TINT = matugen("color4", 0x9ecafc) * 0x100 + 0x30
 
 -- clear glass (n = 1.52), strong colour split at the rim (Abbe 4), a glint from the
 -- upper left, a clear bevel round every shape; the rim reflects the scene around it
@@ -44,8 +47,8 @@ hg.preset("glass-bar",    preset({ thickness = 32, bezel_width = 32, blur_streng
 -- frosted (blur 3) so a busy wallpaper does not fight the text; unfocused it fades to 45 % with the window (engine patch in GlassDecoration.cpp)
 hg.preset("glass-dark",   preset({ thickness = 40, bezel_width = 36, blur_strength = 3.0, blur_iterations = 3, bevel_strength = 0.2,
                                    tint_color = 0x000000B4, dark = { adaptive_dim = 0.0, saturation = 0.6 } }))
-hg.preset("glass-card",   preset({ thickness = 72, bezel_width = 60, blur_strength = 0.0, blur_iterations = 1, bevel_size = 2.0 }))
-hg.preset("glass-small",  preset({ thickness = 28, bezel_width = 24, blur_strength = 0.0, blur_iterations = 1 }))
+hg.preset("glass-card",   preset({ thickness = 72, bezel_width = 60, blur_strength = 0.0, blur_iterations = 1, bevel_size = 2.0, tint_color = TINT }))
+hg.preset("glass-small",  preset({ thickness = 28, bezel_width = 24, blur_strength = 0.0, blur_iterations = 1, tint_color = TINT }))
 
 hg.config({
   enabled = true,
