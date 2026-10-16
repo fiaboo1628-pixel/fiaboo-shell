@@ -490,18 +490,6 @@ struct Quick {
     sys: Sys,
     focus: FocusHandle,
     last_input: std::time::Instant,
-    bt: BtUi,
-    /// Showing the Bluetooth page (opened with the › on the Bluetooth tile)
-    bt_view: bool,
-}
-
-impl HasBt for Quick {
-    fn bt(&mut self) -> &mut BtUi {
-        &mut self.bt
-    }
-    fn touch(&mut self) {
-        self.last_input = std::time::Instant::now();
-    }
 }
 
 impl Quick {
@@ -509,14 +497,10 @@ impl Quick {
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         cx.spawn_in(window, async move |this, cx| loop {
-            let bt_view = this.update(cx, |q, _| q.bt_view).unwrap_or(false);
-            let (sys, bt) = cx.background_executor().spawn(async move { (read_sys(), bt_view.then(read_bt)) }).await;
+            let sys = cx.background_executor().spawn(async move { read_sys() }).await;
             let idle = this
                 .update(cx, |q, cx| {
                     q.sys = sys;
-                    if let Some(bt) = bt {
-                        q.bt.refresh(bt);
-                    }
                     cx.notify();
                     q.last_input.elapsed() > Duration::from_secs(60)
                 })
@@ -528,7 +512,7 @@ impl Quick {
             cx.background_executor().timer(Duration::from_millis(1200)).await;
         })
         .detach();
-        Quick { pal: palette(), sys: Sys::default(), focus, last_input: std::time::Instant::now(), bt: BtUi::default(), bt_view: false }
+        Quick { pal: palette(), sys: Sys::default(), focus, last_input: std::time::Instant::now() }
     }
 }
 
@@ -537,10 +521,9 @@ impl Render for Quick {
         let p = self.pal.clone();
         let sys = self.sys.clone();
         let (g_wifi, g_bt, g_vol) = sys_glyphs(&sys);
-        let bt_view = self.bt_view;
-        let bt_page = bt_view.then(|| bt_rows(&self.bt, &p, cx));
 
-        let tile = |id: &'static str, glyph: &'static str, title: &'static str, sub: String, on: bool, cmd: String| {
+        // left click runs `cmd`; right click opens `app` (if any) to pick a network/device
+        let tile = |id: &'static str, glyph: &'static str, title: &'static str, sub: String, on: bool, cmd: String, app: Option<&'static str>| {
             div()
                 .id(id)
                 .cursor_pointer()
@@ -558,6 +541,13 @@ impl Render for Quick {
                     if cmd == "@dnd" { notify::toggle_dnd() } else { run_bg(&cmd) }
                     cx.notify();
                 }))
+                .when_some(app, |d, app| {
+                    d.on_mouse_down(MouseButton::Right, move |_, window, cx| {
+                        cx.stop_propagation();
+                        run_bg(&format!("setsid {app}"));
+                        close_quick(window, cx);
+                    })
+                })
                 .child(
                     div()
                         .font_family(NF)
@@ -676,12 +666,7 @@ impl Render for Quick {
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                 this.last_input = std::time::Instant::now();
                 if ev.keystroke.key == "escape" {
-                    if this.bt_view {
-                        this.bt_view = false;
-                        cx.notify();
-                    } else {
-                        close_quick(window, cx);
-                    }
+                    close_quick(window, cx);
                 }
             }))
             .flex()
@@ -694,7 +679,7 @@ impl Render for Quick {
             .child(
                 div()
                     .w(px(380.0))
-                    .h(px(if media.is_some() || bt_view { 400. } else { 330. }))
+                    .h(px(if media.is_some() { 400. } else { 330. }))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()).on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
                     .flex()
                     .flex_col()
@@ -706,33 +691,6 @@ impl Render for Quick {
             .border_color(rgba((p.dim << 8) | 0x70))
             .text_color(rgb(p.fg))
             .text_size(px(14.))
-            .when_some(bt_page, |d, rows| {
-                d.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .child(
-                            div()
-                                .id("q-bt-back")
-                                .cursor_pointer()
-                                .px_1()
-                                .rounded_md()
-                                .font_family(NF)
-                                .text_size(px(18.))
-                                .hover(|s| s.bg(rgba((p.accent << 8) | 0x40)))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.last_input = std::time::Instant::now();
-                                    this.bt_view = false;
-                                    cx.notify();
-                                }))
-                                .child("\u{f0141}"),
-                        )
-                        .child(div().font_weight(FontWeight::SEMIBOLD).text_size(px(16.)).child("Bluetooth")),
-                )
-                .child(div().id("q-bt-list").flex_1().overflow_y_scroll().flex().flex_col().gap_1().children(rows))
-            })
-            .when(!bt_view, |d| d
             .child(div().font_weight(FontWeight::SEMIBOLD).text_size(px(16.)).child("Quick settings"))
             .child(
                 div()
@@ -751,36 +709,17 @@ impl Render for Quick {
                         },
                         sys.wifi_on,
                         wifi_cmd,
+                        Some("kitty --class tui-float-wifi nmtui connect"),
                     ))
-                    .child(
-                        tile(
-                            "q-bt",
-                            g_bt,
-                            "Bluetooth",
-                            if sys.bt_on { "On" } else { "Off" }.to_string(),
-                            sys.bt_on,
-                            bt_cmd,
-                        )
-                        .child(
-                            div()
-                                .id("q-bt-more")
-                                .ml_auto()
-                                .px_1()
-                                .rounded_md()
-                                .font_family(NF)
-                                .text_size(px(18.))
-                                .text_color(rgb(p.dim))
-                                .hover(|s| s.text_color(rgb(p.fg)).bg(rgba((p.accent << 8) | 0x40)))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    cx.stop_propagation(); // don't also toggle the tile
-                                    this.last_input = std::time::Instant::now();
-                                    this.bt.refresh(read_bt());
-                                    this.bt_view = true;
-                                    cx.notify();
-                                }))
-                                .child("\u{f0142}"),
-                        ),
-                    ),
+                    .child(tile(
+                        "q-bt",
+                        g_bt,
+                        "Bluetooth",
+                        if sys.bt_on { "On" } else { "Off" }.to_string(),
+                        sys.bt_on,
+                        bt_cmd,
+                        Some("kitty --class tui-float-bt bluetui"),
+                    )),
             )
             .child(
                 div()
@@ -793,6 +732,7 @@ impl Render for Quick {
                         if sys.night { "On" } else { "Off" }.to_string(),
                         sys.night,
                         "pkill -x hyprsunset || setsid hyprsunset".to_string(),
+                        None,
                     ))
                     .child(tile(
                         "q-dnd",
@@ -801,6 +741,7 @@ impl Render for Quick {
                         if sys.dnd { "On" } else { "Off" }.to_string(),
                         sys.dnd,
                         "@dnd".to_string(),
+                        None,
                     )),
             )
             .child(
@@ -838,7 +779,6 @@ impl Render for Quick {
                     .child(footer_btn("q-ctrl", "Control menu", "~/.local/bin/ctrl-menu"))
                     .child(footer_btn("q-lock", "Lock", "hyprlock")),
             ))
-            )
     }
 }
 
