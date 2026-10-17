@@ -1,19 +1,22 @@
 #!/bin/sh
 # Toggle screen recording (Shift+Print). First run: drag a region or click a monitor; second run stops.
-flag="$XDG_RUNTIME_DIR/fiaboo-recording" # the bar shows a red dot while it exists
-if pgrep -x wf-recorder >/dev/null; then
-    pkill -INT -x wf-recorder # SIGINT lets wf-recorder finish the file
+flag="$XDG_RUNTIME_DIR/fiaboo-recording" # the bar shows a red dot while it exists; holds our wf-recorder's PID
+pid=$(cat "$flag" 2>/dev/null)
+if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    kill -INT "$pid" # SIGINT lets wf-recorder finish the file; only ours, not another app's wf-recorder
     exit 0
 fi
 rm -f "$flag"
+pgrep -x slurp >/dev/null && exit 0 # a second press while still picking the region
 geo=$(slurp -o) || exit 0
 dir="$HOME/Videos/recordings"
 mkdir -p "$dir"
 file="$dir/rec-$(date +%Y%m%d-%H%M%S).mp4"
-touch "$flag"
 # desktop sound (what the speakers play), not the microphone; -D -r 30: steady 30 fps even on a still
 # screen (with audio and only damage-driven frames, a still screen gave a file with no video)
-wf-recorder -g "$geo" -D -r 30 --audio="$(pactl get-default-sink).monitor" -f "$file" >/dev/null 2>&1
+# foreground with its PID in the flag (an `&` job of a non-interactive sh would start with SIGINT ignored)
+sh -c 'echo $$ > "$1"; shift; exec "$@"' sh "$flag" \
+    wf-recorder -g "$geo" -D -r 30 --audio="$(pactl get-default-sink).monitor" -f "$file" >/dev/null 2>&1
 rm -f "$flag"
 if [ ! -s "$file" ]; then
     rm -f "$file"
