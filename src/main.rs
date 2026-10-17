@@ -1,5 +1,5 @@
 //! fiaboo-shell prototype: a GPUI layer-shell bar (bottom of the screen) with logo, workspaces,
-//! running apps (icons, click to focus) and clock. Colours follow the matugen palette used by kitty.
+//! running apps (icons, click to focus) and clock. Colours: fixed Catppuccin Mocha (`palette()`).
 mod lunar;
 mod notify;
 mod tray;
@@ -78,79 +78,13 @@ struct Palette {
     accent: u32,
     accent2: u32, // tertiary, for two-colour accents (the music line)
     dim: u32,
-    err: u32, // matugen error (kitty color1)
+    err: u32,
 }
 
+// One fixed Catppuccin Mocha palette (owner, 2026-10-17); nothing follows the wallpaper.
+// secondary text is subtext1, not subtext0: it sits on see-through glass
 fn palette() -> Palette {
-    let conf = fs::read_to_string(format!("{}/.config/kitty/colors-matugen.conf", home()))
-        .unwrap_or_default();
-    let get = |key: &str, default: u32| {
-        conf.lines()
-            .find_map(|l| {
-                let mut it = l.split_whitespace();
-                (it.next()? == key).then(|| it.next()).flatten()
-            })
-            .and_then(|h| u32::from_str_radix(h.trim_start_matches('#'), 16).ok())
-            .unwrap_or(default)
-    };
-    // Neutrals and error are fixed Catppuccin (Mocha, or Latte when matugen made a light theme) so
-    // text always reads; only the accents follow the wallpaper, kept in a lightness band that does too.
-    let light = rel_luminance(get("background", 0x0f1417)) > 0.5;
-    let (bg, fg, dim, err, band) = if light {
-        (0xeff1f5, 0x4c4f69, 0x5c5f77, 0xd20f39, (0.40, 0.52))
-    } else {
-        // secondary text is subtext1, not subtext0: it sits on see-through glass
-        (0x1e1e2e, 0xcdd6f4, 0xbac2de, 0xf38ba8, (0.72, 0.85))
-    };
-    Palette {
-        bg,
-        fg,
-        accent: clamp_accent(get("color4", 0x89b4fa), band),
-        accent2: clamp_accent(get("color5", 0xcba6f7), band),
-        dim,
-        err,
-    }
-}
-
-fn srgb_channels(c: u32) -> [f64; 3] {
-    let lin = |v: u32| {
-        let v = v as f64 / 255.;
-        if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
-    };
-    [lin(c >> 16 & 0xff), lin(c >> 8 & 0xff), lin(c & 0xff)]
-}
-
-/// WCAG relative luminance of 0xRRGGBB.
-fn rel_luminance(c: u32) -> f64 {
-    let [r, g, b] = srgb_channels(c);
-    0.2126 * r + 0.7152 * g + 0.0722 * b
-}
-
-/// Keep the hue of a wallpaper color but force its OKLCH lightness into `band` and its chroma to
-/// at most 0.14, so it reads on the fixed panel background whatever the wallpaper is.
-fn clamp_accent(c: u32, band: (f64, f64)) -> u32 {
-    let [r, g, b] = srgb_channels(c);
-    let (l, m, s) = (
-        (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b).cbrt(),
-        (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b).cbrt(),
-        (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b).cbrt(),
-    );
-    let lightness = (0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s).clamp(band.0, band.1);
-    let (a, bb) = (1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s);
-    let chroma = a.hypot(bb).min(0.14);
-    let hue = bb.atan2(a);
-    let (a, bb) = (chroma * hue.cos(), chroma * hue.sin());
-    let l = (lightness + 0.3963377774 * a + 0.2158037573 * bb).powi(3);
-    let m = (lightness - 0.1055613458 * a - 0.0638541728 * bb).powi(3);
-    let s = (lightness - 0.0894841775 * a - 1.2914855480 * bb).powi(3);
-    let gam = |v: f64| {
-        let v = v.clamp(0., 1.);
-        let v = if v <= 0.0031308 { 12.92 * v } else { 1.055 * v.powf(1. / 2.4) - 0.055 };
-        (v * 255.).round() as u32
-    };
-    gam(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s) << 16
-        | gam(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s) << 8
-        | gam(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s)
+    Palette { bg: 0x1e1e2e, fg: 0xcdd6f4, accent: 0x89b4fa, accent2: 0xcba6f7, dim: 0xbac2de, err: 0xf38ba8 }
 }
 
 // ---------- icon lookup ----------
@@ -1190,21 +1124,6 @@ mod tests {
         assert_eq!(net_row(&f(["enp2s0", "ethernet", "unavailable", ""]), ""), ("Ethernet".into(), "Cable unplugged · enp2s0".into()));
     }
 
-    #[test]
-    fn wallpaper_accents_always_read_on_the_fixed_panels() {
-        let contrast = |a: u32, b: u32| {
-            let (x, y) = (rel_luminance(a), rel_luminance(b));
-            (x.max(y) + 0.05) / (x.min(y) + 0.05)
-        };
-        // current blue, pink, green, orange, a dark purple, pure black/white
-        for wp in [0xafc6ff, 0xffb0c8, 0xb8f397, 0xffb77c, 0x5a3f9e, 0x000000, 0xffffff] {
-            let dark = clamp_accent(wp, (0.72, 0.85));
-            assert!(contrast(dark, 0x1e1e2e) >= 4.5, "{wp:06x} -> {dark:06x} on Mocha");
-            let light = clamp_accent(wp, (0.40, 0.52));
-            assert!(contrast(light, 0xeff1f5) >= 4.5, "{wp:06x} -> {light:06x} on Latte");
-        }
-        assert_eq!(clamp_accent(0xafc6ff, (0.72, 0.85)), 0xafc6ff); // already in the band: untouched
-    }
     #[test]
     fn user_desktop_overrides_system() {
         let root = std::env::temp_dir().join(format!("fiaboo-desktops-{}", std::process::id()));

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Set the wallpaper and recolor the desktop from it.
+# Set the wallpaper (colours stay fixed).
 #   fiaboo-wallpaper <image> | --random | --restore
 set -u
 dir="$HOME/Pictures/wallpapers"
@@ -30,7 +30,7 @@ fi
 awww img "$img" --transition-type simple || exit 1
 echo "$img" > "$cache"
 
-matugen image "$img" --source-color-index 0 -m dark # dark only (owner, 2026-10-17)
+matugen color hex "#89b4fa" -m dark # fixed Mocha-blue scheme for GTK/Qt/borders, not from the wallpaper (owner, 2026-10-17)
 
 # hyprlock shows these
 magick "$img" -resize 75% -blur 50x30 "$cache_dir/blurred.tmp.png" && mv "$cache_dir/blurred.tmp.png" "$cache_dir/blurred.png"

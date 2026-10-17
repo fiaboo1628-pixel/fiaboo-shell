@@ -7,30 +7,13 @@ local hg = hl.plugin.hyprglass
 if not hg then return end
 
 -- the panels paint p.bg at alpha 0xC8: the engine sees through that fill and keeps only
--- fill_alpha of it, so the glass reads underneath. p.bg is fixed Catppuccin (palette() in
--- src/main.rs): Mocha base, or Latte base when matugen made a light theme.
-local function matugen(key, default)
-  local f = io.open(os.getenv("HOME") .. "/.config/kitty/colors-matugen.conf")
-  if not f then return default end
-  local hex
-  for line in f:lines() do
-    hex = line:match("^" .. key .. "%s+#(%x%x%x%x%x%x)")
-    if hex then break end
-  end
-  f:close()
-  return hex and tonumber(hex, 16) or default
-end
-local function is_light(c)
-  local r, g, b = (c >> 16) & 0xff, (c >> 8) & 0xff, c & 0xff
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 127
-end
-local BG = is_light(matugen("background", 0x111418)) and 0xeff1f5 or 0x1e1e2e
+-- fill_alpha of it, so the glass reads underneath. p.bg = Catppuccin Mocha base (palette() in src/main.rs).
+local BG = 0x1e1e2e
 -- how much of the panel fill stays: enough body behind the text that a bright or busy
 -- wallpaper doesn't fight it; toasts more, they land on whatever is on screen
 local FILL, TOAST_FILL = 0.45, 0.6
--- panels and toasts: clear glass tinted with the wallpaper's accent (matugen color4, ~19 %);
--- a wallpaper change reloads Hyprland, which re-runs this file
-local TINT = matugen("color4", 0x9ecafc) * 0x100 + 0x30
+-- panels and toasts: clear glass tinted with the shell accent (Mocha blue, ~19 %)
+local TINT = 0x89b4fa30
 
 -- clear glass (n = 1.52), strong colour split at the rim (Abbe 4), a glint from the
 -- upper left, a clear bevel round every shape; the rim reflects the scene around it
