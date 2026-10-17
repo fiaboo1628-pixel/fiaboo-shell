@@ -56,7 +56,7 @@ struct Palette {
     bg: u32,
     fg: u32,
     accent: u32,
-    accent2: u32, // tertiary, for two-colour accents (the taskbar wave)
+    accent2: u32, // tertiary, for two-colour accents (the music line)
     dim: u32,
     err: u32, // matugen error (kitty color1)
 }
@@ -1765,10 +1765,9 @@ impl Bar {
 }
 
 impl Render for Bar {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.pal.clone();
         let st = &self.st;
-        let wave = viz::mini(cx);
 
         let dots = (1..=5).map(|id| {
             let is_active = id == st.active_ws;
@@ -1869,8 +1868,6 @@ impl Render for Bar {
             .border_color(rgba((p.dim << 8) | 0x70))
             .text_color(rgb(p.fg))
             .text_size(px(14.))
-            // music wave behind everything (first child paints first)
-            .children(wave.map(|w| div().absolute().top_0().left_0().size_full().child(w)))
             // left: workspaces
             .child(
                 div()
