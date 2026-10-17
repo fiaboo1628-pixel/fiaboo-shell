@@ -343,13 +343,26 @@ fn launch_app(stem: &str) {
         .filter_map(|e| e.file_name().to_str()?.strip_suffix(".desktop").map(String::from))
         .find(|s| s.to_lowercase() == stem);
     let stem = real.as_deref().unwrap_or(stem);
-    let _ = Command::new("sh")
-        .args(["-c", &format!("setsid gtk-launch {stem} >/dev/null 2>&1 &")])
-        .spawn();
+    // args, not `sh -c`: Steam's .desktop names have spaces
+    spawn_bg(
+        Command::new("setsid")
+            .args(["-f", "gtk-launch", stem])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null()),
+    );
+}
+
+/// Start a command without waiting on it; a thread reaps it so it never lingers as a zombie.
+fn spawn_bg(cmd: &mut Command) {
+    if let Ok(mut child) = cmd.spawn() {
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+    }
 }
 
 fn hypr_dispatch(arg: &str) {
-    let _ = Command::new("hyprctl").args(["dispatch", arg]).spawn();
+    spawn_bg(Command::new("hyprctl").args(["dispatch", arg]));
 }
 
 /// Turn wheel events into whole steps (+1 = scroll down). Touchpads send many small pixel
@@ -368,9 +381,7 @@ fn scroll_steps(delta: &gpui::ScrollDelta) -> i32 {
 }
 
 fn focus_window(address: &str) {
-    let _ = Command::new("hyprctl")
-        .args(["dispatch", &format!("hl.dsp.focus({{ window = \"address:{address}\" }})")])
-        .spawn();
+    spawn_bg(Command::new("hyprctl").args(["dispatch", &format!("hl.dsp.focus({{ window = \"address:{address}\" }})")]));
 }
 
 
@@ -410,7 +421,7 @@ fn sh(cmd: &str) -> String {
 }
 
 fn run_bg(cmd: &str) {
-    let _ = Command::new("sh").args(["-c", &format!("{cmd} >/dev/null 2>&1 &")]).spawn();
+    spawn_bg(Command::new("sh").args(["-c", &format!("{cmd} >/dev/null 2>&1 &")]));
 }
 
 /// (volume 0..1+, muted) of the default sink.
@@ -423,13 +434,13 @@ fn read_sys() -> Sys {
     let (vol, muted) = read_volume();
     Sys {
         wifi_on: sh("nmcli -t -f WIFI g") == "enabled",
-        ssid: sh("nmcli -t -f active,ssid dev wifi | grep '^yes' | head -1 | cut -d: -f2-"),
-        bt_on: sh("bluetoothctl show | grep -c 'Powered: yes'") == "1",
+        ssid: sh("nmcli -t -f active,ssid dev wifi list --rescan no | grep '^yes' | head -1 | cut -d: -f2-"),
+        bt_on: sh("timeout 2 bluetoothctl show | grep -c 'Powered: yes'") == "1",
         vol,
         muted,
         dnd: notify::dnd(),
         night: !sh("pgrep -x hyprsunset").is_empty(),
-        media: parse_media(&sh("playerctl metadata --format '{{status}}\t{{artist}}\t{{title}}' 2>/dev/null")),
+        media: parse_media(&sh("timeout 2 playerctl metadata --format '{{status}}\t{{artist}}\t{{title}}' 2>/dev/null")),
     }
 }
 
@@ -2740,7 +2751,7 @@ fn take_shot(window: &mut Window, cx: &mut App, rect: Option<(i32, i32, i32, i32
              default) xdg-open '{file}' ;; \
              edit) satty --filename '{file}' --output-filename '{file}' --copy-command wl-copy --early-exit ;; esac"
         );
-        let _ = Command::new("setsid").args(["sh", "-c", &script]).spawn();
+        spawn_bg(Command::new("setsid").args(["sh", "-c", &script]));
     });
 }
 
@@ -3238,19 +3249,19 @@ struct BtInfo {
 }
 
 fn read_bt() -> BtInfo {
-    let connected = bt_device_lines(&sh("bluetoothctl devices Connected"));
-    let paired: Vec<_> = bt_device_lines(&sh("bluetoothctl devices Paired"))
+    let connected = bt_device_lines(&sh("timeout 2 bluetoothctl devices Connected"));
+    let paired: Vec<_> = bt_device_lines(&sh("timeout 2 bluetoothctl devices Paired"))
         .into_iter()
         .map(|(mac, name)| {
             let on = connected.iter().any(|c| c.0 == mac);
             (mac, name, on)
         })
         .collect();
-    let found = bt_device_lines(&sh("bluetoothctl devices"))
+    let found = bt_device_lines(&sh("timeout 2 bluetoothctl devices"))
         .into_iter()
         .filter(|(mac, name)| name.replace('-', ":") != *mac && !paired.iter().any(|p| p.0 == *mac))
         .collect();
-    BtInfo { on: sh("bluetoothctl show | grep -c 'Powered: yes'") == "1", paired, found }
+    BtInfo { on: sh("timeout 2 bluetoothctl show | grep -c 'Powered: yes'") == "1", paired, found }
 }
 
 /// Current on/off of a Bluetooth row: "power" or a device MAC (on = connected).
@@ -3821,7 +3832,7 @@ impl Render for StartMenu {
                 .bg(rgba((p.dim << 8) | 0x28))
                 .hover(|s| s.bg(rgba((p.accent << 8) | 0x40)))
                 .on_click(move |_, window, cx| {
-                    let _ = Command::new("sh").args(["-c", &format!("setsid {cmd} >/dev/null 2>&1 &")]).spawn();
+                    spawn_bg(Command::new("sh").args(["-c", &format!("setsid {cmd} >/dev/null 2>&1 &")]));
                     close_start(window, cx);
                 })
                 .child(label)
@@ -4126,9 +4137,10 @@ impl Render for TaskView {
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_mouse_down(MouseButton::Right, move |_, window, cx| {
                     cx.stop_propagation();
-                    let _ = Command::new("hyprctl")
-                        .args(["dispatch", &format!("hl.dsp.window.close({{ window = \"address:{close_addr}\" }})")])
-                        .spawn();
+                    spawn_bg(Command::new("hyprctl").args([
+                        "dispatch",
+                        &format!("hl.dsp.window.close({{ window = \"address:{close_addr}\" }})"),
+                    ]));
                     close_taskview(window, cx);
                 })
                 .on_click(move |_, window, cx| {
