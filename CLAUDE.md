@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 # fiaboo-shell
 
-A Rust GPUI desktop shell for Arch + Hyprland 0.56 (Lua config), replacing ML4W/quickshell: taskbar, Start, Task View, tray, quick settings + media, OSD, notifications, clipboard, screenshots, wallpaper, Settings, lunar calendar, music visualizer.
+A Rust GPUI desktop shell for Arch + Hyprland 0.56 (Lua config), replacing ML4W/quickshell: taskbar, Start, Task View, tray, quick settings + media, OSD, notifications, clipboard, screenshots, wallpaper, Settings, lunar calendar, music line.
 UI text is English. Current state and history live in auto memory.
 
 ## Never break the running desktop
@@ -13,7 +13,7 @@ UI text is English. Current state and history live in auto memory.
 - Back up a file before editing config outside the repo (`<file>.bakN` next to it).
 
 ## Layout
-- `src/main.rs` (~4.2k lines): almost everything. `src/viz.rs` visualizer, `src/notify.rs` notification daemon (stored in `~/.local/state/fiaboo-notifs.json`), `src/tray.rs`, `src/lunar.rs`.
+- `src/main.rs` (~4.2k lines): almost everything. `src/viz.rs` music line, `src/notify.rs` notification daemon (stored in `~/.local/state/fiaboo-notifs.json`), `src/tray.rs`, `src/lunar.rs`.
 - `scripts/fiaboo-session`: supervisor started by Hyprland (`~/.config/hypr/custom.lua`). `scripts/fiaboo-record`, `scripts/fiaboo-wallpaper`, `scripts/hypr-autostart.lua`.
 - Glass: `scripts/hyprglass/` is the vendored hyprglass Hyprland plugin (C++, BSD-3, from omarchy-true-glass 1.0.1); `fiaboo-session` builds it once per Hyprland version into `~/.cache/fiaboo-shell/hyprglass-<ver>.so`, loads it and applies `scripts/glass.lua`, which it also copies to `~/.cache/fiaboo-shell/glass.lua` for `custom.lua` to re-apply on reload (presets per `fiaboo-*` namespace, kitty's black-glass tag). glass.lua must not `hg.commit()` during a reload (`GLASS_IN_RELOAD`). Engine patches are listed in `scripts/hyprglass/PATCHES.md`. The shell itself knows nothing about it; Hyprland blur rules for `fiaboo-*` are gone. To disable: `hyprctl plugin unload <so>`; a Hyprland crash report naming hyprglass keeps it off until the engine is rebuilt.
 - IPC: `fiaboo-shell <start|taskview|clipboard|shot|wallpaper|settings|calendar|viz>` via `$XDG_RUNTIME_DIR/fiaboo-shell.sock`.
@@ -24,7 +24,7 @@ UI text is English. Current state and history live in auto memory.
 - Threads → UI: background threads never touch GPUI; they write statics and the `Bar` loop picks them up. Hyprland `.socket2.sock` → `HYPR_DIRTY`; `pactl subscribe` → `OSD_PENDING`; tray polls D-Bus every 1.5 s → `tray::items()`; notify daemon bumps `notify::generation()`; recording = flag file `$XDG_RUNTIME_DIR/fiaboo-recording`.
 - `Bar::new` drives everything: one task drains IPC commands into `toggle_*`; one 150 ms loop reads the statics above, re-runs `read_state()` (hyprctl -j) only when `HYPR_DIRTY` is set or every 10 s, `read_sys()` every 8 s, and calls `cx.notify()` only if something changed.
 - `notify.rs` is a full `org.freedesktop.Notifications` D-Bus server (zbus); if the shell dies the name is released and D-Bus activation brings swaync back. `tray.rs` is both StatusNotifierWatcher and host.
-- System data comes from shelling out (`sh`, `run_bg`: hyprctl, wpctl, pactl, playerctl, cliphist, grim…), not libraries. The visualizer is a GPUI entity drawn inside the bar; `playerctl --follow status` turns it on, and only while a player plays does it run `parec` (default sink monitor) and its own DFT.
+- System data comes from shelling out (`sh`, `run_bg`: hyprctl, wpctl, pactl, playerctl, cliphist, grim…), not libraries. The music line is its own 8 px layer surface (`fiaboo-musicline`, Layer::Top over the bar's top edge, so the bar never redraws for it); `playerctl --follow status` drives it, and only while a player plays does it exist and run `parec` (default sink monitor), measuring just loudness and bass.
 
 ## Build, test, upgrade
 1. Long cargo builds: run in the background; on OOM use `-j4`.
@@ -48,4 +48,4 @@ Before finishing UI, run `ux-audit`.
 - One font everywhere: JetBrainsMono Nerd Font, set on every panel root (`.font_family(NF)`); GPUI otherwise falls back to the system sans. Type scale 12 meta / 14 content / 16 titles.
 - Glass background: constant `GLASS` (alpha 0xC8) so Hyprland blur shows. Text ≥ 12px, heaviest weight `SEMIBOLD`.
 - Motion must be soft and slow; the owner has rejected "fast/snappy" easing several times (current: `smoothOut` = easeOutQuint).
-- Visualizer: only a small WayVes-style pair of crossing waves (wallpaper primary -> foreground -> tertiary, from matugen) inside the taskbar, behind the icons, shown while music plays. No fullscreen view. Rejected: separate bars, spikes, filled rings, blurred cover background, the vinyl view, a fullscreen Shadertoy shader and WayVes itself (ugly and too heavy on the iGPU: 37-87 % busy).
+- Music: a thin line on the taskbar's top edge that grows out from the middle with loudness, pushed a little on each kick; wallpaper tertiary in the middle -> accent -> melting into the bar at the ends; fades out in silence (picked 2026-10-17 from Chromium mocks, "A2"). ~3 % CPU at 30 fps, no measurable GPU. No fullscreen view. Rejected: the two crossing waves it replaced (ugly, 15 % CPU), separate bars, spikes, filled rings, blurred cover background, the vinyl view, a fullscreen Shadertoy shader and WayVes itself (ugly and too heavy on the iGPU: 37-87 % busy).
