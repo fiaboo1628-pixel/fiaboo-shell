@@ -956,7 +956,6 @@ struct Day {
     code: i64,
     tmax: f64,
     tmin: f64,
-    rain: i64,
 }
 
 #[derive(Clone)]
@@ -964,8 +963,6 @@ struct Weather {
     city: String,
     temp: f64,
     feels: f64,
-    humidity: i64,
-    wind: f64,
     code: i64,
     is_day: bool,
     days: Vec<Day>,
@@ -1028,7 +1025,7 @@ fn weekday_short(date: &str) -> String {
 fn fetch_weather() -> Option<Weather> {
     let (city, lat, lon) = weather_location();
     let url = format!(
-        "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,is_day&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=5"
+        "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,apparent_temperature,weather_code,is_day&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=5"
     );
     let out = Command::new("curl").args(["-s", "-m", "10", &url]).output().ok()?;
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
@@ -1041,7 +1038,6 @@ fn fetch_weather() -> Option<Weather> {
                 code: d["weather_code"][i].as_i64()?,
                 tmax: d["temperature_2m_max"][i].as_f64()?,
                 tmin: d["temperature_2m_min"][i].as_f64()?,
-                rain: d["precipitation_probability_max"][i].as_i64().unwrap_or(0),
             })
         })
         .collect();
@@ -1049,8 +1045,6 @@ fn fetch_weather() -> Option<Weather> {
         city,
         temp: c["temperature_2m"].as_f64()?,
         feels: c["apparent_temperature"].as_f64().unwrap_or(0.0),
-        humidity: c["relative_humidity_2m"].as_i64().unwrap_or(0),
-        wind: c["wind_speed_10m"].as_f64().unwrap_or(0.0),
         code: c["weather_code"].as_i64()?,
         is_day: c["is_day"].as_i64().unwrap_or(1) == 1,
         days,
@@ -1288,9 +1282,7 @@ impl Render for CalendarPopup {
                         .gap_4()
                         .text_size(px(12.))
                         .text_color(rgb(p.fg))
-                        .child(format!("Feels like {:.0}\u{b0}", w.feels))
-                        .child(format!("Humidity {}%", w.humidity))
-                        .child(format!("Wind {:.0} km/h", w.wind)),
+                        .child(format!("Feels like {:.0}\u{b0}", w.feels)),
                 )
                 .into_any_element(),
             None => div()
@@ -1321,7 +1313,6 @@ impl Render for CalendarPopup {
                     .child(div().font_family(NF).text_size(px(24.)).text_color(rgb(p.accent)).child(weather_glyph(d.code, true)))
                     .child(div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).child(format!("{:.0}\u{b0}", d.tmax)))
                     .child(div().text_size(px(12.)).text_color(rgb(p.dim)).child(format!("{:.0}\u{b0}", d.tmin)))
-                    .child(div().text_size(px(12.)).text_color(rgb(p.accent)).child(format!("{}%", d.rain)))
             }),
         );
 
@@ -1355,7 +1346,9 @@ impl Render for CalendarPopup {
         let p2 = p.clone();
         let weeks = (0..6).map(|r| {
             let p = p2.clone();
-            div().flex().children((0..7).map(move |c| {
+            // a row of only next-month days is left blank; it stays so the panel height (and ‹ ›) don't move
+            let spare = r * 7 >= first + dim_cur;
+            div().h(px(40.)).flex().when(!spare, |d| d.children((0..7).map(move |c| {
                 let idx = r * 7 + c;
                 let (day, current) = if idx < first {
                     (dim_prev - (first - idx - 1), false)
@@ -1394,7 +1387,7 @@ impl Render for CalendarPopup {
                             div().text_size(px(12.)).line_height(px(12.)).opacity(0.7).child(t)
                         })),
                 )
-            }))
+            })))
         });
 
         let calendar = div()
@@ -3288,7 +3281,9 @@ fn read_settings() -> SettingsInfo {
     let net = sh("nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device")
         .lines()
         .map(nmcli_fields)
-        .filter(|f| f.len() == 4 && f[1] != "loopback" && f[1] != "wifi-p2p")
+        // what a person connects through; container bridges/veths and unmanaged devices are noise here
+        .filter(|f| f.len() == 4 && matches!(f[1].as_str(), "wifi" | "ethernet" | "wireguard" | "tun" | "vpn") && f[2] != "unmanaged")
+        .filter(|f| !(f[0].starts_with("docker") || f[0].starts_with("br-") || f[0].starts_with("veth")))
         .map(|f| {
             let ip = sh(&format!("nmcli -g IP4.ADDRESS device show '{}' | head -1", f[0]));
             let detail = [f[2].as_str(), f[3].as_str(), ip.as_str()].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>();
@@ -3982,7 +3977,6 @@ impl Render for StartMenu {
                 close_start(window, cx);
                 toggle_settings(cx);
             }))
-            .child(footer_btn("f-menu", "Control menu", "~/.local/bin/ctrl-menu"))
             .child(footer_btn("f-lock", "Lock", "hyprlock"))
             .child(small_btn("f-power", "\u{23fb}").font_family(NF).on_click(cx.listener(|this, _, _, cx| {
                 this.power = !this.power;
