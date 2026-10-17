@@ -46,6 +46,6 @@ Before finishing UI, run `ux-audit`.
 
 ## Owner's taste
 - One font everywhere: JetBrainsMono Nerd Font, set on every panel root (`.font_family(NF)`); GPUI otherwise falls back to the system sans. Type scale 12 meta / 14 content / 16 titles.
-- Glass background: constant `GLASS` (alpha 0xC8) so Hyprland blur shows. Text ≥ 12px, heaviest weight `SEMIBOLD`.
+- Glass background: constant `GLASS` (alpha 0xC8); the glass plugin sees through it (no blur: owner keeps panels and kitty clear). Text ≥ 12px, heaviest weight `SEMIBOLD`.
 - Motion must be soft and slow; the owner has rejected "fast/snappy" easing several times (current: `smoothOut` = easeOutQuint).
 - Music: a thin line on the taskbar's top edge that grows out from the middle with loudness, pushed a little on each kick; mauve in the middle -> blue -> melting into the bar at the ends; fades out in silence (picked 2026-10-17 from Chromium mocks, "A2"). ~3 % CPU at 30 fps, no measurable GPU. No fullscreen view. Rejected: the two crossing waves it replaced (ugly, 15 % CPU), separate bars, spikes, filled rings, blurred cover background, the vinyl view, a fullscreen Shadertoy shader and WayVes itself (ugly and too heavy on the iGPU: 37-87 % busy).

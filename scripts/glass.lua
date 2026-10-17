@@ -55,7 +55,7 @@ hl.window_rule({ name = "glass-window", match = { class = ".*" }, tag = "+hyprgl
 -- (one tag per rule; these run after the rule above, so they win)
 hl.window_rule({ name = "glass-kitty-1", match = { class = "^kitty$" }, tag = "-hyprglass_preset_glass-window" })
 hl.window_rule({ name = "glass-kitty-2", match = { class = "^kitty$" }, tag = "+hyprglass_preset_glass-dark" })
--- the bar keeps 70 % of its fill
+-- the bar keeps 70 % of its fill: more body than the panels, it sits over every window
 hg.layer("fiaboo-bar", { preset = "glass-bar", shape = { inset = { 0, -80, -80, -80 }, radius = 0 }, adaptive = false,
                          fill_key = BG, fill_alpha = 0.7 })
 -- full-screen overlay layers that draw one card: the glass follows the card's outline
