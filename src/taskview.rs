@@ -183,11 +183,11 @@ impl Render for TaskView {
                 .flex_col()
                 .gap_2()
                 .rounded_xl()
-                .bg(rgba((p.dim << 8) | 0x26))
+                .bg(rgba((p.dim << 8) | A_SURFACE))
                 .border_1()
-                .border_color(rgba((p.dim << 8) | 0x70))
+                .border_color(rgba((p.dim << 8) | A_STRONG))
                 .when(i == sel, |d| d.border_2().border_color(rgb(p.accent)))
-                .hover(|s| s.bg(rgba((p.accent << 8) | 0x38)))
+                .hover(|s| s.bg(rgba((p.accent << 8) | A_HOVER)))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_mouse_down(MouseButton::Right, move |_, window, cx| {
                     cx.stop_propagation();
@@ -215,7 +215,7 @@ impl Render for TaskView {
                         .flex_1()
                         .rounded_lg()
                         .overflow_hidden()
-                        .bg(rgba((p.bg << 8) | 0x80))
+                        .bg(rgba((p.bg << 8) | A_STRONG))
                         .when(w.thumb.exists(), |d| d.child(img(w.thumb.clone()).size_full().object_fit(ObjectFit::Contain))),
                 )
                 .child(

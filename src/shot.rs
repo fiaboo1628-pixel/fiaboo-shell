@@ -233,7 +233,7 @@ impl Render for ShotOverlay {
                         .rounded_full()
                         .bg(rgba((p.bg << 8) | GLASS))
                         .border_1()
-                        .border_color(rgba((p.dim << 8) | 0x50))
+                        .border_color(rgba((p.dim << 8) | A_ACTIVE))
                         .text_color(rgb(p.fg))
                         .text_size(px(14.))
                         .child(label),

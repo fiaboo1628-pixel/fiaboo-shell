@@ -179,8 +179,8 @@ impl Render for ClipPanel {
                 .py_2()
                 .rounded_lg()
                 .text_size(px(12.))
-                .bg(rgba((p.dim << 8) | 0x28))
-                .hover(|s| s.bg(rgba((p.accent << 8) | 0x50)))
+                .bg(rgba((p.dim << 8) | A_HOVER))
+                .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)))
                 .child(label)
         };
         let list = self.visible();
@@ -198,8 +198,8 @@ impl Render for ClipPanel {
                 .px_3()
                 .py_2()
                 .rounded_lg()
-                .when(i == sel, |d| d.bg(rgba((p.accent << 8) | 0x30)))
-                .hover(|s| s.bg(rgba((p.dim << 8) | 0x30)))
+                .when(i == sel, |d| d.bg(rgba((p.accent << 8) | A_HOVER)))
+                .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
                 .on_mouse_down(MouseButton::Right, cx.listener(move |this, _, _, cx| {
                     clip_delete(&del_raw);
                     this.clips.retain(|c| c.id != id);
@@ -288,7 +288,7 @@ impl Render for ClipPanel {
                     .rounded_2xl()
                     .bg(rgba((p.bg << 8) | GLASS))
                     .border_1()
-                    .border_color(rgba((p.dim << 8) | 0x70))
+                    .border_color(rgba((p.dim << 8) | A_STRONG))
                     .text_color(rgb(p.fg))
                     .text_size(px(14.))
                     .child(
@@ -304,7 +304,7 @@ impl Render for ClipPanel {
                                     .items_center()
                                     .px_4()
                                     .rounded_xl()
-                                    .bg(rgba((p.dim << 8) | 0x28))
+                                    .bg(rgba((p.dim << 8) | A_HOVER))
                                     .gap_2()
                                     .child(div().text_color(rgb(p.dim)).child("\u{f002}"))
                                     .child(if self.query.is_empty() {

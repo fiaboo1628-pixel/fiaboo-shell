@@ -97,7 +97,7 @@ impl Render for TrayMenu {
         let p = self.pal.clone();
         let rows = self.entries.iter().enumerate().map(|(i, e)| {
             if e.separator {
-                return div().h(px(9.)).flex().items_center().child(div().w_full().h(px(1.)).bg(rgba((p.dim << 8) | 0x40))).into_any_element();
+                return div().h(px(9.)).flex().items_center().child(div().w_full().h(px(1.)).bg(rgba((p.dim << 8) | A_ACTIVE))).into_any_element();
             }
             let (item, id, enabled) = (self.item.clone(), e.id, e.enabled);
             div()
@@ -108,7 +108,7 @@ impl Render for TrayMenu {
                 .px_3()
                 .rounded_lg()
                 .text_color(if e.enabled { rgb(p.fg) } else { rgba((p.dim << 8) | 0x90) })
-                .when(e.enabled, |d| d.cursor_pointer().hover(|s| s.bg(rgba((p.accent << 8) | 0x30))))
+                .when(e.enabled, |d| d.cursor_pointer().hover(|s| s.bg(rgba((p.accent << 8) | A_HOVER))))
                 .on_click(move |_, window, cx| {
                     if enabled {
                         let it = item.clone();
@@ -148,7 +148,7 @@ impl Render for TrayMenu {
             .rounded_xl()
             .bg(rgba((p.bg << 8) | GLASS))
             .border_1()
-            .border_color(rgba((p.dim << 8) | 0x70))
+            .border_color(rgba((p.dim << 8) | A_STRONG))
             .text_size(px(14.))
             .children(rows)
             )

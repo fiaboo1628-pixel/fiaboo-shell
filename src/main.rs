@@ -45,6 +45,11 @@ use gpui_platform::application;
 const BAR_HEIGHT: f32 = 48.0;
 /// Panel/bar background alpha: low enough that Hyprland's layer blur shows through (frosted glass).
 const GLASS: u32 = 0xC8;
+// alpha steps for palette colours used as fills and borders (never for text)
+const A_SURFACE: u32 = 0x20; // resting tiles, chips
+const A_HOVER: u32 = 0x30;
+const A_ACTIVE: u32 = 0x48; // selected / pressed; keeps fg >= 4.5:1 even on an accent fill
+const A_STRONG: u32 = 0x70; // borders, focus rings, the accent card corner
 
 fn home() -> String {
     std::env::var("HOME").unwrap_or_default()
@@ -555,7 +560,7 @@ impl Render for Osd {
             .rounded_2xl()
             .bg(rgba((p.bg << 8) | GLASS))
             .border_1()
-            .border_color(rgba((p.dim << 8) | 0x70))
+            .border_color(rgba((p.dim << 8) | A_STRONG))
             .text_color(rgb(p.fg))
             .child(div().font_family(NF).font_weight(FontWeight::MEDIUM).text_size(px(20.)).w(px(24.)).child(glyph))
             .child(
@@ -563,7 +568,7 @@ impl Render for Osd {
                     .flex_1()
                     .h(px(6.))
                     .rounded_full()
-                    .bg(rgba((p.dim << 8) | 0x50))
+                    .bg(rgba((p.dim << 8) | A_ACTIVE))
                     .child(div().h_full().w(gpui::relative(frac)).rounded_full().bg(rgb(p.accent))),
             )
             .child(
@@ -740,7 +745,7 @@ impl Render for Bar {
                 } else if used {
                     rgb(p.dim)
                 } else {
-                    rgba((p.dim << 8) | 0x40)
+                    rgba((p.dim << 8) | A_ACTIVE)
                 }))
         });
 
@@ -760,7 +765,7 @@ impl Render for Bar {
                     .items_center()
                     .justify_center()
                     .rounded_md()
-                    .bg(rgba((p.dim << 8) | 0x55))
+                    .bg(rgba((p.dim << 8) | A_ACTIVE))
                     .text_color(rgb(p.fg))
                     .child(letter)
                     .into_any_element(),
@@ -775,7 +780,7 @@ impl Render for Bar {
                 .px_2()
                 .py_1()
                 .rounded_md()
-                .hover(|s| s.bg(rgba((p.dim << 8) | 0x30)))
+                .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
                 .on_mouse_down(MouseButton::Middle, {
                     let launch = launch.clone();
                     move |_, _, _| {
@@ -800,7 +805,7 @@ impl Render for Bar {
                         .bg(if a.active {
                             rgb(p.accent)
                         } else if a.running {
-                            rgba((p.dim << 8) | 0x80)
+                            rgba((p.dim << 8) | A_STRONG)
                         } else {
                             rgba(0x00000000)
                         }),
@@ -818,7 +823,7 @@ impl Render for Bar {
             .px_3()
             .bg(rgba((p.bg << 8) | GLASS))
             .border_t_1()
-            .border_color(rgba((p.dim << 8) | 0x70))
+            .border_color(rgba((p.dim << 8) | A_STRONG))
             .text_color(rgb(p.fg))
             .text_size(px(14.))
             // left: workspaces
@@ -863,7 +868,7 @@ impl Render for Bar {
                             .cursor_pointer()
                             .p_1()
                             .rounded_lg()
-                            .hover(|s| s.bg(rgba((p.dim << 8) | 0x30)))
+                            .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
                             .on_click(|_, _, cx| toggle_start(cx))
                             .child(
                                 img(PathBuf::from(format!("{}/Pictures/fiaboo/cauvang.jpg", home())))
@@ -883,7 +888,7 @@ impl Render for Bar {
                             .rounded_lg()
                             .font_family(NF).font_weight(FontWeight::MEDIUM)
                             .text_size(px(18.))
-                            .hover(|s| s.bg(rgba((p.dim << 8) | 0x30)))
+                            .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
                             .on_click(|_, _, cx| toggle_taskview(cx))
                             .child("\u{f056e}"),
                     )
@@ -909,7 +914,7 @@ impl Render for Bar {
                         .items_center()
                         .justify_center()
                         .rounded_md()
-                        .hover(|s| s.bg(rgba((p.dim << 8) | 0x30)))
+                        .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
                         .on_mouse_down(MouseButton::Left, move |_, _, _| {
                             let it = left.clone();
                             std::thread::spawn(move || tray::activate(&it));
@@ -920,7 +925,7 @@ impl Render for Bar {
                             None => div()
                                 .size(px(18.))
                                 .rounded_full()
-                                .bg(rgba((p.dim << 8) | 0x80))
+                                .bg(rgba((p.dim << 8) | A_STRONG))
                                 .into_any_element(),
                         })
                 })),
@@ -936,7 +941,7 @@ impl Render for Bar {
                                 .font_family(NF).font_weight(FontWeight::MEDIUM)
                                 .text_size(px(16.))
                                 .text_color(rgb(p.err))
-                                .hover(|s| s.bg(rgba((p.dim << 8) | 0x30)))
+                                .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
                                 .on_click(|_, _, _| run_bg("~/.local/bin/fiaboo-record"))
                                 .child("\u{f044a}"),
                         )
@@ -961,7 +966,7 @@ impl Render for Bar {
                     .rounded_lg()
                     .font_family(NF).font_weight(FontWeight::MEDIUM)
                     .text_size(px(16.))
-                    .hover(|s| s.bg(rgba((p.dim << 8) | 0x30)))
+                    .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
                     .on_click(|_, _, cx| toggle_quick(cx))
                     .child(div().text_color(if self.sys.wifi_on { rgb(p.fg) } else { rgb(p.dim) }).child(g_wifi))
                     .child(div().text_color(if self.sys.bt_on { rgb(p.fg) } else { rgb(p.dim) }).child(g_bt))
@@ -974,7 +979,7 @@ impl Render for Bar {
                             .rounded_lg()
                             .h(px(36.))
                             .justify_center()
-                            .hover(|s| s.bg(rgba((p.dim << 8) | 0x30)))
+                            .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
                             .on_click(|_, _, cx| toggle_calendar(cx))
                             .flex()
                             .flex_col()
@@ -988,11 +993,11 @@ impl Render for Bar {
                             .id("bell")
                             .cursor_pointer()
                             .font_family(NF).font_weight(FontWeight::MEDIUM)
-                            .text_size(px(17.))
+                            .text_size(px(18.))
                             .px_2()
                             .h(px(36.))
                             .rounded_lg()
-                            .hover(|s| s.bg(rgba((p.dim << 8) | 0x30)))
+                            .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
                             .on_click(|_, _, cx| toggle_notif_center(cx))
                             .flex()
                             .items_center()

@@ -93,8 +93,8 @@ impl Render for Quick {
                 .px_3()
                 .py_3()
                 .rounded_xl()
-                .bg(if on { rgba((p.accent << 8) | 0x38) } else { rgba((p.dim << 8) | 0x24) })
-                .hover(|s| s.bg(rgba((p.accent << 8) | 0x4a)))
+                .bg(if on { rgba((p.accent << 8) | A_HOVER) } else { rgba((p.dim << 8) | A_SURFACE) })
+                .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.last_input = std::time::Instant::now();
                     if cmd == "@dnd" { notify::toggle_dnd() } else { run_bg(&cmd) }
@@ -150,7 +150,7 @@ impl Render for Quick {
                         .w_full()
                         .h(if filled { px(8.) } else { px(5.) })
                         .rounded_full()
-                        .bg(if filled { rgb(p.accent) } else { rgba((p.dim << 8) | 0x50) }),
+                        .bg(if filled { rgb(p.accent) } else { rgba((p.dim << 8) | A_ACTIVE) }),
                 )
         });
 
@@ -165,7 +165,7 @@ impl Render for Quick {
                 .rounded_full()
                 .font_family(NF).font_weight(FontWeight::MEDIUM)
                 .text_size(px(18.))
-                .hover(|s| s.bg(rgba((p.accent << 8) | 0x40)))
+                .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.last_input = std::time::Instant::now();
                     run_bg(&format!("playerctl {cmd}"));
@@ -184,7 +184,7 @@ impl Render for Quick {
                 .px_3()
                 .py_2()
                 .rounded_xl()
-                .bg(rgba((p.dim << 8) | 0x1c))
+                .bg(rgba((p.dim << 8) | A_SURFACE))
                 .child(
                     div()
                         .flex_1()
@@ -228,7 +228,7 @@ impl Render for Quick {
             .rounded_2xl()
             .bg(rgba((p.bg << 8) | GLASS))
             .border_1()
-            .border_color(rgba((p.dim << 8) | 0x70))
+            .border_color(rgba((p.dim << 8) | A_STRONG))
             .text_color(rgb(p.fg))
             .text_size(px(14.))
             .child(div().font_weight(FontWeight::SEMIBOLD).text_size(px(16.)).child("Quick settings"))
@@ -292,7 +292,7 @@ impl Render for Quick {
                     .px_3()
                     .py_2()
                     .rounded_xl()
-                    .bg(rgba((p.dim << 8) | 0x1c))
+                    .bg(rgba((p.dim << 8) | A_SURFACE))
                     .child(
                         div()
                             .id("q-mute")

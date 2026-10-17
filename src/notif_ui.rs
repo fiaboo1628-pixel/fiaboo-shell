@@ -19,10 +19,10 @@ pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, in_center: bool, id: us
         .p_3()
         .rounded_xl()
         .bg(rgba((p.bg << 8) | if in_center { 0x00 } else { GLASS }))
-        .when(in_center, |d| d.bg(rgba((p.dim << 8) | 0x22)))
+        .when(in_center, |d| d.bg(rgba((p.dim << 8) | A_SURFACE)))
         .border_1()
-        .border_color(if n.critical { rgba((p.err << 8) | 0xcc) } else { rgba((p.dim << 8) | 0x70) })
-        .hover(|s| s.bg(rgba((p.accent << 8) | 0x30)))
+        .border_color(if n.critical { rgba((p.err << 8) | 0xcc) } else { rgba((p.dim << 8) | A_STRONG) })
+        .hover(|s| s.bg(rgba((p.accent << 8) | A_HOVER)))
         .text_color(rgb(p.fg))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_mouse_down(MouseButton::Right, move |_, _, cx| {
@@ -39,7 +39,7 @@ pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, in_center: bool, id: us
                 .items_center()
                 .justify_center()
                 .rounded_lg()
-                .bg(rgba((p.dim << 8) | 0x44))
+                .bg(rgba((p.dim << 8) | A_ACTIVE))
                 .font_family(NF).font_weight(FontWeight::MEDIUM)
                 .child("\u{f009c}")
                 .into_any_element(),
@@ -81,7 +81,7 @@ pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, in_center: bool, id: us
                 .justify_center()
                 .rounded_md()
                 .text_color(rgb(p.dim))
-                .hover(|s| s.bg(rgba((p.dim << 8) | 0x40)).text_color(rgb(p.fg)))
+                .hover(|s| s.bg(rgba((p.dim << 8) | A_ACTIVE)).text_color(rgb(p.fg)))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(move |_, _, cx| {
                     cx.stop_propagation();
@@ -257,8 +257,8 @@ impl Render for NotifCenter {
                 .py_1()
                 .rounded_lg()
                 .text_size(px(12.))
-                .bg(if on { rgba((p.accent << 8) | 0x40) } else { rgba((p.dim << 8) | 0x28) })
-                .hover(|s| s.bg(rgba((p.accent << 8) | 0x50)))
+                .bg(if on { rgba((p.accent << 8) | A_ACTIVE) } else { rgba((p.dim << 8) | A_HOVER) })
+                .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)))
                 .child(label)
         };
         div()
@@ -291,7 +291,7 @@ impl Render for NotifCenter {
                     .rounded_2xl()
                     .bg(rgba((p.bg << 8) | GLASS))
                     .border_1()
-                    .border_color(rgba((p.dim << 8) | 0x70))
+                    .border_color(rgba((p.dim << 8) | A_STRONG))
                     .text_color(rgb(p.fg))
                     .text_size(px(14.))
                     .child(
