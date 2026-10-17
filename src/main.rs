@@ -77,9 +77,10 @@ fn palette() -> Palette {
     // text always reads; only the accents follow the wallpaper, kept in a lightness band that does too.
     let light = rel_luminance(get("background", 0x0f1417)) > 0.5;
     let (bg, fg, dim, err, band) = if light {
-        (0xeff1f5, 0x4c4f69, 0x6c6f85, 0xd20f39, (0.40, 0.52))
+        (0xeff1f5, 0x4c4f69, 0x5c5f77, 0xd20f39, (0.40, 0.52))
     } else {
-        (0x1e1e2e, 0xcdd6f4, 0xa6adc8, 0xf38ba8, (0.72, 0.85))
+        // secondary text is subtext1, not subtext0: it sits on see-through glass
+        (0x1e1e2e, 0xcdd6f4, 0xbac2de, 0xf38ba8, (0.72, 0.85))
     };
     Palette {
         bg,
@@ -637,7 +638,7 @@ impl Render for Quick {
                 })
                 .child(
                     div()
-                        .font_family(NF)
+                        .font_family(NF).font_weight(FontWeight::MEDIUM)
                         .text_size(px(22.))
                         .text_color(if on { rgb(p.accent) } else { rgb(p.fg) })
                         .child(glyph),
@@ -691,7 +692,7 @@ impl Render for Quick {
                 .items_center()
                 .justify_center()
                 .rounded_full()
-                .font_family(NF)
+                .font_family(NF).font_weight(FontWeight::MEDIUM)
                 .text_size(px(18.))
                 .hover(|s| s.bg(rgba((p.accent << 8) | 0x40)))
                 .on_click(cx.listener(move |this, _, _, cx| {
@@ -728,7 +729,7 @@ impl Render for Quick {
         });
 
         div()
-            .font_family(NF)
+            .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
@@ -825,7 +826,7 @@ impl Render for Quick {
                         div()
                             .id("q-mute")
                             .cursor_pointer()
-                            .font_family(NF)
+                            .font_family(NF).font_weight(FontWeight::MEDIUM)
                             .text_size(px(22.))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.last_input = std::time::Instant::now();
@@ -963,7 +964,7 @@ impl Render for TrayMenu {
                 .into_any_element()
         });
         div()
-            .font_family(NF)
+            .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|_, ev: &KeyDownEvent, window, cx| {
@@ -1319,7 +1320,7 @@ impl Render for CalendarPopup {
                         )
                         .child(
                             div()
-                                .font_family(NF)
+                                .font_family(NF).font_weight(FontWeight::MEDIUM)
                                 .text_size(px(78.))
                                 .text_color(rgb(p.accent))
                                 .child(weather_glyph(w.code, w.is_day)),
@@ -1359,7 +1360,7 @@ impl Render for CalendarPopup {
                     .rounded_xl()
                     .bg(if i == 0 { rgba((p.accent << 8) | 0x30) } else { rgba((p.dim << 8) | 0x1c) })
                     .child(div().text_size(px(12.)).text_color(rgb(p.dim)).child(if i == 0 { "Today".to_string() } else { d.label.clone() }))
-                    .child(div().font_family(NF).text_size(px(24.)).text_color(rgb(p.accent)).child(weather_glyph(d.code, true)))
+                    .child(div().font_family(NF).font_weight(FontWeight::MEDIUM).text_size(px(24.)).text_color(rgb(p.accent)).child(weather_glyph(d.code, true)))
                     .child(div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).child(format!("{:.0}\u{b0}", d.tmax)))
                     .child(div().text_size(px(12.)).text_color(rgb(p.dim)).child(format!("{:.0}\u{b0}", d.tmin)))
             }),
@@ -1433,7 +1434,7 @@ impl Render for CalendarPopup {
                         })
                         .child(day.to_string())
                         .children(lunar_txt.map(|t| {
-                            div().text_size(px(12.)).line_height(px(12.)).opacity(0.7).child(t)
+                            div().text_size(px(12.)).line_height(px(12.)).when(!is_today, |d| d.text_color(rgb(p.dim))).child(t)
                         })),
                 )
             })))
@@ -1486,7 +1487,7 @@ impl Render for CalendarPopup {
             .children(weeks);
 
         div()
-            .font_family(NF)
+            .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
@@ -1592,7 +1593,7 @@ impl Render for Osd {
         let frac = if self.muted { 0. } else { self.vol.clamp(0., 1.) };
         let glyph = if self.muted || pct == 0 { "\u{f0581}" } else if pct < 34 { "\u{f057f}" } else if pct < 67 { "\u{f0580}" } else { "\u{f057e}" };
         div()
-            .font_family(NF)
+            .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .flex()
             .items_center()
@@ -1603,7 +1604,7 @@ impl Render for Osd {
             .border_1()
             .border_color(rgba((p.dim << 8) | 0x70))
             .text_color(rgb(p.fg))
-            .child(div().font_family(NF).text_size(px(20.)).w(px(24.)).child(glyph))
+            .child(div().font_family(NF).font_weight(FontWeight::MEDIUM).text_size(px(20.)).w(px(24.)).child(glyph))
             .child(
                 div()
                     .flex_1()
@@ -1856,7 +1857,7 @@ impl Render for Bar {
 
         let (clock_time, clock_date) = st.time.split_once('|').unwrap_or((st.time.as_str(), ""));
         div()
-            .font_family(NF)
+            .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .relative()
             .flex()
@@ -1930,7 +1931,7 @@ impl Render for Bar {
                             .items_center()
                             .justify_center()
                             .rounded_lg()
-                            .font_family(NF)
+                            .font_family(NF).font_weight(FontWeight::MEDIUM)
                             .text_size(px(18.))
                             .hover(|s| s.bg(rgba((p.dim << 8) | 0x30)))
                             .on_click(|_, _, cx| toggle_taskview(cx))
@@ -1982,7 +1983,7 @@ impl Render for Bar {
                                 .px_2()
                                 .py_1()
                                 .rounded_lg()
-                                .font_family(NF)
+                                .font_family(NF).font_weight(FontWeight::MEDIUM)
                                 .text_size(px(16.))
                                 .text_color(rgb(p.err))
                                 .hover(|s| s.bg(rgba((p.dim << 8) | 0x30)))
@@ -2008,7 +2009,7 @@ impl Render for Bar {
                     .px_3()
                     .py_1()
                     .rounded_lg()
-                    .font_family(NF)
+                    .font_family(NF).font_weight(FontWeight::MEDIUM)
                     .text_size(px(16.))
                     .hover(|s| s.bg(rgba((p.dim << 8) | 0x30)))
                     .on_click(|_, _, cx| toggle_quick(cx))
@@ -2035,7 +2036,7 @@ impl Render for Bar {
                         div()
                             .id("bell")
                             .cursor_pointer()
-                            .font_family(NF)
+                            .font_family(NF).font_weight(FontWeight::MEDIUM)
                             .text_size(px(17.))
                             .px_2()
                             .py_1()
@@ -2098,7 +2099,7 @@ fn notif_card(n: &notify::Notif, p: &Palette, in_center: bool, id: usize, today:
                 .justify_center()
                 .rounded_lg()
                 .bg(rgba((p.dim << 8) | 0x44))
-                .font_family(NF)
+                .font_family(NF).font_weight(FontWeight::MEDIUM)
                 .child("\u{f009c}")
                 .into_any_element(),
         })
@@ -2127,7 +2128,7 @@ fn notif_card(n: &notify::Notif, p: &Palette, in_center: bool, id: usize, today:
                         .text_size(px(14.))
                         .child(n.summary.clone()),
                 )
-                .child(div().max_h(px(34.)).line_height(px(17.)).overflow_hidden().text_size(px(12.)).text_color(rgb(p.fg)).opacity(0.85).child(n.body.clone())),
+                .child(div().max_h(px(34.)).line_height(px(17.)).overflow_hidden().text_size(px(12.)).text_color(rgb(p.fg)).child(n.body.clone())),
         )
         .child(
             div()
@@ -2163,7 +2164,7 @@ impl Render for NotifPopup {
         let p = self.pal.clone();
         let today = today_dm();
         div()
-            .font_family(NF)
+            .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .flex()
             .flex_col()
@@ -2320,7 +2321,7 @@ impl Render for NotifCenter {
                 .child(label)
         };
         div()
-            .font_family(NF)
+            .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|_, ev: &KeyDownEvent, window, cx| {
@@ -2625,7 +2626,7 @@ impl Render for ClipPanel {
                 })
         });
         div()
-            .font_family(NF)
+            .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
@@ -2917,7 +2918,7 @@ impl Render for ShotOverlay {
             (None, Some(win)) => format!("{}  ({} × {})", win.title, win.w as i32, win.h as i32),
             _ => "Drag to select a region · click a window · F for the whole screen".to_string(),
         };
-        let mut root = div().font_family(NF)
+        let mut root = div().font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .relative()
             .cursor_crosshair()
@@ -3190,7 +3191,7 @@ impl Render for WpPicker {
                 .when(thumb.exists(), |d| d.child(img(thumb).size_full().object_fit(ObjectFit::Cover)))
         });
         div()
-            .font_family(NF)
+            .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
@@ -3462,7 +3463,7 @@ fn bt_rows<T: HasBt>(ui: &BtUi, p: &Palette, cx: &mut Context<T>) -> Vec<gpui::A
                 run_bg(&cmd); // the next refresh shows the new state and clears busy
                 cx.notify();
             }))
-            .child(div().font_family(NF).text_color(if on { rgb(accent) } else { rgb(dim) }).child(glyph))
+            .child(div().font_family(NF).font_weight(FontWeight::MEDIUM).text_color(if on { rgb(accent) } else { rgb(dim) }).child(glyph))
             .child(div().flex_1().min_w(px(0.)).overflow_hidden().whitespace_nowrap().text_ellipsis().child(label))
             .into_any_element()
     };
@@ -3627,7 +3628,7 @@ impl Render for SettingsPanel {
                     }
                     cx.notify();
                 }))
-                .child(div().font_family(NF).text_color(if *is_default { rgb(p.accent) } else { rgb(p.dim) }).child(if *is_default { "\u{f0133}" } else { "\u{f0130}" }))
+                .child(div().font_family(NF).font_weight(FontWeight::MEDIUM).text_color(if *is_default { rgb(p.accent) } else { rgb(p.dim) }).child(if *is_default { "\u{f0133}" } else { "\u{f0130}" }))
                 .child(div().flex_1().min_w(px(0.)).overflow_hidden().whitespace_nowrap().text_ellipsis().child(desc.clone()))
         });
         let btn = |id: &'static str, label: &'static str| {
@@ -3643,7 +3644,7 @@ impl Render for SettingsPanel {
                 .child(label)
         };
         div()
-            .font_family(NF)
+            .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
@@ -4027,14 +4028,14 @@ impl Render for StartMenu {
                 toggle_settings(cx);
             }))
             .child(footer_btn("f-lock", "Lock", "hyprlock"))
-            .child(small_btn("f-power", "\u{23fb}").font_family(NF).on_click(cx.listener(|this, _, _, cx| {
+            .child(small_btn("f-power", "\u{23fb}").font_family(NF).font_weight(FontWeight::MEDIUM).on_click(cx.listener(|this, _, _, cx| {
                 this.power = !this.power;
                 this.confirm = None;
                 cx.notify();
             })));
 
         div()
-            .font_family(NF)
+            .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
@@ -4329,7 +4330,7 @@ impl Render for TaskView {
                 )
         });
         div()
-            .font_family(NF)
+            .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
