@@ -687,7 +687,7 @@ impl Render for Quick {
             div()
                 .id(id)
                 .cursor_pointer()
-                .size(px(34.))
+                .size(px(40.))
                 .flex()
                 .items_center()
                 .justify_center()
@@ -748,7 +748,7 @@ impl Render for Quick {
             .child(
                 div()
                     .w(px(380.0))
-                    .h(px(if media.is_some() { 352. } else { 282. }))
+                    .h(px(if media.is_some() { 358. } else { 282. }))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()).on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
                     .flex()
                     .flex_col()
@@ -1375,7 +1375,7 @@ impl Render for CalendarPopup {
             div()
                 .id(id)
                 .cursor_pointer()
-                .size(px(30.))
+                .size(px(36.))
                 .flex()
                 .items_center()
                 .justify_center()
@@ -2134,7 +2134,7 @@ fn notif_card(n: &notify::Notif, p: &Palette, in_center: bool, id: usize, today:
             div()
                 .id(("notif-x", id))
                 .flex_none()
-                .size(px(22.))
+                .size(px(32.))
                 .flex()
                 .items_center()
                 .justify_center()
@@ -3594,7 +3594,7 @@ impl Render for SettingsPanel {
         let p = self.pal.clone();
         let info = self.info.clone();
         let section = |title: &'static str| {
-            div().pt_2().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(rgb(p.dim)).child(title)
+            div().pt_4().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(rgb(p.dim)).child(title)
         };
         let row = |label: String, value: String| {
             div()
@@ -3953,7 +3953,7 @@ impl Render for StartMenu {
                 .overflow_hidden()
                 .child(section("Pinned"))
                 .child(div().flex().flex_row().flex_wrap().children(tiles))
-                .child(section("All apps"))
+                .child(section("All apps").pt_2())
                 .child(
                     div().id("all").flex_1().overflow_y_scroll().track_scroll(&self.scroll).flex().flex_col().children(all),
                 )
@@ -3965,7 +3965,7 @@ impl Render for StartMenu {
                 .id(id)
                 .cursor_pointer()
                 .px_3()
-                .py_1p5()
+                .py_2p5()
                 .rounded_lg()
                 .text_size(px(14.))
                 .bg(rgba((p.dim << 8) | 0x28))
@@ -3982,7 +3982,7 @@ impl Render for StartMenu {
                 .id(id)
                 .cursor_pointer()
                 .px_3()
-                .py_1p5()
+                .py_2p5()
                 .rounded_lg()
                 .text_size(px(14.))
                 .bg(rgba((p.dim << 8) | 0x28))
