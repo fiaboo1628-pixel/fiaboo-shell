@@ -1,12 +1,10 @@
 #!/bin/sh
 # Set the wallpaper and recolor the desktop from it.
-#   fiaboo-wallpaper <image> | --random | --restore | --toggle-theme
+#   fiaboo-wallpaper <image> | --random | --restore
 set -u
 dir="$HOME/Pictures/wallpapers"
 cache_dir="$HOME/.cache/fiaboo-shell/wallpaper"
 cache="$cache_dir/current"
-gtk3="$HOME/.config/gtk-3.0/settings.ini"
-gtk4="$HOME/.config/gtk-4.0/settings.ini"
 
 # one change at a time: two quick clicks would mix matugen colours and half-written lock-screen images
 mkdir -p "$cache_dir"
@@ -17,12 +15,6 @@ restore=
 case "${1:-}" in
     --random) img=$(find "$dir" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) | shuf -n1) ;;
     --restore) img=$(cat "$cache" 2>/dev/null); restore=1 ;;
-    --toggle-theme) # dark <-> light, then recolor from the current wallpaper
-        if grep -qE '^gtk-application-prefer-dark-theme=(1|true)' "$gtk3"; then v3=0 v4=false; else v3=1 v4=true; fi
-        sed -i "s/^gtk-application-prefer-dark-theme=.*/gtk-application-prefer-dark-theme=$v3/" "$gtk3"
-        [ -f "$gtk4" ] && sed -i "s/^gtk-application-prefer-dark-theme=.*/gtk-application-prefer-dark-theme=$v4/" "$gtk4"
-        "$HOME/.config/hypr/scripts/gtk.sh" >/dev/null 2>&1
-        img=$(cat "$cache" 2>/dev/null) ;;
     *) img=${1:-} ;;
 esac
 [ -f "$img" ] || img=$(find "$dir" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) | sort | head -1)
@@ -38,9 +30,7 @@ fi
 awww img "$img" --transition-type simple || exit 1
 echo "$img" > "$cache"
 
-mode=dark
-grep -qE '^gtk-application-prefer-dark-theme=(0|false)' "$gtk3" 2>/dev/null && mode=light
-matugen image "$img" --source-color-index 0 -m "$mode"
+matugen image "$img" --source-color-index 0 -m dark # dark only (owner, 2026-10-17)
 
 # hyprlock shows these
 magick "$img" -resize 75% -blur 50x30 "$cache_dir/blurred.tmp.png" && mv "$cache_dir/blurred.tmp.png" "$cache_dir/blurred.png"

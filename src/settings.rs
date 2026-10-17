@@ -417,8 +417,7 @@ impl Render for SettingsPanel {
                             .child(btn("s-wp", "Change wallpaper").on_click(|_, window, cx| {
                                 close_settings(window, cx);
                                 toggle_wp(cx);
-                            }))
-                            .child(btn("s-theme", "Switch theme").on_click(|_, _, _| run_bg("setsid ~/.local/bin/fiaboo-wallpaper --toggle-theme"))),
+                            })),
                     )
                     .child(
                         div()
