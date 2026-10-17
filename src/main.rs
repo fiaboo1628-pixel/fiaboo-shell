@@ -4226,6 +4226,11 @@ fn ipc_path() -> String {
 fn start_ipc() {
     use std::io::Read;
     let path = ipc_path();
+    // A live shell already answers here: removing its socket would leave it deaf to every keybind.
+    if std::os::unix::net::UnixStream::connect(&path).is_ok() {
+        eprintln!("fiaboo-shell is already running");
+        std::process::exit(1);
+    }
     let _ = fs::remove_file(&path);
     let Ok(listener) = std::os::unix::net::UnixListener::bind(&path) else { return };
     let (tx, rx) = futures::channel::mpsc::unbounded();
