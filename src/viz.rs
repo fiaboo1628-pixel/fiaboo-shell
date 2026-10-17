@@ -66,7 +66,17 @@ pub fn bands(samples: &[f32]) -> [f32; BANDS] {
 
 fn capture_start() {
     let mut cap = CAPTURE.lock().unwrap();
-    if cap.is_some() {
+    // a parec that died or never started is retried every 2 s, not on every 16 ms frame
+    static FAILED_AT: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+    let mut failed_at = FAILED_AT.lock().unwrap();
+    if let Some(c) = cap.as_mut() {
+        if !matches!(c.try_wait(), Ok(Some(_))) {
+            return;
+        }
+        *cap = None; // exited by itself (sound server restarted): reaped, capture again
+        *failed_at = Some(std::time::Instant::now());
+    }
+    if failed_at.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(2)) {
         return;
     }
     let child = Command::new("parec")
@@ -74,7 +84,10 @@ fn capture_start() {
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn();
-    let Ok(mut child) = child else { return };
+    let Ok(mut child) = child else {
+        *failed_at = Some(std::time::Instant::now());
+        return;
+    };
     let mut out = child.stdout.take().unwrap();
     *cap = Some(child);
     std::thread::spawn(move || {

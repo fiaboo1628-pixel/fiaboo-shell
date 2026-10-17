@@ -226,10 +226,15 @@ impl Server {
         let mut list = LIST.lock().unwrap();
         list.retain(|x| x.id != id);
         list.insert(0, n);
-        list.truncate(100);
+        let keep = list.len().min(100);
+        let dropped: Vec<u32> = list.drain(keep..).map(|x| x.id).collect();
         drop(list);
         changed();
         save();
+        // apps waiting on the oldest ones (notify-send --wait) must hear they are gone: 1 = expired
+        for old in dropped {
+            emit(|e| async move { Server::notification_closed(&e, old, 1).await });
+        }
         id
     }
 

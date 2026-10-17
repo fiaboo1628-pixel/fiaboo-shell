@@ -153,14 +153,29 @@ impl Watcher {
 }
 
 impl Watcher {
-    /// Drop items whose owner left the bus.
+    /// Drop items and hosts whose owner left the bus, telling other hosts (waybar…) about gone items.
     fn prune(&self, conn: &Connection) {
         let Ok(bus) = zbus::blocking::fdo::DBusProxy::new(conn) else { return };
-        self.items.lock().unwrap().retain(|entry| {
+        let alive = |entry: &String| {
             let (dest, _) = split_registration(entry);
             let Ok(name) = zbus::names::BusName::try_from(dest.as_str()) else { return false };
             bus.name_has_owner(name).unwrap_or(false)
+        };
+        let mut gone = vec![];
+        self.items.lock().unwrap().retain(|entry| alive(entry) || {
+            gone.push(entry.clone());
+            false
         });
+        self.hosts.lock().unwrap().retain(alive);
+        for entry in gone {
+            let _ = conn.emit_signal(
+                None::<()>,
+                "/StatusNotifierWatcher",
+                WATCHER_NAME,
+                "StatusNotifierItemUnregistered",
+                &(entry.as_str(),),
+            );
+        }
     }
 }
 
@@ -202,6 +217,7 @@ pub fn start() {
                     registered = true;
                 }
                 if let Ok(list) = poll(conn) {
+                    drop_unused_icons(&list);
                     *ITEMS.lock().unwrap() = list;
                 }
             }
@@ -324,6 +340,18 @@ fn icon_of(p: &Proxy, key: &str) -> Option<PathBuf> {
         enc.write_header().ok()?.write_image_data(&rgba).ok()?;
     }
     Some(file)
+}
+
+/// Pixmap icons get a new file per distinct image (badge counters, animations): keep only the current ones.
+fn drop_unused_icons(items: &[TrayItem]) {
+    let Ok(rd) = fs::read_dir(format!("{}/.cache/fiaboo-shell", home())) else { return };
+    for e in rd.flatten() {
+        let p = e.path();
+        let ours = p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("tray-") && n.ends_with(".png"));
+        if ours && !items.iter().any(|i| i.icon.as_deref() == Some(p.as_path())) {
+            let _ = fs::remove_file(&p);
+        }
+    }
 }
 
 // ---------- actions ----------
