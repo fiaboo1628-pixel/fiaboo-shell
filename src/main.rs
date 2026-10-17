@@ -4,6 +4,7 @@ mod lunar;
 mod notify;
 mod tray;
 mod viz;
+mod wm;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -269,12 +270,7 @@ struct State {
 }
 
 fn hyprctl_json(arg: &str) -> serde_json::Value {
-    Command::new("hyprctl")
-        .args([arg, "-j"])
-        .output()
-        .ok()
-        .and_then(|o| serde_json::from_slice(&o.stdout).ok())
-        .unwrap_or_default()
+    wm::hypr_json(arg) // Hyprland, or niri's data in Hyprland's shape
 }
 
 fn read_state() -> State {
@@ -395,10 +391,6 @@ fn spawn_bg(cmd: &mut Command) {
     }
 }
 
-fn hypr_dispatch(arg: &str) {
-    spawn_bg(Command::new("hyprctl").args(["dispatch", arg]));
-}
-
 /// Turn wheel events into whole steps (+1 = scroll down). Touchpads send many small pixel
 /// deltas, so those are accumulated until they add up to one notch.
 fn scroll_steps(delta: &gpui::ScrollDelta) -> i32 {
@@ -416,7 +408,7 @@ fn scroll_steps(delta: &gpui::ScrollDelta) -> i32 {
 }
 
 fn focus_window(address: &str) {
-    spawn_bg(Command::new("hyprctl").args(["dispatch", &format!("hl.dsp.focus({{ window = \"address:{address}\" }})")]));
+    wm::focus_window(address);
 }
 
 
@@ -1513,7 +1505,7 @@ struct Bar {
 
 static HYPR_DIRTY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
-/// Listen to Hyprland's event socket (.socket2) and flag the bar to refresh when windows/workspaces change,
+/// The compositor event stream (Hyprland .socket2 / niri event-stream) flags the bar to refresh when windows/workspaces change,
 /// instead of polling `hyprctl` several times a second.
 // ---------- volume OSD ----------
 static OSD_PENDING: Mutex<Option<(f32, bool)>> = Mutex::new(None);
@@ -1630,36 +1622,10 @@ fn hide_osd_if_due(cx: &mut App) {
 }
 
 fn start_hypr_events() {
-    use std::io::{BufRead, BufReader};
     use std::sync::atomic::Ordering;
     std::thread::spawn(|| loop {
-        let runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_default();
-        let sig = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").ok().or_else(|| {
-            // started outside Hyprland's environment: use the newest instance
-            fs::read_dir(format!("{runtime}/hypr"))
-                .ok()?
-                .flatten()
-                .max_by_key(|e| e.metadata().and_then(|m| m.modified()).ok())
-                .map(|e| e.file_name().to_string_lossy().to_string())
-        });
-        if let Some(sig) = sig {
-            if let Ok(stream) = std::os::unix::net::UnixStream::connect(format!("{runtime}/hypr/{sig}/.socket2.sock")) {
-                for line in BufReader::new(stream).lines().map_while(Result::ok) {
-                    let ev = line.split(">>").next().unwrap_or("");
-                    if matches!(
-                        ev,
-                        "workspace" | "workspacev2" | "focusedmon" | "focusedmonv2" | "activewindow" | "activewindowv2"
-                            | "openwindow" | "closewindow" | "movewindow" | "movewindowv2" | "windowtitle"
-                            | "windowtitlev2" | "createworkspace" | "createworkspacev2" | "destroyworkspace"
-                            | "destroyworkspacev2" | "fullscreen" | "changefloatingmode" | "monitoradded"
-                            | "monitorremoved" | "configreloaded"
-                    ) {
-                        HYPR_DIRTY.store(true, Ordering::Relaxed);
-                    }
-                }
-            }
-        }
-        std::thread::sleep(Duration::from_secs(2)); // Hyprland restarted or socket not up yet: reconnect
+        wm::follow_events(|| HYPR_DIRTY.store(true, Ordering::Relaxed));
+        std::thread::sleep(Duration::from_secs(2)); // compositor restarted or socket not up yet: reconnect
     });
 }
 
@@ -1769,7 +1735,7 @@ impl Render for Bar {
                 .cursor_pointer()
                 .py_2()
                 .px(px(3.))
-                .on_click(move |_, _, _| hypr_dispatch(&format!("hl.dsp.focus({{ workspace = {id} }})")))
+                .on_click(move |_, _, _| wm::focus_workspace(id))
                 .child(div()
                 .w(if is_active { px(22.) } else { px(8.) })
                 .h(px(8.))
@@ -1882,7 +1848,7 @@ impl Render for Bar {
                                     let n = scroll_steps(&ev.delta) as i64;
                                     let to = (active + n).clamp(1, 5);
                                     if n != 0 && to != active {
-                                        hypr_dispatch(&format!("hl.dsp.focus({{ workspace = {to} }})"));
+                                        wm::focus_workspace(to);
                                     }
                                 }
                             })
@@ -3712,7 +3678,7 @@ impl Global for StartState {}
 
 /// (button, confirmation question, command)
 const POWER: [(&str, &str, &str); 3] = [
-    ("Log out", "Log out now?", "hyprctl dispatch 'hl.dsp.exit()'"),
+    ("Log out", "Log out now?", "sh -c 'if [ -n \"$NIRI_SOCKET\" ]; then niri msg action quit --skip-confirmation; else hyprctl dispatch \"hl.dsp.exit()\"; fi'"),
     ("Restart", "Restart now?", "systemctl reboot"),
     ("Shut down", "Shut down now?", "systemctl poweroff"),
 ];
@@ -4175,6 +4141,11 @@ fn tv_windows() -> Vec<TvWin> {
 }
 
 fn toggle_taskview(cx: &mut App) {
+    if wm::is_niri() {
+        // window thumbnails come from Hyprland's toplevel capture; niri has its own overview
+        spawn_bg(Command::new("niri").args(["msg", "action", "toggle-overview"]));
+        return;
+    }
     if let Some(handle) = cx.try_global::<TaskViewState>().and_then(|s| s.0) {
         cx.set_global(TaskViewState(None));
         if handle.update(cx, |_, window, _| window.remove_window()).is_ok() {
@@ -4277,10 +4248,7 @@ impl Render for TaskView {
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_mouse_down(MouseButton::Right, move |_, window, cx| {
                     cx.stop_propagation();
-                    spawn_bg(Command::new("hyprctl").args([
-                        "dispatch",
-                        &format!("hl.dsp.window.close({{ window = \"address:{close_addr}\" }})"),
-                    ]));
+                    wm::close_window(&close_addr);
                     close_taskview(window, cx);
                 })
                 .on_click(move |_, window, cx| {
