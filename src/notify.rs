@@ -201,7 +201,9 @@ impl Server {
             .or_else(|| pixel_hint(&hints, &["icon_data"]))
             .unwrap_or_default();
         let icon = icon.strip_prefix("file://").unwrap_or(&icon).to_string();
-        let id = if replaces_id > 0 { replaces_id } else { NEXT_ID.fetch_add(1, Ordering::Relaxed) };
+        // a replaces_id we no longer hold (cleared, or from before a restart) gets a fresh id instead
+        let held = replaces_id > 0 && LIST.lock().unwrap().iter().any(|x| x.id == replaces_id);
+        let id = if held { replaces_id } else { NEXT_ID.fetch_add(1, Ordering::Relaxed) };
         let show = !dnd() || critical;
         let popup_until = match expire_timeout {
             _ if !show => None,
@@ -272,6 +274,9 @@ fn cache_dir() -> PathBuf {
 
 /// Keep the list across shell restarts (actions are dropped: the sender may be gone).
 fn save() {
+    // D-Bus and UI threads both save: one at a time, or their writes to the same .tmp interleave
+    static SAVING: Mutex<()> = Mutex::new(());
+    let _one = SAVING.lock().unwrap();
     let v: Vec<serde_json::Value> = LIST
         .lock()
         .unwrap()
@@ -289,6 +294,11 @@ fn save() {
 }
 
 fn load() {
+    // Apps keep ids across our restarts, so never hand out an old one again (ids were max+1, i.e. 1
+    // after "Clear all"). shortcut: seeded from the clock, so a restart right after >1 notification/s
+    // could still reuse one; persist NEXT_ID if that ever matters.
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_secs() as u32);
+    NEXT_ID.store(now, Ordering::Relaxed);
     let Ok(text) = fs::read_to_string(store_path()) else { return };
     let Ok(serde_json::Value::Array(items)) = serde_json::from_str(&text) else { return };
     let s = |v: &serde_json::Value, k: &str| v[k].as_str().unwrap_or_default().to_string();
@@ -309,7 +319,7 @@ fn load() {
         })
         .collect();
     let max = list.iter().map(|n| n.id).max().unwrap_or(0);
-    NEXT_ID.store(max + 1, Ordering::Relaxed);
+    NEXT_ID.fetch_max(max + 1, Ordering::Relaxed);
     SEEN.store(max, Ordering::Relaxed); // what was stored before a restart is not news
     // drop cached notification images nothing refers to any more
     if let Ok(rd) = fs::read_dir(cache_dir()) {
