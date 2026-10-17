@@ -21,7 +21,8 @@ glass() {
         if ! make -C "$build" -j4 HYPRGLASS_VERSION=1.0.1 >"$cache/hyprglass-build.log" 2>&1; then
             notify-send "fiaboo-shell" "Glass: engine build failed (log: $cache/hyprglass-build.log)" 2>/dev/null; return
         fi
-        cp "$build/hyprglass.so" "$so"
+        # new inode: a running Hyprland may still have the old .so mapped (in-place rewrite = SIGBUS)
+        cp "$build/hyprglass.so" "$so.tmp" && mv "$so.tmp" "$so" || return
     fi
     report=$(ls -t "${XDG_CACHE_HOME:-$HOME/.cache}"/hyprland/hyprlandCrashReport*.txt 2>/dev/null | head -1)
     if [ -n "$report" ] && [ "$report" -nt "$so" ] && grep -q hyprglass "$report"; then

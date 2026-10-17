@@ -15,5 +15,9 @@ touch "$flag"
 # screen (with audio and only damage-driven frames, a still screen gave a file with no video)
 wf-recorder -g "$geo" -D -r 30 --audio="$(pactl get-default-sink).monitor" -f "$file" >/dev/null 2>&1
 rm -f "$flag"
-[ -s "$file" ] || exit 1
+if [ ! -s "$file" ]; then
+    rm -f "$file"
+    notify-send -a Recorder -u critical 'Recording failed' 'wf-recorder stopped before writing anything'
+    exit 1
+fi
 [ "$(notify-send -a Recorder -A default=Open -t 8000 'Recording saved' "$file")" = default ] && xdg-open "$file"
