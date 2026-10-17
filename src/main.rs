@@ -29,6 +29,26 @@ fn home() -> String {
     std::env::var("HOME").unwrap_or_default()
 }
 
+/// Write an RGBA image as PNG under a temp name, then rename: callers reuse any file that exists,
+/// so a half-written one (crash, full disk) would otherwise stay a broken icon for good.
+fn write_png(file: &std::path::Path, w: u32, h: u32, rgba: &[u8]) -> Option<()> {
+    let mut buf = Vec::new();
+    {
+        let mut enc = png::Encoder::new(&mut buf, w, h);
+        enc.set_color(png::ColorType::Rgba);
+        enc.set_depth(png::BitDepth::Eight);
+        let mut writer = enc.write_header().ok()?;
+        writer.write_image_data(rgba).ok()?;
+        writer.finish().ok()?;
+    }
+    let tmp = file.with_extension("tmp");
+    if fs::write(&tmp, &buf).is_err() {
+        let _ = fs::remove_file(&tmp);
+        return None;
+    }
+    fs::rename(&tmp, file).ok()
+}
+
 // ---------- palette ----------
 #[derive(Clone)]
 struct Palette {
@@ -200,13 +220,16 @@ struct AppIcon {
 }
 
 /// Pinned ids from the Start menu (~/.local/state/start-pinned.json), resolved to desktop entries.
-fn pinned() -> Vec<(String, Desktop)> {
-    let ids: Vec<String> = fs::read_to_string(format!("{}/.local/state/start-pinned.json", home()))
+fn pinned_ids() -> Vec<String> {
+    fs::read_to_string(format!("{}/.local/state/start-pinned.json", home()))
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+fn pinned() -> Vec<(String, Desktop)> {
     let apps = apps();
-    ids.into_iter()
+    pinned_ids().into_iter()
         .filter_map(|id| {
             let id = id.to_lowercase();
             let d = apps
@@ -222,12 +245,10 @@ fn pinned() -> Vec<(String, Desktop)> {
 /// Right-click in Start: pin the app if not pinned, otherwise unpin it.
 fn toggle_pin(stem: &str) {
     let path = format!("{}/.local/state/start-pinned.json", home());
-    let mut ids: Vec<String> = pinned()
-        .into_iter()
-        .map(|(id, d)| if d.stem == stem { String::new() } else { id })
-        .filter(|id| !id.is_empty())
-        .collect();
-    if !pinned().iter().any(|(_, d)| d.stem == stem) {
+    // toggle in the raw list: pins whose .desktop is missing right now (uninstalled, renamed) must survive
+    let mine: Vec<String> = pinned().into_iter().filter(|(_, d)| d.stem == stem).map(|(id, _)| id).collect();
+    let mut ids: Vec<String> = pinned_ids().into_iter().filter(|id| !mine.contains(&id.to_lowercase())).collect();
+    if mine.is_empty() {
         ids.push(stem.to_string());
     }
     let _ = fs::write(path, serde_json::to_string(&ids).unwrap_or_default());
@@ -285,6 +306,7 @@ fn read_state() -> State {
             let class = c["class"].as_str().unwrap_or("");
             !class.is_empty()
                 && !c["workspace"]["name"].as_str().unwrap_or("").starts_with("special")
+                && !used_class.iter().any(|u| u == class) // the loose contains() match could let two pins claim one app
                 && class_matches(class, id, d)
         });
         let (class, address) = match win {
@@ -2390,7 +2412,7 @@ fn read_clips() -> Vec<Clip> {
     let cache = format!("{}/.cache/fiaboo-shell", home());
     let _ = fs::create_dir_all(&cache);
     let mut images = 0;
-    sh("cliphist list")
+    let clips = sh("cliphist list")
         .lines()
         .take(80)
         .filter_map(|line| {
@@ -2403,16 +2425,37 @@ fn read_clips() -> Vec<Clip> {
                 images += 1;
                 let path = PathBuf::from(format!("{cache}/clip-{id}.img"));
                 if !path.exists() {
-                    let _ = sh(&format!("cliphist decode {id} > '{}'", path.display()));
+                    // a failed decode must not leave an empty "image" that is reused forever
+                    let tmp = path.with_extension("tmp");
+                    let ok = Command::new("sh")
+                        .args(["-c", &format!("cliphist decode {id} > '{}'", tmp.display())])
+                        .status()
+                        .is_ok_and(|s| s.success());
+                    if ok && fs::metadata(&tmp).is_ok_and(|m| m.len() > 0) {
+                        let _ = fs::rename(&tmp, &path);
+                    } else {
+                        let _ = fs::remove_file(&tmp);
+                    }
                 }
-                Some(path)
+                path.exists().then_some(path)
             } else {
                 None
             };
             let preview = if is_img { "Image".to_string() } else { rest.split_whitespace().collect::<Vec<_>>().join(" ") };
             Some(Clip { id: id.to_string(), raw: line.to_string(), preview, image })
         })
-        .collect()
+        .collect::<Vec<Clip>>();
+    // decoded images of entries that were deleted, wiped or are no longer shown
+    if let Ok(rd) = fs::read_dir(&cache) {
+        for e in rd.flatten() {
+            let p = e.path();
+            let ours = p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("clip-") && n.ends_with(".img"));
+            if ours && !clips.iter().any(|c| c.image.as_deref() == Some(p.as_path())) {
+                let _ = fs::remove_file(&p);
+            }
+        }
+    }
+    clips
 }
 
 fn clip_copy(id: &str) {
@@ -2975,17 +3018,27 @@ fn wp_list() -> Vec<PathBuf> {
 
 /// Small cached copy of a wallpaper for the grid (full-size images are far too heavy to draw 100 of).
 fn wp_thumb(src: &std::path::Path) -> PathBuf {
-    let name = src.file_stem().and_then(|s| s.to_str()).unwrap_or("wp");
+    let name = src.file_name().and_then(|s| s.to_str()).unwrap_or("wp"); // full name: x.jpg and x.png differ
     PathBuf::from(format!("{}/.cache/fiaboo-shell/wp/{name}.jpg", home()))
 }
 
+/// The thumbnail generator is running (the picker re-renders only while it is).
+static WP_THUMBS_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 fn wp_make_thumbs(list: Vec<PathBuf>) {
     // reopening the picker while an earlier run is still going must not start a second writer
-    static RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    if RUNNING.swap(true, std::sync::atomic::Ordering::AcqRel) {
+    if WP_THUMBS_RUNNING.swap(true, std::sync::atomic::Ordering::AcqRel) {
         return;
     }
-    let _ = fs::create_dir_all(format!("{}/.cache/fiaboo-shell/wp", home()));
+    let dir = format!("{}/.cache/fiaboo-shell/wp", home());
+    let _ = fs::create_dir_all(&dir);
+    // thumbnails of removed wallpapers (and the old stem-only names)
+    let wanted: Vec<PathBuf> = list.iter().map(|s| wp_thumb(s)).collect();
+    for e in fs::read_dir(&dir).into_iter().flatten().flatten() {
+        if !wanted.contains(&e.path()) {
+            let _ = fs::remove_file(e.path());
+        }
+    }
     for src in list {
         let t = wp_thumb(&src);
         if !t.exists() {
@@ -3004,7 +3057,7 @@ fn wp_make_thumbs(list: Vec<PathBuf>) {
             }
         }
     }
-    RUNNING.store(false, std::sync::atomic::Ordering::Release);
+    WP_THUMBS_RUNNING.store(false, std::sync::atomic::Ordering::Release);
 }
 
 fn wp_current() -> String {
@@ -3058,6 +3111,7 @@ struct WpPicker {
     sel: usize,
     scroll: gpui::ScrollHandle,
     last_input: std::time::Instant,
+    thumbs_pending: bool, // the generator was running at the last poll
 }
 
 impl WpPicker {
@@ -3078,7 +3132,9 @@ impl WpPicker {
                         close_wp(window, cx);
                         return false;
                     }
-                    if p.list.iter().any(|s| !wp_thumb(s).exists()) {
+                    // while thumbnails are being made (one last time after): a failed one must not re-render forever
+                    let running = WP_THUMBS_RUNNING.load(std::sync::atomic::Ordering::Acquire);
+                    if running || std::mem::replace(&mut p.thumbs_pending, running) {
                         cx.notify();
                     }
                     true
@@ -3090,7 +3146,7 @@ impl WpPicker {
         })
         .detach();
         let scroll = gpui::ScrollHandle::new();
-        WpPicker { pal: palette(), focus, list, current, sel, scroll, last_input: std::time::Instant::now() }
+        WpPicker { pal: palette(), focus, list, current, sel, scroll, last_input: std::time::Instant::now(), thumbs_pending: true }
     }
 }
 
@@ -4158,6 +4214,7 @@ struct TaskView {
     focus: FocusHandle,
     wins: Vec<TvWin>,
     sel: usize,
+    last_input: std::time::Instant,
 }
 
 impl TaskView {
@@ -4181,7 +4238,17 @@ impl TaskView {
             }
         })
         .detach();
-        TaskView { pal: palette(), focus, wins, sel: 0 }
+        // exclusive keyboard focus: close after 90 s without a key press, like the other panels
+        cx.spawn_in(window, async move |this, cx| loop {
+            cx.background_executor().timer(Duration::from_secs(1)).await;
+            let idle = this.update(cx, |t, _| t.last_input.elapsed() > Duration::from_secs(90)).unwrap_or(true);
+            if idle {
+                let _ = this.update_in(cx, |_, window, cx| close_taskview(window, cx));
+                break;
+            }
+        })
+        .detach();
+        TaskView { pal: palette(), focus, wins, sel: 0, last_input: std::time::Instant::now() }
     }
 }
 
@@ -4255,6 +4322,7 @@ impl Render for TaskView {
             .size_full()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
+                this.last_input = std::time::Instant::now();
                 let n = this.wins.len();
                 match ev.keystroke.key.as_str() {
                     "escape" => close_taskview(window, cx),

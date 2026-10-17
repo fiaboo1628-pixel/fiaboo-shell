@@ -5,7 +5,6 @@ use std::{
     sync::Arc,
     fs,
     hash::{Hash, Hasher},
-    io::BufWriter,
     path::PathBuf,
     sync::{Mutex, OnceLock},
     thread,
@@ -334,10 +333,7 @@ fn icon_of(p: &Proxy, key: &str) -> Option<PathBuf> {
         for px in data.chunks_exact(4) {
             rgba.extend_from_slice(&[px[1], px[2], px[3], px[0]]);
         }
-        let mut enc = png::Encoder::new(BufWriter::new(fs::File::create(&file).ok()?), w as u32, h as u32);
-        enc.set_color(png::ColorType::Rgba);
-        enc.set_depth(png::BitDepth::Eight);
-        enc.write_header().ok()?.write_image_data(&rgba).ok()?;
+        crate::write_png(&file, w as u32, h as u32, &rgba)?;
     }
     Some(file)
 }

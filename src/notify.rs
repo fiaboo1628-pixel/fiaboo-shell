@@ -5,7 +5,6 @@ use std::{
     collections::HashMap,
     fs,
     hash::{Hash, Hasher},
-    io::BufWriter,
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
@@ -239,7 +238,16 @@ impl Server {
     }
 
     async fn close_notification(&self, id: u32, #[zbus(signal_emitter)] e: SignalEmitter<'_>) -> zbus::fdo::Result<()> {
-        LIST.lock().unwrap().retain(|n| n.id != id);
+        let removed = {
+            let mut list = LIST.lock().unwrap();
+            let before = list.len();
+            list.retain(|n| n.id != id);
+            list.len() < before
+        };
+        if !removed {
+            // spec: an id we don't have gets an empty error reply, not a NotificationClosed signal
+            return Err(zbus::fdo::Error::Failed(String::new()));
+        }
         changed();
         save();
         Self::notification_closed(&e, id, 3).await?;
@@ -352,10 +360,7 @@ fn pixel_hint(hints: &HashMap<String, OwnedValue>, keys: &[&str]) -> Option<Stri
     fs::create_dir_all(&dir).ok()?;
     let file = dir.join(format!("notif-{:x}.png", hasher.finish()));
     if !file.exists() {
-        let mut enc = png::Encoder::new(BufWriter::new(fs::File::create(&file).ok()?), w as u32, h as u32);
-        enc.set_color(png::ColorType::Rgba);
-        enc.set_depth(png::BitDepth::Eight);
-        enc.write_header().ok()?.write_image_data(&rgba).ok()?;
+        crate::write_png(&file, w as u32, h as u32, &rgba)?;
     }
     Some(file.to_string_lossy().to_string())
 }
