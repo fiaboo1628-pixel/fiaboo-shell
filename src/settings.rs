@@ -189,8 +189,9 @@ pub(crate) fn bt_rows<T: HasBt>(ui: &BtUi, p: &Palette, cx: &mut Context<T>) -> 
             .px_3()
             .py_2p5()
             .rounded_lg()
-            .bg(if on { rgba((accent << 8) | A_HOVER) } else { rgba((dim << 8) | A_SURFACE) })
-            .hover(|s| s.bg(rgba((accent << 8) | A_ACTIVE)))
+            // selected stays the strongest fill; hover on an unselected tile must not outshine it
+            .bg(if on { rgba((accent << 8) | A_ACTIVE) } else { rgba((dim << 8) | A_SURFACE) })
+            .hover(move |s| s.bg(rgba((accent << 8) | if on { A_ACTIVE } else { A_HOVER })))
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.touch();
                 this.bt().busy = Some((key.clone(), want, std::time::Instant::now()));
@@ -352,8 +353,8 @@ impl Render for SettingsPanel {
                 .px_3()
                 .py_2p5()
                 .rounded_lg()
-                .bg(if *is_default { rgba((p.accent << 8) | A_HOVER) } else { rgba((p.dim << 8) | A_SURFACE) })
-                .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)))
+                .bg(if *is_default { rgba((p.accent << 8) | A_ACTIVE) } else { rgba((p.dim << 8) | A_SURFACE) })
+                .hover(move |s| s.bg(rgba((p.accent << 8) | if *is_default { A_ACTIVE } else { A_HOVER })))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.last_input = std::time::Instant::now();
                     run_bg(&format!("pactl set-default-sink '{name}'"));

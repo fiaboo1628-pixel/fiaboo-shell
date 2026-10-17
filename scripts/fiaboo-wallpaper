@@ -6,7 +6,7 @@ dir="$HOME/Pictures/wallpapers"
 cache_dir="$HOME/.cache/fiaboo-shell/wallpaper"
 cache="$cache_dir/current"
 
-# one change at a time: two quick clicks would mix matugen colours and half-written lock-screen images
+# one change at a time: two quick clicks would leave half-written lock-screen images
 mkdir -p "$cache_dir"
 exec 9>"$cache_dir/.lock"
 flock -w 60 9 || exit 1 # bounded: a long-lived child that inherited fd 9 must not block every later change
@@ -30,7 +30,9 @@ fi
 awww img "$img" --transition-type simple || exit 1
 echo "$img" > "$cache"
 
-matugen color hex "#89b4fa" -m dark # fixed Mocha-blue scheme for GTK/Qt/borders, not from the wallpaper (owner, 2026-10-17)
+# fixed Mocha-blue scheme for GTK/Qt/borders, not from the wallpaper (owner, 2026-10-17);
+# same output every time, rerun so a lost or edited colour file heals on the next wallpaper change
+matugen color hex "#89b4fa" -m dark
 
 # hyprlock shows these
 magick "$img" -resize 75% -blur 50x30 "$cache_dir/blurred.tmp.png" && mv "$cache_dir/blurred.tmp.png" "$cache_dir/blurred.png"

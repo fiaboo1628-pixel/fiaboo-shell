@@ -43,7 +43,7 @@ use gpui::{
 use gpui_platform::application;
 
 const BAR_HEIGHT: f32 = 48.0;
-/// Panel/bar background alpha: low enough that Hyprland's layer blur shows through (frosted glass).
+/// Panel/bar background alpha: the glass plugin (scripts/glass.lua) sees through this fill.
 const GLASS: u32 = 0xC8;
 // alpha steps for palette colours used as fills and borders (never for text)
 const A_SURFACE: u32 = 0x20; // resting tiles, chips
