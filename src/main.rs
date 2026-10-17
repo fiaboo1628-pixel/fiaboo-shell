@@ -144,6 +144,18 @@ fn find_icon_file(name: &str) -> Option<PathBuf> {
     if name.starts_with('/') {
         return PathBuf::from(name).exists().then(|| PathBuf::from(name));
     }
+    // ~16 stats per name, asked per notification card and Start entry on every render; an app rescan clears it
+    let key = format!("icon-file:{name}");
+    let cache = ICON_CACHE.get_or_init(Default::default);
+    if let Some(hit) = cache.lock().unwrap().get(&key) {
+        return hit.clone();
+    }
+    let found = find_icon_file_uncached(name);
+    cache.lock().unwrap().insert(key, found.clone());
+    found
+}
+
+fn find_icon_file_uncached(name: &str) -> Option<PathBuf> {
     let mut candidates = vec![
         format!("{}/.local/share/icons/kora/apps/scalable/{name}.svg", home()),
     ];
@@ -370,6 +382,7 @@ fn hypr_dispatch(arg: &str) {
 fn scroll_steps(delta: &gpui::ScrollDelta) -> i32 {
     static ACC: Mutex<f32> = Mutex::new(0.);
     let dy = match delta {
+        gpui::ScrollDelta::Lines(p) if p.y == 0. => return 0, // horizontal tilt; 0.0.signum() is 1
         gpui::ScrollDelta::Lines(p) => return -p.y.signum() as i32,
         gpui::ScrollDelta::Pixels(p) => f32::from(p.y),
     };
@@ -785,9 +798,15 @@ fn open_tray_menu(cx: &mut App, item: tray::TrayItem) {
     if was_open {
         return;
     }
+    // a click while an earlier menu is still loading supersedes it (else two menus, one orphaned)
+    static OPENING: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let ticket = OPENING.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
     cx.spawn(async move |cx| {
         let it = item.clone();
         let entries = cx.background_executor().spawn(async move { tray::fetch_menu(&it) }).await;
+        if OPENING.load(std::sync::atomic::Ordering::Relaxed) != ticket {
+            return;
+        }
         let _ = cx.update(|cx| {
             if entries.is_empty() {
                 // no dbusmenu: ask the app to show its own menu
@@ -1091,9 +1110,19 @@ fn today_dm() -> String {
 }
 
 fn today_ymd() -> (i32, u32, u32) {
+    // notification cards ask on every render: fork `date` at most every 20 s
+    static LAST: Mutex<Option<(std::time::Instant, (i32, u32, u32))>> = Mutex::new(None);
+    let mut last = LAST.lock().unwrap();
+    if let Some((at, ymd)) = *last {
+        if at.elapsed() < Duration::from_secs(20) {
+            return ymd;
+        }
+    }
     let t = sh("date +%Y-%m-%d");
     let p: Vec<i32> = t.split('-').filter_map(|x| x.parse().ok()).collect();
-    if p.len() == 3 { (p[0], p[1] as u32, p[2] as u32) } else { (2026, 1, 1) }
+    let ymd = if p.len() == 3 { (p[0], p[1] as u32, p[2] as u32) } else { (2026, 1, 1) };
+    *last = Some((std::time::Instant::now(), ymd));
+    ymd
 }
 
 struct CalState(Option<AnyWindowHandle>);
@@ -1150,10 +1179,13 @@ impl CalendarPopup {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
+        let mut failed_at: Option<std::time::Instant> = None;
         cx.spawn_in(window, async move |this, cx| loop {
-            if weather_stale() {
-                if let Some(w) = cx.background_executor().spawn(async { fetch_weather() }).await {
-                    *WEATHER.lock().unwrap() = Some((std::time::Instant::now(), w));
+            // offline: retry once a minute, not on every 1.5 s tick
+            if weather_stale() && failed_at.is_none_or(|t| t.elapsed() > Duration::from_secs(60)) {
+                match cx.background_executor().spawn(async { fetch_weather() }).await {
+                    Some(w) => *WEATHER.lock().unwrap() = Some((std::time::Instant::now(), w)),
+                    None => failed_at = Some(std::time::Instant::now()),
                 }
             }
             let idle = this
@@ -2442,6 +2474,7 @@ struct ClipPanel {
     sel: usize,
     last_input: std::time::Instant,
     confirm_wipe: bool, // "Clear all" asks once before deleting the whole history
+    loaded: bool,       // cliphist answered (until then an empty list is not "Nothing here")
 }
 
 impl ClipPanel {
@@ -2458,7 +2491,26 @@ impl ClipPanel {
             }
         })
         .detach();
-        ClipPanel { pal: palette(), focus, clips: read_clips(), query: String::new(), sel: 0, last_input: std::time::Instant::now(), confirm_wipe: false }
+        // cliphist + image decodes take a while: load off the UI thread
+        cx.spawn(async move |this, cx| {
+            let clips = cx.background_executor().spawn(async { read_clips() }).await;
+            let _ = this.update(cx, |c, cx| {
+                c.clips = clips;
+                c.loaded = true;
+                cx.notify();
+            });
+        })
+        .detach();
+        ClipPanel {
+            pal: palette(),
+            focus,
+            clips: Vec::new(),
+            query: String::new(),
+            sel: 0,
+            last_input: std::time::Instant::now(),
+            confirm_wipe: false,
+            loaded: false,
+        }
     }
 
     fn visible(&self) -> Vec<Clip> {
@@ -2502,6 +2554,7 @@ impl Render for ClipPanel {
                 .on_mouse_down(MouseButton::Right, cx.listener(move |this, _, _, cx| {
                     clip_delete(&del_raw);
                     this.clips.retain(|c| c.id != id);
+                    this.sel = this.sel.min(this.visible().len().saturating_sub(1));
                     cx.notify();
                 }))
                 .on_click(move |_, window, cx| {
@@ -2553,6 +2606,7 @@ impl Render for ClipPanel {
                         if let Some(c) = this.visible().get(this.sel).cloned() {
                             clip_delete(&c.raw);
                             this.clips.retain(|x| x.id != c.id);
+                            this.sel = this.sel.min(this.visible().len().saturating_sub(1));
                             cx.notify();
                         }
                     }
@@ -2642,7 +2696,7 @@ impl Render for ClipPanel {
                             .flex()
                             .flex_col()
                             .children(rows)
-                            .when(list.is_empty(), |d| {
+                            .when(list.is_empty() && self.loaded, |d| {
                                 d.child(div().py_6().flex().justify_center().text_color(rgb(p.dim)).child("Nothing here"))
                             }),
                     )
@@ -2698,7 +2752,11 @@ fn shot_geometry() -> ((i32, i32, i32, i32), Vec<WinRect>) {
             title: c["title"].as_str().unwrap_or("").to_string(),
         })
         .collect();
-    ((mx, my, g("width"), g("height")), wins)
+    // width/height are physical pixels; windows and grim -g use logical ones (scaled, rotated)
+    let scale = mon["scale"].as_f64().filter(|s| *s > 0.).unwrap_or(1.);
+    let (w, h) = ((g("width") as f64 / scale).round() as i32, (g("height") as f64 / scale).round() as i32);
+    let (w, h) = if mon["transform"].as_i64().unwrap_or(0) % 2 == 1 { (h, w) } else { (w, h) };
+    ((mx, my, w, h), wins)
 }
 
 fn toggle_shot(cx: &mut App) {
@@ -2922,17 +2980,31 @@ fn wp_thumb(src: &std::path::Path) -> PathBuf {
 }
 
 fn wp_make_thumbs(list: Vec<PathBuf>) {
+    // reopening the picker while an earlier run is still going must not start a second writer
+    static RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if RUNNING.swap(true, std::sync::atomic::Ordering::AcqRel) {
+        return;
+    }
     let _ = fs::create_dir_all(format!("{}/.cache/fiaboo-shell/wp", home()));
     for src in list {
         let t = wp_thumb(&src);
         if !t.exists() {
-            let _ = Command::new("magick")
+            // the picker shows a thumbnail once it exists: only a finished file may take its name
+            let tmp = t.with_extension("tmp.jpg");
+            let ok = Command::new("magick")
                 .arg(format!("{}[0]", src.display()))
                 .args(["-thumbnail", "400x225^", "-gravity", "center", "-extent", "400x225", "-quality", "82"])
-                .arg(&t)
-                .status();
+                .arg(&tmp)
+                .status()
+                .is_ok_and(|s| s.success());
+            if ok {
+                let _ = fs::rename(&tmp, &t);
+            } else {
+                let _ = fs::remove_file(&tmp);
+            }
         }
     }
+    RUNNING.store(false, std::sync::atomic::Ordering::Release);
 }
 
 fn wp_current() -> String {
@@ -2940,7 +3012,7 @@ fn wp_current() -> String {
 }
 
 fn wp_apply(path: &std::path::Path) {
-    run_bg(&format!("setsid ~/.local/bin/fiaboo-wallpaper '{}'", path.display()));
+    spawn_bg(Command::new("setsid").arg(format!("{}/.local/bin/fiaboo-wallpaper", home())).arg(path));
 }
 
 fn toggle_wp(cx: &mut App) {
@@ -3911,7 +3983,8 @@ impl Render for StartMenu {
                         cx.notify();
                     }
                     "down" | "up" => {
-                        let n = this.results().len().min(40);
+                        // a search shows its first 40 hits; with no query the arrows walk the whole All apps list
+                        let n = if this.query.is_empty() { this.all.len() } else { this.results().len().min(40) };
                         if n > 0 {
                             this.sel = if k.key == "down" { (this.sel + 1) % n } else { (this.sel + n - 1) % n };
                             this.scroll.scroll_to_item(this.sel);
