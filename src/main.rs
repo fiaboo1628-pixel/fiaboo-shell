@@ -140,6 +140,7 @@ struct Desktop {
     stem: String, // lowercase .desktop file stem (also what gtk-launch wants)
     icon: String,
     wm_class: String, // lowercase StartupWMClass or ""
+    settings: bool,   // Categories has Settings: a configuration tool, listed after the apps in Start
 }
 
 // User dir first: a same-named file there overrides (or hides) the system one, per XDG.
@@ -175,6 +176,7 @@ fn scan_desktops(dirs: &[String]) -> Vec<Desktop> {
                 stem: stem.to_lowercase(),
                 icon,
                 wm_class: field("StartupWMClass").unwrap_or_default().to_lowercase(),
+                settings: field("Categories").is_some_and(|c| c.split(';').any(|c| c == "Settings")),
             });
         }
     }
@@ -3325,6 +3327,27 @@ fn nmcli_fields(line: &str) -> Vec<String> {
     out
 }
 
+/// One `nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device` line (+ its IPv4) in plain words:
+/// ("Wi-Fi", "Connected · Home · 192.168.1.70 · wlp3s0").
+fn net_row(f: &[String], ip: &str) -> (String, String) {
+    let (dev, kind, state, conn) = (f[0].as_str(), f[1].as_str(), f[2].as_str(), f[3].as_str());
+    let label = match kind {
+        "wifi" => "Wi-Fi",
+        "ethernet" => "Ethernet",
+        _ => "VPN",
+    };
+    let state = match state {
+        s if s.starts_with("connected") => "Connected".to_string(), // "(externally)": managed by Tailscale etc.
+        "unavailable" if kind == "ethernet" => "Cable unplugged".to_string(),
+        "unavailable" => "Unavailable".to_string(),
+        s => s[..1].to_uppercase() + &s[1..],
+    };
+    let ip = ip.split('/').next().unwrap_or("");
+    let conn = if conn == dev { "" } else { conn };
+    let parts = [state.as_str(), conn, ip, dev].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>();
+    (label.to_string(), parts.join(" · "))
+}
+
 fn read_settings() -> SettingsInfo {
     let net = sh("nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device")
         .lines()
@@ -3334,8 +3357,7 @@ fn read_settings() -> SettingsInfo {
         .filter(|f| !(f[0].starts_with("docker") || f[0].starts_with("br-") || f[0].starts_with("veth")))
         .map(|f| {
             let ip = sh(&format!("nmcli -g IP4.ADDRESS device show '{}' | head -1", f[0]));
-            let detail = [f[2].as_str(), f[3].as_str(), ip.as_str()].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>();
-            (format!("{} · {}", f[0], f[1]), detail.join(" · "))
+            net_row(&f, &ip)
         })
         .collect();
     let default_sink = sh("pactl get-default-sink");
@@ -3692,7 +3714,7 @@ impl Render for SettingsPanel {
                             .flex()
                             .flex_col()
                             .gap_1()
-                            .child(section("Network (read only)"))
+                            .child(section("Network"))
                             .children(info.net.iter().map(|(a, b)| row(a.clone(), b.clone())))
                             .child(section("Sound output"))
                             .children(sinks)
@@ -3714,6 +3736,7 @@ struct Entry {
     name: String,
     stem: String,
     icon: Option<PathBuf>,
+    settings: bool,
 }
 
 struct StartState(Option<AnyWindowHandle>);
@@ -3727,7 +3750,7 @@ const POWER: [(&str, &str, &str); 3] = [
 ];
 
 fn entry_of(d: &Desktop) -> Entry {
-    Entry { name: d.name.clone(), stem: d.stem.clone(), icon: find_icon_file(&d.icon) }
+    Entry { name: d.name.clone(), stem: d.stem.clone(), icon: find_icon_file(&d.icon), settings: d.settings }
 }
 
 fn toggle_start(cx: &mut App) {
@@ -3781,7 +3804,8 @@ impl StartMenu {
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         let mut all: Vec<Entry> = apps().0.iter().map(entry_of).collect();
-        all.sort_by_key(|e| e.name.to_lowercase());
+        // apps A–Z first, then configuration tools (network editor, input method setup…) A–Z
+        all.sort_by_key(|e| (e.settings, e.name.to_lowercase()));
         all.dedup_by(|a, b| a.stem == b.stem);
         let pins = pinned().iter().map(|(_, d)| entry_of(d)).collect();
         // safety net: close after 90 s without a key press (the menu holds exclusive keyboard focus)
@@ -4481,6 +4505,14 @@ fn open_bar(cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn network_rows_read_in_plain_words() {
+        let f = |v: [&str; 4]| v.map(String::from).to_vec();
+        assert_eq!(net_row(&f(["wlp3s0", "wifi", "connected", "Home"]), "192.168.1.70/24"), ("Wi-Fi".into(), "Connected · Home · 192.168.1.70 · wlp3s0".into()));
+        assert_eq!(net_row(&f(["tailscale0", "tun", "connected (externally)", "tailscale0"]), "100.101.1.2/32"), ("VPN".into(), "Connected · 100.101.1.2 · tailscale0".into()));
+        assert_eq!(net_row(&f(["enp2s0", "ethernet", "unavailable", ""]), ""), ("Ethernet".into(), "Cable unplugged · enp2s0".into()));
+    }
 
     #[test]
     fn wallpaper_accents_always_read_on_the_fixed_panels() {
