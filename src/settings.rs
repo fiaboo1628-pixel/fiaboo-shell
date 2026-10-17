@@ -189,8 +189,8 @@ pub(crate) fn bt_rows<T: HasBt>(ui: &BtUi, p: &Palette, cx: &mut Context<T>) -> 
             .px_3()
             .py_2p5()
             .rounded_lg()
-            .bg(if on { rgba((accent << 8) | 0x38) } else { rgba((dim << 8) | 0x1c) })
-            .hover(|s| s.bg(rgba((accent << 8) | 0x4a)))
+            .bg(if on { rgba((accent << 8) | A_HOVER) } else { rgba((dim << 8) | A_SURFACE) })
+            .hover(|s| s.bg(rgba((accent << 8) | A_ACTIVE)))
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.touch();
                 this.bt().busy = Some((key.clone(), want, std::time::Instant::now()));
@@ -221,8 +221,8 @@ pub(crate) fn bt_rows<T: HasBt>(ui: &BtUi, p: &Palette, cx: &mut Context<T>) -> 
             .py_2p5()
             .rounded_lg()
             .text_color(rgb(if scanning { dim } else { p.fg }))
-            .bg(rgba((dim << 8) | 0x28))
-            .hover(|s| s.bg(rgba((accent << 8) | 0x40)))
+            .bg(rgba((dim << 8) | A_HOVER))
+            .hover(|s| s.bg(rgba((accent << 8) | A_ACTIVE)))
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.touch();
                 if !scanning {
@@ -337,7 +337,7 @@ impl Render for SettingsPanel {
                 .px_3()
                 .py_2p5()
                 .rounded_lg()
-                .bg(rgba((p.dim << 8) | 0x1c))
+                .bg(rgba((p.dim << 8) | A_SURFACE))
                 .child(div().w(px(170.)).flex_none().overflow_hidden().whitespace_nowrap().text_ellipsis().child(label))
                 .child(div().flex_1().min_w(px(0.)).overflow_hidden().whitespace_nowrap().text_ellipsis().text_color(rgb(p.dim)).child(value))
         };
@@ -352,8 +352,8 @@ impl Render for SettingsPanel {
                 .px_3()
                 .py_2p5()
                 .rounded_lg()
-                .bg(if *is_default { rgba((p.accent << 8) | 0x38) } else { rgba((p.dim << 8) | 0x1c) })
-                .hover(|s| s.bg(rgba((p.accent << 8) | 0x4a)))
+                .bg(if *is_default { rgba((p.accent << 8) | A_HOVER) } else { rgba((p.dim << 8) | A_SURFACE) })
+                .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.last_input = std::time::Instant::now();
                     run_bg(&format!("pactl set-default-sink '{name}'"));
@@ -373,8 +373,8 @@ impl Render for SettingsPanel {
                 .py_2p5()
                 .rounded_lg()
                 .text_size(px(14.))
-                .bg(rgba((p.dim << 8) | 0x28))
-                .hover(|s| s.bg(rgba((p.accent << 8) | 0x40)))
+                .bg(rgba((p.dim << 8) | A_HOVER))
+                .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)))
                 .child(label)
         };
         div()
@@ -405,7 +405,7 @@ impl Render for SettingsPanel {
                     .rounded_2xl()
                     .bg(rgba((p.bg << 8) | GLASS))
                     .border_1()
-                    .border_color(rgba((p.dim << 8) | 0x70))
+                    .border_color(rgba((p.dim << 8) | A_STRONG))
                     .text_color(rgb(p.fg))
                     .text_size(px(14.))
                     .child(

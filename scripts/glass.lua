@@ -11,7 +11,7 @@ if not hg then return end
 local BG = 0x1e1e2e
 -- how much of the panel fill stays: enough body behind the text that a bright or busy
 -- wallpaper doesn't fight it; toasts more, they land on whatever is on screen
-local FILL, TOAST_FILL = 0.45, 0.6
+local FILL, TOAST_FILL = 0.6, 0.6
 -- panels and toasts: clear glass tinted with the shell accent (Mocha blue, ~19 %)
 local TINT = 0x89b4fa30
 

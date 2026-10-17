@@ -133,7 +133,7 @@ pub(crate) fn tile_icon(e: &Entry, size_px: f32, p: &Palette) -> gpui::AnyElemen
             .items_center()
             .justify_center()
             .rounded_md()
-            .bg(rgba((p.dim << 8) | 0x55))
+            .bg(rgba((p.dim << 8) | A_ACTIVE))
             .child(e.name.chars().next().unwrap_or('?').to_uppercase().to_string())
             .into_any_element(),
     }
@@ -150,7 +150,7 @@ impl Render for StartMenu {
             .items_center()
             .px_4()
             .rounded_xl()
-            .bg(rgba((p.dim << 8) | 0x28))
+            .bg(rgba((p.dim << 8) | A_HOVER))
             .text_size(px(16.))
             .gap_2()
             .child(div().text_color(rgb(p.dim)).child("\u{f002}"))
@@ -181,8 +181,8 @@ impl Render for StartMenu {
                 .px_3()
                 .py_1p5()
                 .rounded_lg()
-                .when(first, |d| d.bg(rgba((p.accent << 8) | 0x30)))
-                .hover(|s| s.bg(rgba((p.dim << 8) | 0x30)))
+                .when(first, |d| d.bg(rgba((p.accent << 8) | A_HOVER)))
+                .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
                 .on_click(move |_, window, cx| {
                     launch_app(&stem);
                     close_start(window, cx);
@@ -222,7 +222,7 @@ impl Render for StartMenu {
                     .items_center()
                     .gap_1()
                     .rounded_lg()
-                    .hover(|s| s.bg(rgba((p.dim << 8) | 0x30)))
+                    .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
                     .on_click(move |_, window, cx| {
                         launch_app(&stem);
                         close_start(window, cx);
@@ -262,8 +262,8 @@ impl Render for StartMenu {
                 .py_2p5()
                 .rounded_lg()
                 .text_size(px(14.))
-                .bg(rgba((p.dim << 8) | 0x28))
-                .hover(|s| s.bg(rgba((p.accent << 8) | 0x40)))
+                .bg(rgba((p.dim << 8) | A_HOVER))
+                .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)))
                 .on_click(move |_, window, cx| {
                     spawn_bg(Command::new("sh").args(["-c", &format!("setsid {cmd} >/dev/null 2>&1 &")]));
                     close_start(window, cx);
@@ -279,8 +279,8 @@ impl Render for StartMenu {
                 .py_2p5()
                 .rounded_lg()
                 .text_size(px(14.))
-                .bg(rgba((p.dim << 8) | 0x28))
-                .hover(|s| s.bg(rgba((p.accent << 8) | 0x40)))
+                .bg(rgba((p.dim << 8) | A_HOVER))
+                .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)))
                 .child(label)
         };
         let power_row = match self.confirm {
@@ -291,7 +291,7 @@ impl Render for StartMenu {
                     .items_center()
                     .gap_3()
                     .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).child(question))
-                    .child(footer_btn("p-ok", label, cmd).bg(rgba((p.err << 8) | 0x60)))
+                    .child(footer_btn("p-ok", label, cmd).bg(rgba((p.err << 8) | A_STRONG)))
                     .child(small_btn("p-cancel", "Cancel").on_click(cx.listener(|this, _, _, cx| {
                         this.confirm = None;
                         cx.notify();
@@ -386,7 +386,7 @@ impl Render for StartMenu {
             .rounded_2xl()
             .bg(rgba((p.bg << 8) | GLASS))
             .border_1()
-            .border_color(rgba((p.dim << 8) | 0x70))
+            .border_color(rgba((p.dim << 8) | A_STRONG))
             .text_color(rgb(p.fg))
             .text_size(px(14.))
             .child(search)

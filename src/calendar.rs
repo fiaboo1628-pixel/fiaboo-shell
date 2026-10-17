@@ -294,8 +294,8 @@ impl Render for CalendarPopup {
                 .rounded_2xl()
                 .bg(gpui::linear_gradient(
                     135.,
-                    gpui::linear_color_stop(rgba((p.accent << 8) | 0x70), 0.),
-                    gpui::linear_color_stop(rgba((p.dim << 8) | 0x20), 1.),
+                    gpui::linear_color_stop(rgba((p.accent << 8) | A_HOVER), 0.),
+                    gpui::linear_color_stop(rgba((p.dim << 8) | A_SURFACE), 1.),
                 ))
                 .child(
                     div()
@@ -344,7 +344,7 @@ impl Render for CalendarPopup {
                 .items_center()
                 .justify_center()
                 .rounded_2xl()
-                .bg(rgba((p.dim << 8) | 0x20))
+                .bg(rgba((p.dim << 8) | A_SURFACE))
                 .text_color(rgb(p.dim))
                 .child("Loading weather\u{2026}")
                 .into_any_element(),
@@ -361,7 +361,7 @@ impl Render for CalendarPopup {
                     .gap_1()
                     .py_2()
                     .rounded_xl()
-                    .bg(if i == 0 { rgba((p.accent << 8) | 0x30) } else { rgba((p.dim << 8) | 0x1c) })
+                    .bg(if i == 0 { rgba((p.accent << 8) | A_HOVER) } else { rgba((p.dim << 8) | A_SURFACE) })
                     .child(div().text_size(px(12.)).text_color(rgb(p.dim)).child(if i == 0 { "Today".to_string() } else { d.label.clone() }))
                     .child(div().font_family(NF).font_weight(FontWeight::MEDIUM).text_size(px(24.)).text_color(rgb(p.accent)).child(weather_glyph(d.code, true)))
                     .child(div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).child(format!("{:.0}\u{b0}", d.tmax)))
@@ -384,7 +384,7 @@ impl Render for CalendarPopup {
                 .justify_center()
                 .rounded_lg()
                 .text_size(px(18.))
-                .hover(|s| s.bg(rgba((p.accent << 8) | 0x35)))
+                .hover(|s| s.bg(rgba((p.accent << 8) | A_HOVER)))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.last_input = std::time::Instant::now();
                     this.month_offset += delta;
@@ -428,7 +428,7 @@ impl Render for CalendarPopup {
                         .when(is_today, |d| d.bg(rgb(p.accent)).text_color(rgb(p.bg)).font_weight(FontWeight::SEMIBOLD))
                         .when(!is_today, |d| {
                             d.text_color(if !current {
-                                rgba((p.dim << 8) | 0x60)
+                                rgba((p.dim << 8) | A_STRONG)
                             } else if weekend {
                                 rgb(p.accent)
                             } else {
@@ -458,7 +458,7 @@ impl Render for CalendarPopup {
                             .flex()
                             .items_baseline()
                             .gap_2()
-                            .child(div().text_size(px(17.)).font_weight(FontWeight::SEMIBOLD).child(month_name(month)))
+                            .child(div().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).child(month_name(month)))
                             .child(div().text_size(px(14.)).text_color(rgb(p.dim)).child(year.to_string())),
                     )
                     .child(
@@ -475,7 +475,7 @@ impl Render for CalendarPopup {
                                     .py_1()
                                     .rounded_lg()
                                     .text_size(px(12.))
-                                    .hover(|s| s.bg(rgba((p.accent << 8) | 0x35)))
+                                    .hover(|s| s.bg(rgba((p.accent << 8) | A_HOVER)))
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.last_input = std::time::Instant::now();
                                         this.month_offset = 0;
@@ -527,7 +527,7 @@ impl Render for CalendarPopup {
             .rounded_2xl()
             .bg(rgba((p.bg << 8) | GLASS))
             .border_1()
-            .border_color(rgba((p.dim << 8) | 0x70))
+            .border_color(rgba((p.dim << 8) | A_STRONG))
             .text_color(rgb(p.fg))
             .text_size(px(14.))
             .child(card)

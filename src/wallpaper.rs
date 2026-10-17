@@ -175,12 +175,12 @@ impl Render for WpPicker {
                 .flex_none()
                 .rounded_lg()
                 .overflow_hidden()
-                .bg(rgba((p.dim << 8) | 0x30))
+                .bg(rgba((p.dim << 8) | A_HOVER))
                 .border_2()
                 .border_color(if i == sel {
                     rgb(p.accent)
                 } else if is_cur {
-                    rgba((p.accent << 8) | 0x70)
+                    rgba((p.accent << 8) | A_STRONG)
                 } else {
                     rgba(0x00000000)
                 })
@@ -239,7 +239,7 @@ impl Render for WpPicker {
                     .rounded_2xl()
                     .bg(rgba((p.bg << 8) | GLASS))
                     .border_1()
-                    .border_color(rgba((p.dim << 8) | 0x70))
+                    .border_color(rgba((p.dim << 8) | A_STRONG))
                     .text_color(rgb(p.fg))
                     .text_size(px(14.))
                     .child(
@@ -256,8 +256,8 @@ impl Render for WpPicker {
                                     .py_1()
                                     .rounded_lg()
                                     .text_size(px(12.))
-                                    .bg(rgba((p.dim << 8) | 0x28))
-                                    .hover(|s| s.bg(rgba((p.accent << 8) | 0x50)))
+                                    .bg(rgba((p.dim << 8) | A_HOVER))
+                                    .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)))
                                     .on_click(|_, window, cx| {
                                         run_bg("setsid ~/.local/bin/fiaboo-wallpaper --random");
                                         close_wp(window, cx);
