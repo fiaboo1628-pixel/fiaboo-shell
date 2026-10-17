@@ -6,8 +6,9 @@
 local hg = hl.plugin.hyprglass
 if not hg then return end
 
--- the panels paint p.bg (matugen kitty background) at alpha 0xC8: the engine sees
--- through that fill and keeps only FILL of it, so the glass reads underneath
+-- the panels paint p.bg at alpha 0xC8: the engine sees through that fill and keeps only
+-- fill_alpha of it, so the glass reads underneath. p.bg is fixed Catppuccin (palette() in
+-- src/main.rs): Mocha base, or Latte base when matugen made a light theme.
 local function matugen(key, default)
   local f = io.open(os.getenv("HOME") .. "/.config/kitty/colors-matugen.conf")
   if not f then return default end
@@ -19,7 +20,14 @@ local function matugen(key, default)
   f:close()
   return hex and tonumber(hex, 16) or default
 end
-local BG, FILL = matugen("background", 0x111418), 0.0 -- 0: the panel fill is fully seen through, only the glass remains
+local function is_light(c)
+  local r, g, b = (c >> 16) & 0xff, (c >> 8) & 0xff, c & 0xff
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 127
+end
+local BG = is_light(matugen("background", 0x111418)) and 0xeff1f5 or 0x1e1e2e
+-- how much of the panel fill stays: enough body behind the text that a bright or busy
+-- wallpaper doesn't fight it; toasts more, they land on whatever is on screen
+local FILL, TOAST_FILL = 0.45, 0.6
 -- panels and toasts: clear glass tinted with the wallpaper's accent (matugen color4, ~19 %);
 -- a wallpaper change reloads Hyprland, which re-runs this file
 local TINT = matugen("color4", 0x9ecafc) * 0x100 + 0x30
@@ -81,6 +89,6 @@ hl.layer_rule({ match = { namespace = "^fiaboo-(start|quick|calendar|clip|notifc
 -- toasts and the OSD: thin glass; the toast stack fades in place (one toast leaving is not the stack closing)
 for _, ns in ipairs({ "fiaboo-notify", "fiaboo-osd" }) do
   hg.layer(ns, { preset = "glass-small", mask_mode = "contour", mask_threshold = 0.04, shadow = 0.16, held_close = false,
-                 fill_key = BG, fill_alpha = FILL })
+                 fill_key = BG, fill_alpha = TOAST_FILL })
 end
 if not GLASS_IN_RELOAD then hg.commit() end
