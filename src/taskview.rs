@@ -274,7 +274,7 @@ impl Render for TaskView {
                     .when(empty, |d| d.child(div().text_color(rgb(p.dim)).child("No open windows"))),
             )
             .child(
-                div().pt_4().text_size(px(12.)).text_color(rgb(p.dim)).child("Click: switch   ·   Right-click: close   ·   Esc: dismiss"),
+                div().pt_4().text_size(px(12.)).text_color(rgb(p.dim)).child("Enter: switch   ·   Right-click: close window   ·   Esc: close"),
             )
     }
 }

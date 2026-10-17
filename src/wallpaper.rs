@@ -282,7 +282,7 @@ impl Render for WpPicker {
                         div()
                             .text_size(px(12.))
                             .text_color(rgb(p.dim))
-                            .child(format!("{} images   ·   Arrows + Enter or click: apply   ·   R: shuffle   ·   Esc: close", self.list.len())),
+                            .child(format!("{} images   ·   Enter: apply   ·   R: shuffle   ·   Esc: close", self.list.len())),
                     ),
             )
     }
