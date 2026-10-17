@@ -12,8 +12,6 @@ local BG = 0x1e1e2e
 -- how much of the panel fill stays: enough body behind the text that a bright or busy
 -- wallpaper doesn't fight it; toasts more, they land on whatever is on screen
 local FILL, TOAST_FILL = 0.6, 0.6
--- panels and toasts: clear glass tinted with the shell accent (Mocha blue, ~19 %)
-local TINT = 0x89b4fa30
 
 -- clear glass (n = 1.52), strong colour split at the rim (Abbe 4), a glint from the
 -- upper left, a clear bevel round every shape; the rim reflects the scene around it
@@ -34,8 +32,8 @@ end
 hg.preset("glass-window", preset({ thickness = 40, bezel_width = 36, blur_strength = 0.0, blur_iterations = 1, bevel_strength = 0.2 }))
 hg.preset("glass-bar",    preset({ thickness = 32, bezel_width = 32, blur_strength = 0.0, blur_iterations = 1, adaptive_dim = 0.1,
                                    bevel_angle = 0, bevel_strength = 0.3, bevel_shadow = 0.0 }))
-hg.preset("glass-card",   preset({ thickness = 72, bezel_width = 60, blur_strength = 0.0, blur_iterations = 1, bevel_size = 2.0, tint_color = TINT }))
-hg.preset("glass-small",  preset({ thickness = 28, bezel_width = 24, blur_strength = 0.0, blur_iterations = 1, tint_color = TINT }))
+hg.preset("glass-card",   preset({ thickness = 72, bezel_width = 60, blur_strength = 0.0, blur_iterations = 1, bevel_size = 2.0 }))
+hg.preset("glass-small",  preset({ thickness = 28, bezel_width = 24, blur_strength = 0.0, blur_iterations = 1 }))
 
 hg.config({
   enabled = true,
