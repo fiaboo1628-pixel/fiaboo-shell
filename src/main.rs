@@ -281,7 +281,7 @@ struct State {
 }
 
 fn hyprctl_json(arg: &str) -> serde_json::Value {
-    wm::hypr_json(arg) // Hyprland, or niri's data in Hyprland's shape
+    wm::hypr_json(arg)
 }
 
 fn read_state() -> State {
@@ -506,7 +506,7 @@ struct Bar {
 
 static HYPR_DIRTY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
-/// The compositor event stream (Hyprland .socket2 / niri event-stream) flags the bar to refresh when windows/workspaces change,
+/// The compositor event stream (Hyprland .socket2) flags the bar to refresh when windows/workspaces change,
 /// instead of polling `hyprctl` several times a second.
 // ---------- volume OSD ----------
 static OSD_PENDING: Mutex<Option<(f32, bool)>> = Mutex::new(None);

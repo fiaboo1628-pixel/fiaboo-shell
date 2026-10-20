@@ -1,4 +1,4 @@
-//! Task View (Hyprland window thumbnails; niri opens its overview).
+//! Task View (Hyprland window thumbnails).
 
 use crate::*;
 
@@ -84,11 +84,6 @@ pub(crate) fn tv_windows() -> Vec<TvWin> {
 }
 
 pub(crate) fn toggle_taskview(cx: &mut App) {
-    if wm::is_niri() {
-        // window thumbnails come from Hyprland's toplevel capture; niri has its own overview
-        spawn_bg(Command::new("niri").args(["msg", "action", "toggle-overview"]));
-        return;
-    }
     if let Some(handle) = cx.try_global::<TaskViewState>().and_then(|s| s.0) {
         cx.set_global(TaskViewState(None));
         if handle.update(cx, |_, window, _| window.remove_window()).is_ok() {

@@ -16,7 +16,7 @@ impl Global for StartState {}
 
 /// (button, confirmation question, command)
 pub(crate) const POWER: [(&str, &str, &str); 3] = [
-    ("Log out", "Log out now?", "sh -c 'if [ -n \"$NIRI_SOCKET\" ]; then niri msg action quit --skip-confirmation; else hyprctl dispatch \"hl.dsp.exit()\"; fi'"),
+    ("Log out", "Log out now?", "hyprctl dispatch \"hl.dsp.exit()\""),
     ("Restart", "Restart now?", "systemctl reboot"),
     ("Shut down", "Shut down now?", "systemctl poweroff"),
 ];

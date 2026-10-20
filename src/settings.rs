@@ -90,7 +90,7 @@ pub(crate) fn read_settings() -> SettingsInfo {
             format!(
                 "{} · {:.0}×{:.0} @ {:.0} Hz · scale {}",
                 m["name"].as_str().unwrap_or("?"),
-                m["width"].as_f64().unwrap_or(0.0), // niri reports floats
+                m["width"].as_f64().unwrap_or(0.0),
                 m["height"].as_f64().unwrap_or(0.0),
                 m["refreshRate"].as_f64().unwrap_or(0.0),
                 m["scale"]
