@@ -8,7 +8,7 @@ impl Global for SettingsState {}
 
 #[derive(Clone, Default)]
 pub(crate) struct SettingsInfo {
-    net: Vec<(String, String)>,          // (device · type, "state · connection · ip")
+    net: Vec<(String, String)>,          // (label, "state · connection")
     sinks: Vec<(String, String, bool)>,  // (name, description, default)
     displays: Vec<String>,
     about: Vec<(&'static str, String)>,
@@ -41,9 +41,8 @@ pub(crate) fn nmcli_fields(line: &str) -> Vec<String> {
     out
 }
 
-/// One `nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device` line (+ its IPv4) in plain words:
-/// ("Wi-Fi", "Connected · Home · 192.168.1.70 · wlp3s0").
-pub(crate) fn net_row(f: &[String], ip: &str) -> (String, String) {
+/// One `nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device` line in plain words: ("Wi-Fi", "Connected · Home").
+pub(crate) fn net_row(f: &[String]) -> (String, String) {
     let (dev, kind, state, conn) = (f[0].as_str(), f[1].as_str(), f[2].as_str(), f[3].as_str());
     let label = match kind {
         "wifi" => "Wi-Fi",
@@ -56,10 +55,8 @@ pub(crate) fn net_row(f: &[String], ip: &str) -> (String, String) {
         "unavailable" => "Unavailable".to_string(),
         s => s[..1].to_uppercase() + &s[1..],
     };
-    let ip = ip.split('/').next().unwrap_or("");
-    let conn = if conn == dev { "" } else { conn };
-    let parts = [state.as_str(), conn, ip, dev].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>();
-    (label.to_string(), parts.join(" · "))
+    let conn = if conn == dev || conn.is_empty() { String::new() } else { format!(" · {conn}") };
+    (label.to_string(), state + &conn)
 }
 
 pub(crate) fn read_settings() -> SettingsInfo {
@@ -69,10 +66,7 @@ pub(crate) fn read_settings() -> SettingsInfo {
         // what a person connects through; container bridges/veths and unmanaged devices are noise here
         .filter(|f| f.len() == 4 && matches!(f[1].as_str(), "wifi" | "ethernet" | "wireguard" | "tun" | "vpn") && f[2] != "unmanaged")
         .filter(|f| !(f[0].starts_with("docker") || f[0].starts_with("br-") || f[0].starts_with("veth")))
-        .map(|f| {
-            let ip = sh(&format!("nmcli -g IP4.ADDRESS device show '{}' | head -1", f[0]));
-            net_row(&f, &ip)
-        })
+        .map(|f| net_row(&f))
         .collect();
     let default_sink = sh("pactl get-default-sink");
     let sinks = serde_json::from_str::<serde_json::Value>(&sh("pactl -f json list sinks"))
@@ -94,10 +88,10 @@ pub(crate) fn read_settings() -> SettingsInfo {
         .iter()
         .map(|m| {
             format!(
-                "{} · {}x{} @ {:.0} Hz · scale {}",
+                "{} · {:.0}×{:.0} @ {:.0} Hz · scale {}",
                 m["name"].as_str().unwrap_or("?"),
-                m["width"],
-                m["height"],
+                m["width"].as_f64().unwrap_or(0.0), // niri reports floats
+                m["height"].as_f64().unwrap_or(0.0),
                 m["refreshRate"].as_f64().unwrap_or(0.0),
                 m["scale"]
             )

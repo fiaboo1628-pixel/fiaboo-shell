@@ -1124,9 +1124,9 @@ mod tests {
     #[test]
     fn network_rows_read_in_plain_words() {
         let f = |v: [&str; 4]| v.map(String::from).to_vec();
-        assert_eq!(net_row(&f(["wlp3s0", "wifi", "connected", "Home"]), "192.168.1.70/24"), ("Wi-Fi".into(), "Connected · Home · 192.168.1.70 · wlp3s0".into()));
-        assert_eq!(net_row(&f(["tailscale0", "tun", "connected (externally)", "tailscale0"]), "100.101.1.2/32"), ("VPN".into(), "Connected · 100.101.1.2 · tailscale0".into()));
-        assert_eq!(net_row(&f(["enp2s0", "ethernet", "unavailable", ""]), ""), ("Ethernet".into(), "Cable unplugged · enp2s0".into()));
+        assert_eq!(net_row(&f(["wlp3s0", "wifi", "connected", "Home"])), ("Wi-Fi".into(), "Connected · Home".into()));
+        assert_eq!(net_row(&f(["tailscale0", "tun", "connected (externally)", "tailscale0"])), ("VPN".into(), "Connected".into()));
+        assert_eq!(net_row(&f(["enp2s0", "ethernet", "unavailable", ""])), ("Ethernet".into(), "Cable unplugged".into()));
     }
 
     #[test]

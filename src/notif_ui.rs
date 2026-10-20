@@ -3,7 +3,7 @@
 use crate::*;
 
 // ---------- notifications: popups + center ----------
-pub(crate) const CARD_H: f32 = 100.;
+pub(crate) const CARD_H: f32 = 108.; // app + summary + 2 body lines (~80px) + padding; 100 clipped the 2nd body line
 
 pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, in_center: bool, id: usize, today: &str) -> gpui::AnyElement {
     let (nid, nid2, nid3) = (n.id, n.id, n.id);

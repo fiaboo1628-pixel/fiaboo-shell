@@ -325,6 +325,7 @@ impl Render for CalendarPopup {
                             div()
                                 .font_family(NF).font_weight(FontWeight::MEDIUM)
                                 .text_size(px(78.))
+                                .pr_4() // Nerd Font weather glyphs draw wider than their advance and were clipped
                                 .text_color(rgb(p.accent))
                                 .child(weather_glyph(w.code, w.is_day)),
                         ),
