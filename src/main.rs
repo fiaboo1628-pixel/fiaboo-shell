@@ -36,7 +36,7 @@ use std::{
 };
 
 use gpui::{
-    div, ease_out_quint, img, layer_shell::*, point, prelude::*, px, rgb, rgba, size, Animation,
+    div, img, layer_shell::*, point, prelude::*, px, rgb, rgba, size, Animation,
     AnimationExt, AnyElement, AnyWindowHandle, App, Bounds,
     Context, FocusHandle, FontWeight, Global, KeyDownEvent, MouseButton, ObjectFit, Window,
     WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions,
@@ -60,7 +60,7 @@ fn fade_in(id: &'static str, el: impl IntoElement + 'static) -> AnyElement {
     div()
         .size_full()
         .child(el)
-        .with_animation(id, Animation::new(Duration::from_millis(350)).with_easing(ease_out_quint()), |d, t| d.opacity(t))
+        .with_animation(id, Animation::new(Duration::from_millis(600)).with_easing(|t| 1. - (1. - t).powi(3)), |d, t| d.opacity(t))
         .into_any_element()
 }
 
