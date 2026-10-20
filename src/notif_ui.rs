@@ -12,7 +12,7 @@ pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, in_center: bool, id: us
         .id(("notif", id))
         .cursor_pointer()
         .w_full()
-        .h(px(CARD_H))
+        .when(!in_center, |d| d.h(px(CARD_H))) // popups size their window from CARD_H; the center fits content
         .flex_none()
         .flex()
         .gap_3()
@@ -104,14 +104,14 @@ impl Render for NotifPopup {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.pal.clone();
         let today = today_dm();
-        div()
+        fade_in("notify", div()
             .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .flex()
             .flex_col()
             .gap_2()
             .text_size(px(14.))
-            .children(self.list.iter().enumerate().map(|(i, n)| notif_card(n, &p, false, i, &today)))
+            .children(self.list.iter().enumerate().map(|(i, n)| notif_card(n, &p, false, i, &today))))
     }
 }
 
@@ -261,7 +261,7 @@ impl Render for NotifCenter {
                 .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)))
                 .child(label)
         };
-        div()
+        fade_in("notifcenter", div()
             .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .track_focus(&self.focus)
@@ -289,7 +289,7 @@ impl Render for NotifCenter {
                     .gap_3()
                     .p_4()
                     .rounded_2xl()
-                    .bg(rgba((p.bg << 8) | GLASS))
+                    .bg(rgba((p.bg << 8) | panel_glass()))
                     .border_1()
                     .border_color(rgba((p.dim << 8) | A_STRONG))
                     .text_color(rgb(p.fg))
@@ -342,6 +342,6 @@ impl Render for NotifCenter {
                                 d.child(div().py_6().flex().justify_center().text_color(rgb(p.dim)).child("No notifications"))
                             }),
                     ),
-            )
+            ))
     }
 }

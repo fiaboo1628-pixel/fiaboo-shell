@@ -96,6 +96,7 @@ fn niri_as_hypr(arg: &str, workspaces: &Value, windows: &Value, outputs: &Value,
                     let name = o["name"].as_str().unwrap_or("");
                     json!({
                         "name": name,
+                        "model": o["model"],
                         "x": l["x"], "y": l["y"],
                         // Hyprland reports physical pixels (the shell divides by scale); logical is already rotated
                         "width": (l["width"].as_f64().unwrap_or(0.) * scale).round(),

@@ -233,6 +233,7 @@ pub(crate) struct CalendarPopup {
     month_offset: i32,
     today: (i32, u32, u32),
     weather: Option<Weather>,
+    weather_failed: bool,
     last_input: std::time::Instant,
 }
 
@@ -249,9 +250,11 @@ impl CalendarPopup {
                     None => failed_at = Some(std::time::Instant::now()),
                 }
             }
+            let failed = failed_at.is_some();
             let idle = this
                 .update(cx, |c, cx| {
                     c.weather = cached_weather();
+                    c.weather_failed = failed;
                     cx.notify();
                     c.last_input.elapsed() > Duration::from_secs(90)
                 })
@@ -269,6 +272,7 @@ impl CalendarPopup {
             month_offset: 0,
             today: today_ymd(),
             weather: cached_weather(),
+            weather_failed: false,
             last_input: std::time::Instant::now(),
         }
     }
@@ -347,7 +351,7 @@ impl Render for CalendarPopup {
                 .rounded_2xl()
                 .bg(rgba((p.dim << 8) | A_SURFACE))
                 .text_color(rgb(p.dim))
-                .child("Loading weather\u{2026}")
+                .child(if self.weather_failed { "Weather unavailable \u{b7} retrying every minute" } else { "Loading weather\u{2026}" })
                 .into_any_element(),
         };
 
@@ -490,7 +494,7 @@ impl Render for CalendarPopup {
             .child(weekdays)
             .children(weeks);
 
-        div()
+        fade_in("calendar", div()
             .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .track_focus(&self.focus)
@@ -526,7 +530,7 @@ impl Render for CalendarPopup {
             .gap_3()
             .p_4()
             .rounded_2xl()
-            .bg(rgba((p.bg << 8) | GLASS))
+            .bg(rgba((p.bg << 8) | panel_glass()))
             .border_1()
             .border_color(rgba((p.dim << 8) | A_STRONG))
             .text_color(rgb(p.fg))
@@ -534,6 +538,6 @@ impl Render for CalendarPopup {
             .child(card)
             .child(forecast)
             .child(calendar)
-            )
+            ))
     }
 }

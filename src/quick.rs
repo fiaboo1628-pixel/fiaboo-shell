@@ -199,7 +199,7 @@ impl Render for Quick {
                 .child(media_btn("m-next", "\u{f04ad}", "next"))
         });
 
-        div()
+        fade_in("quick", div()
             .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .track_focus(&self.focus)
@@ -226,7 +226,7 @@ impl Render for Quick {
             .gap_3()
             .p_4()
             .rounded_2xl()
-            .bg(rgba((p.bg << 8) | GLASS))
+            .bg(rgba((p.bg << 8) | panel_glass()))
             .border_1()
             .border_color(rgba((p.dim << 8) | A_STRONG))
             .text_color(rgb(p.fg))
@@ -311,6 +311,6 @@ impl Render for Quick {
                         if sys.muted { "Muted".to_string() } else { format!("{level}%") },
                     )),
             )
-            .children(media))
+            .children(media)))
     }
 }

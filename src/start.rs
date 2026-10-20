@@ -328,7 +328,7 @@ impl Render for StartMenu {
                 cx.notify();
             })));
 
-        div()
+        fade_in("start", div()
             .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .track_focus(&self.focus)
@@ -384,7 +384,7 @@ impl Render for StartMenu {
             .gap_3()
             .p_4()
             .rounded_2xl()
-            .bg(rgba((p.bg << 8) | GLASS))
+            .bg(rgba((p.bg << 8) | panel_glass()))
             .border_1()
             .border_color(rgba((p.dim << 8) | A_STRONG))
             .text_color(rgb(p.fg))
@@ -393,6 +393,6 @@ impl Render for StartMenu {
             .child(body)
             .when(self.power, |d| d.child(power_row))
             .child(footer)
-            )
+            ))
     }
 }
