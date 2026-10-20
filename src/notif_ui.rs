@@ -12,7 +12,7 @@ pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, in_center: bool, id: us
         .id(("notif", id))
         .cursor_pointer()
         .w_full()
-        .h(px(CARD_H))
+        .when(!in_center, |d| d.h(px(CARD_H))) // popups size their window from CARD_H; the center fits content
         .flex_none()
         .flex()
         .gap_3()

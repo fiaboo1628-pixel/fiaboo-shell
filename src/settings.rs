@@ -89,7 +89,10 @@ pub(crate) fn read_settings() -> SettingsInfo {
         .map(|m| {
             format!(
                 "{} · {:.0}×{:.0} @ {:.0} Hz · scale {}",
-                m["name"].as_str().unwrap_or("?"),
+                match (m["model"].as_str().unwrap_or(""), m["name"].as_str().unwrap_or("?")) {
+                    ("", name) => name.to_string(),
+                    (model, name) => format!("{model} ({name})"),
+                },
                 m["width"].as_f64().unwrap_or(0.0), // niri reports floats
                 m["height"].as_f64().unwrap_or(0.0),
                 m["refreshRate"].as_f64().unwrap_or(0.0),
