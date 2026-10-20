@@ -190,7 +190,7 @@ impl Render for WpPicker {
                 })
                 .when(thumb.exists(), |d| d.child(img(thumb).size_full().object_fit(ObjectFit::Cover)))
         });
-        fade_in("wallpaper", div()
+        div()
             .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .track_focus(&self.focus)
@@ -237,7 +237,7 @@ impl Render for WpPicker {
                     .gap_3()
                     .p_4()
                     .rounded_2xl()
-                    .bg(rgba((p.bg << 8) | panel_glass()))
+                    .bg(rgba((p.bg << 8) | GLASS))
                     .border_1()
                     .border_color(rgba((p.dim << 8) | A_STRONG))
                     .text_color(rgb(p.fg))
@@ -253,7 +253,7 @@ impl Render for WpPicker {
                                     .id("wp-random")
                                     .cursor_pointer()
                                     .px_3()
-                                    .py_2()
+                                    .py_1()
                                     .rounded_lg()
                                     .text_size(px(12.))
                                     .bg(rgba((p.dim << 8) | A_HOVER))
@@ -284,6 +284,6 @@ impl Render for WpPicker {
                             .text_color(rgb(p.dim))
                             .child(format!("{} images   ·   Enter: apply   ·   R: shuffle   ·   Esc: close", self.list.len())),
                     ),
-            ))
+            )
     }
 }

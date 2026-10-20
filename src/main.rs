@@ -36,8 +36,7 @@ use std::{
 };
 
 use gpui::{
-    div, img, layer_shell::*, point, prelude::*, px, rgb, rgba, size, Animation,
-    AnimationExt, AnyElement, AnyWindowHandle, App, Bounds,
+    div, img, layer_shell::*, point, prelude::*, px, rgb, rgba, size, AnyWindowHandle, App, Bounds,
     Context, FocusHandle, FontWeight, Global, KeyDownEvent, MouseButton, ObjectFit, Window,
     WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions,
 };
@@ -51,24 +50,6 @@ const A_SURFACE: u32 = 0x20; // resting tiles, chips
 const A_HOVER: u32 = 0x30;
 const A_ACTIVE: u32 = 0x48; // selected / pressed; keeps fg >= 4.5:1 even on an accent fill
 const A_STRONG: u32 = 0x70; // borders, focus rings, the accent card corner
-
-/// Fullscreen panels get no glass on niri (its effect would cover the whole layer), so a denser fill
-/// keeps their text readable over busy apps there; the bar, OSD and popups keep GLASS.
-fn panel_glass() -> u32 {
-    if wm::is_niri() { 0xEC } else { GLASS }
-}
-
-/// niri has no layer-shell open animation (Hyprland fades fiaboo-* itself), so panels fade in on their own there.
-fn fade_in(id: &'static str, el: impl IntoElement + 'static) -> AnyElement {
-    if !wm::is_niri() {
-        return el.into_any_element();
-    }
-    div()
-        .size_full()
-        .child(el)
-        .with_animation(id, Animation::new(Duration::from_millis(600)).with_easing(|t| 1. - (1. - t).powi(3)), |d, t| d.opacity(t))
-        .into_any_element()
-}
 
 fn home() -> String {
     std::env::var("HOME").unwrap_or_default()

@@ -231,7 +231,7 @@ impl Render for ShotOverlay {
                         .px_4()
                         .py_2()
                         .rounded_full()
-                        .bg(rgba((p.bg << 8) | panel_glass()))
+                        .bg(rgba((p.bg << 8) | GLASS))
                         .border_1()
                         .border_color(rgba((p.dim << 8) | A_ACTIVE))
                         .text_color(rgb(p.fg))
