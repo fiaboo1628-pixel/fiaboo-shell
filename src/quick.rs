@@ -226,7 +226,7 @@ impl Render for Quick {
             .gap_3()
             .p_4()
             .rounded_2xl()
-            .bg(rgba((p.bg << 8) | GLASS))
+            .bg(rgba((p.bg << 8) | panel_glass()))
             .border_1()
             .border_color(rgba((p.dim << 8) | A_STRONG))
             .text_color(rgb(p.fg))

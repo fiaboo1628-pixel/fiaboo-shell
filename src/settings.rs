@@ -146,6 +146,8 @@ pub(crate) struct BtUi {
     info: BtInfo,
     /// Row clicked and not settled yet: (row key, target state, since)
     busy: Option<(String, bool, std::time::Instant)>,
+    /// Row whose last click timed out without reaching the wanted state.
+    failed: Option<String>,
     /// End of the current scan; Some once a scan was started in this panel (then found devices show).
     scan_until: Option<std::time::Instant>,
 }
@@ -155,7 +157,10 @@ impl BtUi {
         self.info = info;
         if let Some((key, want, since)) = &self.busy {
             // pair + trust + connect can take a while
-            if bt_state(&self.info, key) == Some(*want) || since.elapsed() > Duration::from_secs(30) {
+            if bt_state(&self.info, key) == Some(*want) {
+                self.busy = None;
+            } else if since.elapsed() > Duration::from_secs(30) {
+                self.failed = Some(key.clone());
                 self.busy = None;
             }
         }
@@ -172,8 +177,15 @@ pub(crate) trait HasBt: 'static {
 pub(crate) fn bt_rows<T: HasBt>(ui: &BtUi, p: &Palette, cx: &mut Context<T>) -> Vec<gpui::AnyElement> {
     let (accent, dim) = (p.accent, p.dim);
     let busy = ui.busy.as_ref().map(|b| b.0.clone());
+    let failed = ui.failed.clone();
     let row = |id: gpui::ElementId, key: String, label: String, glyph: &'static str, on: bool, want: bool, cmd: String| {
-        let label = if busy.as_deref() == Some(key.as_str()) { format!("{label} · working…") } else { label };
+        let label = if busy.as_deref() == Some(key.as_str()) {
+            format!("{label} · working…")
+        } else if failed.as_deref() == Some(key.as_str()) {
+            format!("{label} · failed, click to retry")
+        } else {
+            label
+        };
         div()
             .id(id)
             .cursor_pointer()
@@ -188,6 +200,7 @@ pub(crate) fn bt_rows<T: HasBt>(ui: &BtUi, p: &Palette, cx: &mut Context<T>) -> 
             .hover(move |s| s.bg(rgba((accent << 8) | if on { A_ACTIVE } else { A_HOVER })))
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.touch();
+                this.bt().failed = None;
                 this.bt().busy = Some((key.clone(), want, std::time::Instant::now()));
                 run_bg(&cmd); // the next refresh shows the new state and clears busy
                 cx.notify();
@@ -398,7 +411,7 @@ impl Render for SettingsPanel {
                     .gap_2()
                     .p_4()
                     .rounded_2xl()
-                    .bg(rgba((p.bg << 8) | GLASS))
+                    .bg(rgba((p.bg << 8) | panel_glass()))
                     .border_1()
                     .border_color(rgba((p.dim << 8) | A_STRONG))
                     .text_color(rgb(p.fg))
@@ -409,7 +422,7 @@ impl Render for SettingsPanel {
                             .items_center()
                             .gap_2()
                             .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).text_size(px(16.)).child("Settings"))
-                            .child(btn("s-wp", "Change wallpaper").on_click(|_, window, cx| {
+                            .child(btn("s-wp", "Change wallpaper").py_2().text_size(px(12.)).on_click(|_, window, cx| {
                                 close_settings(window, cx);
                                 toggle_wp(cx);
                             })),
@@ -424,6 +437,7 @@ impl Render for SettingsPanel {
                             .gap_1()
                             .child(section("Network"))
                             .children(info.net.iter().map(|(a, b)| row(a.clone(), b.clone())))
+                            .children(info.net.is_empty().then(|| row("Status".into(), "Unavailable · NetworkManager not running".into())))
                             .child(section("Sound output"))
                             .children(sinks)
                             .child(section("Bluetooth"))

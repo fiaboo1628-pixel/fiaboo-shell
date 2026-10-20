@@ -52,6 +52,12 @@ const A_HOVER: u32 = 0x30;
 const A_ACTIVE: u32 = 0x48; // selected / pressed; keeps fg >= 4.5:1 even on an accent fill
 const A_STRONG: u32 = 0x70; // borders, focus rings, the accent card corner
 
+/// Fullscreen panels get no glass on niri (its effect would cover the whole layer), so a denser fill
+/// keeps their text readable over busy apps there; the bar, OSD and popups keep GLASS.
+fn panel_glass() -> u32 {
+    if wm::is_niri() { 0xEC } else { GLASS }
+}
+
 /// niri has no layer-shell open animation (Hyprland fades fiaboo-* itself), so panels fade in on their own there.
 fn fade_in(id: &'static str, el: impl IntoElement + 'static) -> AnyElement {
     if !wm::is_niri() {

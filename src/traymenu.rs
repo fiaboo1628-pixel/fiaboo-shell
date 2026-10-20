@@ -146,7 +146,7 @@ impl Render for TrayMenu {
                     .flex_col()
             .p_2()
             .rounded_xl()
-            .bg(rgba((p.bg << 8) | GLASS))
+            .bg(rgba((p.bg << 8) | panel_glass()))
             .border_1()
             .border_color(rgba((p.dim << 8) | A_STRONG))
             .text_size(px(14.))
