@@ -328,7 +328,7 @@ impl Render for StartMenu {
                 cx.notify();
             })));
 
-        div()
+        fade_in("start", div()
             .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .track_focus(&self.focus)
@@ -393,6 +393,6 @@ impl Render for StartMenu {
             .child(body)
             .when(self.power, |d| d.child(power_row))
             .child(footer)
-            )
+            ))
     }
 }

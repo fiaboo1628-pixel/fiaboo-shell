@@ -199,7 +199,7 @@ impl Render for Quick {
                 .child(media_btn("m-next", "\u{f04ad}", "next"))
         });
 
-        div()
+        fade_in("quick", div()
             .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .track_focus(&self.focus)
@@ -311,6 +311,6 @@ impl Render for Quick {
                         if sys.muted { "Muted".to_string() } else { format!("{level}%") },
                     )),
             )
-            .children(media))
+            .children(media)))
     }
 }

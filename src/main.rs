@@ -36,7 +36,8 @@ use std::{
 };
 
 use gpui::{
-    div, img, layer_shell::*, point, prelude::*, px, rgb, rgba, size, AnyWindowHandle, App, Bounds,
+    div, ease_out_quint, img, layer_shell::*, point, prelude::*, px, rgb, rgba, size, Animation,
+    AnimationExt, AnyElement, AnyWindowHandle, App, Bounds,
     Context, FocusHandle, FontWeight, Global, KeyDownEvent, MouseButton, ObjectFit, Window,
     WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions,
 };
@@ -50,6 +51,18 @@ const A_SURFACE: u32 = 0x20; // resting tiles, chips
 const A_HOVER: u32 = 0x30;
 const A_ACTIVE: u32 = 0x48; // selected / pressed; keeps fg >= 4.5:1 even on an accent fill
 const A_STRONG: u32 = 0x70; // borders, focus rings, the accent card corner
+
+/// niri has no layer-shell open animation (Hyprland fades fiaboo-* itself), so panels fade in on their own there.
+fn fade_in(id: &'static str, el: impl IntoElement + 'static) -> AnyElement {
+    if !wm::is_niri() {
+        return el.into_any_element();
+    }
+    div()
+        .size_full()
+        .child(el)
+        .with_animation(id, Animation::new(Duration::from_millis(350)).with_easing(ease_out_quint()), |d, t| d.opacity(t))
+        .into_any_element()
+}
 
 fn home() -> String {
     std::env::var("HOME").unwrap_or_default()

@@ -490,7 +490,7 @@ impl Render for CalendarPopup {
             .child(weekdays)
             .children(weeks);
 
-        div()
+        fade_in("calendar", div()
             .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .track_focus(&self.focus)
@@ -534,6 +534,6 @@ impl Render for CalendarPopup {
             .child(card)
             .child(forecast)
             .child(calendar)
-            )
+            ))
     }
 }

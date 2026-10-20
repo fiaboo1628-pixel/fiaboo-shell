@@ -120,7 +120,7 @@ impl Render for TrayMenu {
                 .child(e.label.clone())
                 .into_any_element()
         });
-        div()
+        fade_in("traymenu", div()
             .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .track_focus(&self.focus)
@@ -151,6 +151,6 @@ impl Render for TrayMenu {
             .border_color(rgba((p.dim << 8) | A_STRONG))
             .text_size(px(14.))
             .children(rows)
-            )
+            ))
     }
 }

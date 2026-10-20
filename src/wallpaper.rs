@@ -190,7 +190,7 @@ impl Render for WpPicker {
                 })
                 .when(thumb.exists(), |d| d.child(img(thumb).size_full().object_fit(ObjectFit::Cover)))
         });
-        div()
+        fade_in("wallpaper", div()
             .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .track_focus(&self.focus)
@@ -284,6 +284,6 @@ impl Render for WpPicker {
                             .text_color(rgb(p.dim))
                             .child(format!("{} images   ·   Enter: apply   ·   R: shuffle   ·   Esc: close", self.list.len())),
                     ),
-            )
+            ))
     }
 }

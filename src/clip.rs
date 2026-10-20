@@ -222,7 +222,7 @@ impl Render for ClipPanel {
                         .into_any_element(),
                 })
         });
-        div()
+        fade_in("clip", div()
             .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .track_focus(&self.focus)
@@ -355,6 +355,6 @@ impl Render for ClipPanel {
                             .text_color(rgb(p.dim))
                             .child("Enter: copy   ·   Right-click / Del: remove   ·   Esc: close"),
                     ),
-            )
+            ))
     }
 }

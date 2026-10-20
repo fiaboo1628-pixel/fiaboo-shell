@@ -372,7 +372,7 @@ impl Render for SettingsPanel {
                 .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)))
                 .child(label)
         };
-        div()
+        fade_in("settings", div()
             .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .track_focus(&self.focus)
@@ -434,6 +434,6 @@ impl Render for SettingsPanel {
                             .children(info.about.iter().map(|(a, b)| row(a.to_string(), b.clone()))),
                     )
 
-            )
+            ))
     }
 }

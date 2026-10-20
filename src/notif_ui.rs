@@ -104,14 +104,14 @@ impl Render for NotifPopup {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.pal.clone();
         let today = today_dm();
-        div()
+        fade_in("notify", div()
             .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .flex()
             .flex_col()
             .gap_2()
             .text_size(px(14.))
-            .children(self.list.iter().enumerate().map(|(i, n)| notif_card(n, &p, false, i, &today)))
+            .children(self.list.iter().enumerate().map(|(i, n)| notif_card(n, &p, false, i, &today))))
     }
 }
 
@@ -261,7 +261,7 @@ impl Render for NotifCenter {
                 .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)))
                 .child(label)
         };
-        div()
+        fade_in("notifcenter", div()
             .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .track_focus(&self.focus)
@@ -342,6 +342,6 @@ impl Render for NotifCenter {
                                 d.child(div().py_6().flex().justify_center().text_color(rgb(p.dim)).child("No notifications"))
                             }),
                     ),
-            )
+            ))
     }
 }
