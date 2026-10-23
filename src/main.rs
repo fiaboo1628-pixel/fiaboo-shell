@@ -893,7 +893,7 @@ impl Render for Bar {
                             .justify_center()
                             .rounded_lg()
                             .font_family(NF).font_weight(FontWeight::MEDIUM)
-                            .text_size(px(18.))
+                            .text_size(px(24.))
                             .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
                             .on_click(|_, _, cx| toggle_taskview(cx))
                             .child("\u{f0574}"),
