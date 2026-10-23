@@ -21,7 +21,7 @@ pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, in_center: bool, id: us
         .bg(rgba((p.bg << 8) | if in_center { 0x00 } else { GLASS }))
         .when(in_center, |d| d.bg(rgba((p.dim << 8) | A_SURFACE)))
         .border_1()
-        .border_color(if n.critical { rgba((p.err << 8) | 0xcc) } else { rgba((p.dim << 8) | A_STRONG) })
+        .border_color(if n.critical { rgba((p.err << 8) | 0xcc) } else { rgba((p.fg << 8) | A_BORDER) })
         .hover(|s| s.bg(rgba((p.accent << 8) | A_HOVER)))
         .text_color(rgb(p.fg))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -291,7 +291,7 @@ impl Render for NotifCenter {
                     .rounded_2xl()
                     .bg(rgba((p.bg << 8) | GLASS))
                     .border_1()
-                    .border_color(rgba((p.dim << 8) | A_STRONG))
+                    .border_color(rgba((p.fg << 8) | A_BORDER))
                     .text_color(rgb(p.fg))
                     .text_size(px(14.))
                     .child(

@@ -528,7 +528,7 @@ impl Render for CalendarPopup {
             .rounded_2xl()
             .bg(rgba((p.bg << 8) | GLASS))
             .border_1()
-            .border_color(rgba((p.dim << 8) | A_STRONG))
+            .border_color(rgba((p.fg << 8) | A_BORDER))
             .text_color(rgb(p.fg))
             .text_size(px(14.))
             .child(card)

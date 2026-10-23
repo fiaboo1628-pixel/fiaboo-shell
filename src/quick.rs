@@ -82,10 +82,13 @@ impl Render for Quick {
         let (g_wifi, g_bt, g_vol) = sys_glyphs(&sys);
 
         // left click runs `cmd`; right click opens `app` (if any) to pick a network/device
-        let tile = |id: &'static str, glyph: &'static str, title: &'static str, sub: String, on: bool, cmd: String, app: Option<&'static str>| {
+        // `on`: None = the device is not there; the tile explains itself and does nothing
+        let tile = |id: &'static str, glyph: &'static str, title: &'static str, sub: String, on: Option<bool>, cmd: String, app: Option<&'static str>| {
+            let avail = on.is_some();
+            let on = on.unwrap_or(false);
             div()
                 .id(id)
-                .cursor_pointer()
+                .when(avail, |d| d.cursor_pointer())
                 .flex_1()
                 .flex()
                 .items_center()
@@ -94,13 +97,14 @@ impl Render for Quick {
                 .py_3()
                 .rounded_xl()
                 .bg(if on { rgba((p.accent << 8) | A_HOVER) } else { rgba((p.dim << 8) | A_SURFACE) })
-                .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.last_input = std::time::Instant::now();
-                    if cmd == "@dnd" { notify::toggle_dnd() } else { run_bg(&cmd) }
-                    cx.notify();
-                }))
-                .when_some(app, |d, app| {
+                .when(avail, |d| {
+                    d.hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE))).on_click(cx.listener(move |this, _, _, cx| {
+                        this.last_input = std::time::Instant::now();
+                        if cmd == "@dnd" { notify::toggle_dnd() } else { run_bg(&cmd) }
+                        cx.notify();
+                    }))
+                })
+                .when_some(app.filter(|_| avail), |d, app| {
                     d.on_mouse_down(MouseButton::Right, move |_, window, cx| {
                         cx.stop_propagation();
                         run_bg(&format!("setsid {app}"));
@@ -111,14 +115,14 @@ impl Render for Quick {
                     div()
                         .font_family(NF).font_weight(FontWeight::MEDIUM)
                         .text_size(px(22.))
-                        .text_color(if on { rgb(p.accent) } else { rgb(p.fg) })
+                        .text_color(if on { rgb(p.accent) } else if avail { rgb(p.fg) } else { rgb(p.dim) })
                         .child(glyph),
                 )
                 .child(
                     div()
                         .flex()
                         .flex_col()
-                        .child(div().font_weight(FontWeight::SEMIBOLD).text_size(px(14.)).child(title))
+                        .child(div().font_weight(FontWeight::SEMIBOLD).text_size(px(14.)).when(!avail, |d| d.text_color(rgb(p.dim))).child(title))
                         .child(div().text_size(px(12.)).text_color(rgb(p.dim)).child(sub)),
                 )
         };
@@ -228,7 +232,7 @@ impl Render for Quick {
             .rounded_2xl()
             .bg(rgba((p.bg << 8) | GLASS))
             .border_1()
-            .border_color(rgba((p.dim << 8) | A_STRONG))
+            .border_color(rgba((p.fg << 8) | A_BORDER))
             .text_color(rgb(p.fg))
             .text_size(px(14.))
             .child(div().font_weight(FontWeight::SEMIBOLD).text_size(px(16.)).child("Quick settings"))
@@ -240,14 +244,16 @@ impl Render for Quick {
                         "q-wifi",
                         g_wifi,
                         "Wi-Fi",
-                        if !sys.wifi_on {
+                        if !sys.wifi_avail {
+                            "Unavailable".to_string()
+                        } else if !sys.wifi_on {
                             "Off".to_string()
                         } else if sys.ssid.is_empty() {
                             "Not connected".to_string()
                         } else {
                             sys.ssid.clone()
                         },
-                        sys.wifi_on,
+                        sys.wifi_avail.then_some(sys.wifi_on),
                         wifi_cmd,
                         Some("~/.local/bin/fiaboo tui --float Wi-Fi nmtui connect"),
                     ))
@@ -256,7 +262,7 @@ impl Render for Quick {
                         g_bt,
                         "Bluetooth",
                         if sys.bt_on { "On" } else { "Off" }.to_string(),
-                        sys.bt_on,
+                        Some(sys.bt_on),
                         bt_cmd,
                         Some("~/.local/bin/fiaboo tui --float Bluetooth bluetui"),
                     )),
@@ -270,7 +276,7 @@ impl Render for Quick {
                         "\u{f0594}",
                         "Night light",
                         if sys.night { "On" } else { "Off" }.to_string(),
-                        sys.night,
+                        Some(sys.night),
                         "pkill -x hyprsunset || setsid hyprsunset".to_string(),
                         None,
                     ))
@@ -279,7 +285,7 @@ impl Render for Quick {
                         "\u{f009b}",
                         "Do not disturb",
                         if sys.dnd { "On" } else { "Off" }.to_string(),
-                        sys.dnd,
+                        Some(sys.dnd),
                         "@dnd".to_string(),
                         None,
                     )),

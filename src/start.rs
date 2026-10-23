@@ -108,11 +108,41 @@ impl StartMenu {
 
     fn results(&self) -> Vec<Entry> {
         let q = self.query.to_lowercase();
-        self.all
-            .iter()
-            .filter(|e| e.name.to_lowercase().contains(&q) || e.stem.contains(&q))
-            .cloned()
-            .collect()
+        let mut hits: Vec<(u8, Entry)> =
+            self.all.iter().filter_map(|e| search_rank(&e.name, &e.stem, &q).map(|r| (r, e.clone()))).collect();
+        hits.sort_by_key(|(r, _)| *r); // stable: alphabetical within a rank
+        hits.into_iter().map(|(_, e)| e).collect()
+    }
+}
+
+/// Lower is better: typed name first, then a word in the name, then anywhere in the name, last the
+/// hidden .desktop stem (so "fi" lists Files before Homelab, whose match is in the stem).
+fn search_rank(name: &str, stem: &str, q: &str) -> Option<u8> {
+    let name = name.to_lowercase();
+    if name.starts_with(q) {
+        Some(0)
+    } else if name.split_whitespace().any(|w| w.starts_with(q)) {
+        Some(1)
+    } else if name.contains(q) {
+        Some(2)
+    } else if stem.contains(q) {
+        Some(3)
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::search_rank;
+
+    #[test]
+    fn typed_name_outranks_hidden_stem() {
+        assert_eq!(search_rank("Files", "org.gnome.nautilus", "fi"), Some(0));
+        assert_eq!(search_rank("COSMIC Files", "com.system76.cosmicfiles", "fi"), Some(1));
+        assert_eq!(search_rank("Easy Effects", "easyeffects", "ff"), Some(2));
+        assert_eq!(search_rank("Homelab", "firefox-homelab", "fi"), Some(3));
+        assert_eq!(search_rank("Zed", "dev.zed.zed", "fi"), None);
     }
 }
 
@@ -235,7 +265,7 @@ impl Render for StartMenu {
                     .rounded_lg()
                     .bg(rgba((p.dim << 8) | A_SURFACE))
                     .border_1()
-                    .border_color(rgba((p.dim << 8) | A_STRONG))
+                    .border_color(rgba((p.fg << 8) | A_BORDER))
                     .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
                     .on_click(move |_, window, cx| {
                         launch_app(&stem);
@@ -406,7 +436,7 @@ impl Render for StartMenu {
             .rounded_2xl()
             .bg(rgba((p.bg << 8) | START_FILL))
             .border_1()
-            .border_color(rgba((p.dim << 8) | A_STRONG))
+            .border_color(rgba((p.fg << 8) | A_BORDER))
             .text_color(rgb(p.fg))
             .text_size(px(14.))
             .child(search)

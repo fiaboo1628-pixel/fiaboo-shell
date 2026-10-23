@@ -229,7 +229,6 @@ impl Render for WpPicker {
             .child(
                 div()
                     .w(px(840.))
-                    .h(px(640.))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
                     .flex()
@@ -239,7 +238,7 @@ impl Render for WpPicker {
                     .rounded_2xl()
                     .bg(rgba((p.bg << 8) | GLASS))
                     .border_1()
-                    .border_color(rgba((p.dim << 8) | A_STRONG))
+                    .border_color(rgba((p.fg << 8) | A_BORDER))
                     .text_color(rgb(p.fg))
                     .text_size(px(14.))
                     .child(
@@ -268,7 +267,7 @@ impl Render for WpPicker {
                     .child(
                         div()
                             .id("wp-grid")
-                            .flex_1()
+                            .h(px(5. * 107. + 4. * 8.)) // five whole thumbnail rows; flex_1 left a sixth cut by the footer
                             .overflow_y_scroll()
                             .track_scroll(&self.scroll)
                             .flex()
