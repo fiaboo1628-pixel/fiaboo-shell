@@ -76,7 +76,8 @@ pub(crate) fn read_settings() -> SettingsInfo {
         .iter()
         .filter_map(|s| {
             let name = s["name"].as_str()?.to_string();
-            let desc = s["description"].as_str().unwrap_or(&name).to_string();
+            // node.nick is the short name ("IP2709SG"); the description is the full ALSA string
+            let desc = s["properties"]["node.nick"].as_str().or(s["description"].as_str()).unwrap_or(&name).to_string();
             let is_default = name == default_sink;
             Some((name, desc, is_default))
         })
@@ -325,14 +326,13 @@ impl Render for SettingsPanel {
         let section = |title: &'static str| {
             div().pt_4().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(rgb(p.dim)).child(title)
         };
+        // read-only rows carry no fill: the fill (and hover) now means "this row does something"
         let row = |label: String, value: String| {
             div()
                 .flex()
                 .gap_3()
                 .px_3()
-                .py_2p5()
-                .rounded_lg()
-                .bg(rgba((p.dim << 8) | A_SURFACE))
+                .py_2()
                 .child(div().w(px(170.)).flex_none().overflow_hidden().whitespace_nowrap().text_ellipsis().child(label))
                 .child(div().flex_1().min_w(px(0.)).overflow_hidden().whitespace_nowrap().text_ellipsis().text_color(rgb(p.dim)).child(value))
         };
@@ -390,7 +390,7 @@ impl Render for SettingsPanel {
             .child(
                 div()
                     .w(px(640.))
-                    .h(px(700.))
+                    .max_h(px(960.)) // content height (about 850 px today); the fixed 700 cut the About rows
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
                     .flex()
