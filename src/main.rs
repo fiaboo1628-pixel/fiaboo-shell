@@ -188,19 +188,19 @@ fn find_icon_file(name: &str) -> Option<PathBuf> {
 }
 
 fn find_icon_file_uncached(name: &str) -> Option<PathBuf> {
-    let mut candidates = vec![
-        format!("{}/.local/share/icons/kora/apps/scalable/{name}.svg", home()),
-    ];
-    for size in ["256x256", "128x128", "64x64", "48x48", "512x512"] {
+    // the app's own icon first (kora's restyled set only as a fallback); vector, then the PNG nearest
+    // our 26-48 px display sizes: GPUI samples big bitmaps without mipmaps, so 256 px looks grainy
+    let mut candidates = vec![format!("/usr/share/icons/hicolor/scalable/apps/{name}.svg")];
+    for size in ["64x64", "128x128", "48x48", "256x256", "512x512"] {
         candidates.push(format!("/usr/share/icons/hicolor/{size}/apps/{name}.png"));
     }
     for size in ["256x256", "128x128", "64x64", "48x48", "512x512"] {
         candidates.push(format!("/usr/share/icons/hicolor/{size}/apps/{name}.svg"));
     }
-    candidates.push(format!("/usr/share/icons/hicolor/scalable/apps/{name}.svg"));
     candidates.push(format!("{}/.local/share/icons/hicolor/256x256/apps/{name}.png", home()));
     candidates.push(format!("/usr/share/pixmaps/{name}.png"));
     candidates.push(format!("/usr/share/pixmaps/{name}.svg"));
+    candidates.push(format!("{}/.local/share/icons/kora/apps/scalable/{name}.svg", home()));
     candidates.into_iter().map(PathBuf::from).find(|p| p.exists())
 }
 
@@ -983,8 +983,10 @@ impl Render for Bar {
                             .flex_col()
                             .items_end()
                             .px_2()
-                            .child(div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).child(clock_time.to_string()))
-                            .child(div().text_size(px(12.)).text_color(rgb(p.dim)).child(clock_date.to_string())),
+                            // whole-pixel line heights (16+16 in a 36 px box): GPUI has no hinting, so a fractional
+                            // baseline is what makes small text look soft
+                            .child(div().text_size(px(14.)).line_height(px(16.)).font_weight(FontWeight::SEMIBOLD).child(clock_time.to_string()))
+                            .child(div().text_size(px(13.)).line_height(px(16.)).text_color(rgb(p.dim)).child(clock_date.to_string())),
                     )
                     .child(
                         div()
