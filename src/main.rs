@@ -107,7 +107,8 @@ fn app_dirs() -> [String; 2] {
     [format!("{}/.local/share/applications", home()), "/usr/share/applications".to_string()]
 }
 
-fn scan_desktops(dirs: &[String]) -> Vec<Desktop> {
+/// `desktop` is `$XDG_CURRENT_DESKTOP`: entries with OnlyShowIn/NotShowIn for other desktops are skipped.
+fn scan_desktops(dirs: &[String], desktop: &str) -> Vec<Desktop> {
     let mut all = vec![];
     let mut seen = HashSet::new();
     for dir in dirs {
@@ -125,6 +126,10 @@ fn scan_desktops(dirs: &[String]) -> Vec<Desktop> {
                     .map(String::from)
             };
             if field("NoDisplay").as_deref() == Some("true") {
+                continue;
+            }
+            let shown_in = |k| field(k).map(|v| v.split(';').any(|d| d == desktop));
+            if shown_in("OnlyShowIn") == Some(false) || shown_in("NotShowIn") == Some(true) {
                 continue;
             }
             let (Some(icon), Some(stem)) = (field("Icon"), path.file_stem().and_then(|s| s.to_str())) else {
@@ -156,7 +161,7 @@ fn apps() -> Arc<(Vec<Desktop>, DesktopIndex)> {
             return a.clone();
         }
     }
-    let list = scan_desktops(&app_dirs());
+    let list = scan_desktops(&app_dirs(), &std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default());
     let mut map = HashMap::new();
     for d in &list {
         map.insert(d.stem.clone(), d.icon.clone());
@@ -1139,10 +1144,13 @@ mod tests {
         fs::write(sys.join("b.desktop"), "Name=B\nIcon=b\n").unwrap();
         fs::write(user.join("a.desktop"), "Name=A\nIcon=a\nNoDisplay=true\n").unwrap();
         fs::write(user.join("b.desktop"), "Name=B2\nIcon=b\n").unwrap();
+        fs::write(sys.join("c.desktop"), "Name=C\nIcon=c\nOnlyShowIn=KDE;\n").unwrap();
+        fs::write(sys.join("d.desktop"), "Name=D\nIcon=d\nNotShowIn=Hyprland;\n").unwrap();
+        fs::write(sys.join("e.desktop"), "Name=E\nIcon=e\nOnlyShowIn=GNOME;Hyprland;\n").unwrap();
         let dirs = [user.to_string_lossy().into_owned(), sys.to_string_lossy().into_owned()];
-        let names: Vec<_> = scan_desktops(&dirs).into_iter().map(|d| d.name).collect();
+        let names: Vec<_> = scan_desktops(&dirs, "Hyprland").into_iter().map(|d| d.name).collect();
         fs::remove_dir_all(&root).unwrap();
-        assert_eq!(names, ["B2"]);
+        assert_eq!(names, ["B2", "E"]);
     }
     #[test]
     fn media_line() {

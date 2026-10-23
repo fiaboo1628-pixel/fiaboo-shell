@@ -12,6 +12,8 @@ local BG = 0x1e1e2e
 -- how much of the panel fill stays: enough body behind the text that a bright or busy
 -- wallpaper doesn't fight it; toasts more, they land on whatever is on screen
 local FILL, TOAST_FILL = 0.6, 0.6
+-- Start opens over bright windows whose text bled through 60 %; owner chose 90 % (2026-10-23)
+local START_FILL = 0.9
 
 -- clear glass (n = 1.52), strong colour split at the rim (Abbe 4), a glint from the
 -- upper left, a clear bevel round every shape; the rim reflects the scene around it
@@ -62,7 +64,7 @@ hg.layer("fiaboo-bar", { preset = "glass-bar", shape = { inset = { 0, -80, -80, 
 for _, ns in ipairs({ "fiaboo-start", "fiaboo-quick", "fiaboo-calendar", "fiaboo-clip", "fiaboo-notifcenter",
                       "fiaboo-taskview", "fiaboo-settings", "fiaboo-wallpaper", "fiaboo-traymenu", "fiaboo-shot" }) do
   hg.layer(ns, { preset = "glass-card", mask_mode = "contour", mask_threshold = 0.04, shadow = 0.2,
-                 fill_key = BG, fill_alpha = FILL })
+                 fill_key = BG, fill_alpha = ns == "fiaboo-start" and START_FILL or FILL })
 end
 -- the panels close with the engine's own motion (from the card it held): Hyprland's layer
 -- fade on top of it showed two panels closing, so it is off for them

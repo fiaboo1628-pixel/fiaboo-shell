@@ -139,6 +139,15 @@ pub(crate) fn tile_icon(e: &Entry, size_px: f32, p: &Palette) -> gpui::AnyElemen
     }
 }
 
+/// 90 %: Start opens over bright windows, where the 78 % GLASS lets their text bleed into the list.
+const START_FILL: u32 = 0xE6;
+/// All apps row (8 + 26 icon + 8); the list is a whole number of rows so no row is cut at the bottom.
+const ROW_H: f32 = 42.;
+const LIST_ROWS: f32 = 7.;
+const TILE_H: f32 = 76.;
+/// Pinned header 16 + tiles + All apps header 24, three 8 px gaps, then the list.
+const BODY_H: f32 = 16. + TILE_H + 24. + 3. * 8. + ROW_H * LIST_ROWS;
+
 impl Render for StartMenu {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.pal.clone();
@@ -179,7 +188,8 @@ impl Render for StartMenu {
                 .items_center()
                 .gap_3()
                 .px_3()
-                .py_1p5()
+                .h(px(ROW_H))
+                .flex_none() // the list scrolls; without this the rows shrink to fit it
                 .rounded_lg()
                 .when(first, |d| d.bg(rgba((p.accent << 8) | A_HOVER)))
                 .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
@@ -196,7 +206,7 @@ impl Render for StartMenu {
                 self.results().iter().take(40).enumerate().map(|(i, e)| row(e, i, i == self.sel)).collect();
             div()
                 .id("results")
-                .flex_1()
+                .h(px(BODY_H))
                 .overflow_y_scroll()
                 .track_scroll(&self.scroll)
                 .flex()
@@ -216,12 +226,16 @@ impl Render for StartMenu {
                     }))
                     .cursor_pointer()
                     .w(px(92.))
-                    .py_2()
+                    .h(px(TILE_H))
                     .flex()
                     .flex_col()
                     .items_center()
+                    .justify_center()
                     .gap_1()
                     .rounded_lg()
+                    .bg(rgba((p.dim << 8) | A_SURFACE))
+                    .border_1()
+                    .border_color(rgba((p.dim << 8) | A_STRONG))
                     .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
                     .on_click(move |_, window, cx| {
                         launch_app(&stem);
@@ -240,16 +254,23 @@ impl Render for StartMenu {
             });
             let all: Vec<_> = self.all.iter().enumerate().map(|(i, e)| row(e, 1000 + i, i == self.sel)).collect();
             div()
-                .flex_1()
+                .h(px(BODY_H))
                 .flex()
                 .flex_col()
                 .gap_2()
                 .overflow_hidden()
                 .child(section("Pinned"))
-                .child(div().flex().flex_row().flex_wrap().children(tiles))
+                .child(div().flex().flex_row().flex_wrap().justify_center().gap_2().children(tiles))
                 .child(section("All apps").pt_2())
                 .child(
-                    div().id("all").flex_1().overflow_y_scroll().track_scroll(&self.scroll).flex().flex_col().children(all),
+                    div()
+                        .id("all")
+                        .h(px(ROW_H * LIST_ROWS))
+                        .overflow_y_scroll()
+                        .track_scroll(&self.scroll)
+                        .flex()
+                        .flex_col()
+                        .children(all),
                 )
                 .into_any_element()
         };
@@ -377,14 +398,13 @@ impl Render for StartMenu {
             .child(
                 div()
                     .w(px(640.0))
-                    .h(px(620.))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()).on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
                     .flex()
                     .flex_col()
             .gap_3()
             .p_4()
             .rounded_2xl()
-            .bg(rgba((p.bg << 8) | GLASS))
+            .bg(rgba((p.bg << 8) | START_FILL))
             .border_1()
             .border_color(rgba((p.dim << 8) | A_STRONG))
             .text_color(rgb(p.fg))
