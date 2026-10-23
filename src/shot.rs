@@ -156,7 +156,7 @@ impl Render for ShotOverlay {
         let label = match (&drag, self.hovered()) {
             (Some((_, _, w, h)), _) => format!("{} × {}", *w as i32, *h as i32),
             (None, Some(win)) => format!("{}  ({} × {})", win.title, win.w as i32, win.h as i32),
-            _ => "Drag to select a region · click a window · F for the whole screen".to_string(),
+            _ => "Screenshot".to_string(),
         };
         let mut root = div().font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
@@ -225,7 +225,9 @@ impl Render for ShotOverlay {
                 .left_0()
                 .w_full()
                 .flex()
-                .justify_center()
+                .flex_col()
+                .items_center()
+                .gap_2()
                 .child(
                     div()
                         .px_4()
@@ -233,10 +235,21 @@ impl Render for ShotOverlay {
                         .rounded_full()
                         .bg(rgba((p.bg << 8) | GLASS))
                         .border_1()
-                        .border_color(rgba((p.dim << 8) | A_ACTIVE))
+                        .border_color(rgba((p.fg << 8) | A_BORDER))
                         .text_color(rgb(p.fg))
                         .text_size(px(14.))
                         .child(label),
+                )
+                // the keys, like every other panel's hint row; on its own pill so it reads over any wallpaper
+                .child(
+                    div()
+                        .px_3()
+                        .py_1()
+                        .rounded_full()
+                        .bg(rgba((p.bg << 8) | GLASS))
+                        .text_color(rgb(p.dim))
+                        .text_size(px(12.))
+                        .child("Drag: region · Click: window · F / Enter: screen · Esc: cancel"),
                 ),
         )
     }

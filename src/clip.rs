@@ -14,6 +14,10 @@ pub(crate) struct Clip {
     image: Option<PathBuf>,
 }
 
+/// Text row height (8 + 12 px line + 8 as before, rounded to the pitch B measured); 11 rows showed whole before.
+const CLIP_ROW: f32 = 39.;
+const CLIP_ROWS: f32 = 11.;
+
 pub(crate) fn read_clips() -> Vec<Clip> {
     let cache = format!("{}/.cache/fiaboo-shell", home());
     let _ = fs::create_dir_all(&cache);
@@ -192,11 +196,11 @@ impl Render for ClipPanel {
                 .id(("clip", i))
                 .cursor_pointer()
                 .flex_none()
+                .h(px(if c.image.is_some() { 2. * CLIP_ROW } else { CLIP_ROW })) // image rows take two rows, so the list stays on the grid
                 .flex()
                 .items_center()
                 .gap_3()
                 .px_3()
-                .py_2()
                 .rounded_lg()
                 .when(i == sel, |d| d.bg(rgba((p.accent << 8) | A_HOVER)))
                 .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
@@ -211,7 +215,7 @@ impl Render for ClipPanel {
                     close_clip(window, cx);
                 })
                 .child(match &c.image {
-                    Some(path) => img(path.clone()).h(px(64.)).max_w(px(300.)).object_fit(ObjectFit::Contain).into_any_element(),
+                    Some(path) => img(path.clone()).h(px(2. * CLIP_ROW - 16.)).max_w(px(300.)).object_fit(ObjectFit::Contain).into_any_element(),
                     None => div()
                         .flex_1()
                         .min_w(px(0.))
@@ -278,7 +282,6 @@ impl Render for ClipPanel {
             .child(
                 div()
                     .w(px(560.))
-                    .h(px(560.))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
                     .flex()
@@ -288,7 +291,7 @@ impl Render for ClipPanel {
                     .rounded_2xl()
                     .bg(rgba((p.bg << 8) | GLASS))
                     .border_1()
-                    .border_color(rgba((p.dim << 8) | A_STRONG))
+                    .border_color(rgba((p.fg << 8) | A_BORDER))
                     .text_color(rgb(p.fg))
                     .text_size(px(14.))
                     .child(
@@ -340,7 +343,7 @@ impl Render for ClipPanel {
                     .child(
                         div()
                             .id("clip-list")
-                            .flex_1()
+                            .h(px(CLIP_ROWS * CLIP_ROW)) // whole rows: the fixed 560 px panel cut the 12th
                             .overflow_y_scroll()
                             .flex()
                             .flex_col()

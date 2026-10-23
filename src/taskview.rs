@@ -180,7 +180,7 @@ impl Render for TaskView {
                 .rounded_xl()
                 .bg(rgba((p.dim << 8) | A_SURFACE))
                 .border_1()
-                .border_color(rgba((p.dim << 8) | A_STRONG))
+                .border_color(rgba((p.fg << 8) | A_BORDER))
                 .when(i == sel, |d| d.border_2().border_color(rgb(p.accent)))
                 .hover(|s| s.bg(rgba((p.accent << 8) | A_HOVER)))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())

@@ -49,7 +49,8 @@ const GLASS: u32 = 0xC8;
 const A_SURFACE: u32 = 0x20; // resting tiles, chips
 const A_HOVER: u32 = 0x30;
 const A_ACTIVE: u32 = 0x48; // selected / pressed; keeps fg >= 4.5:1 even on an accent fill
-const A_STRONG: u32 = 0x70; // borders, focus rings, the accent card corner
+const A_STRONG: u32 = 0x70; // focus rings, the accent card corner
+const A_BORDER: u32 = 0x90; // panel borders: fg at this alpha stays >= 3:1 over the glass whatever is behind it
 
 fn home() -> String {
     std::env::var("HOME").unwrap_or_default()
@@ -429,6 +430,7 @@ fn focus_window(address: &str) {
 // ---------- system state (quick settings) ----------
 #[derive(Clone, Default)]
 struct Sys {
+    wifi_avail: bool, // a Wi-Fi device NetworkManager can use; false = no radio or blocked (Settings says "Unavailable")
     wifi_on: bool,
     ssid: String,
     bt_on: bool,
@@ -474,6 +476,7 @@ fn read_volume() -> (f32, bool) {
 fn read_sys() -> Sys {
     let (vol, muted) = read_volume();
     Sys {
+        wifi_avail: sh("nmcli -t -f TYPE,STATE device").lines().any(|l| l.starts_with("wifi:") && !l.ends_with(":unavailable")),
         wifi_on: sh("nmcli -t -f WIFI g") == "enabled",
         ssid: sh("nmcli -t -f active,ssid dev wifi list --rescan no | grep '^yes' | head -1 | cut -d: -f2-"),
         bt_on: sh("timeout 2 bluetoothctl show | grep -c 'Powered: yes'") == "1",
@@ -563,7 +566,7 @@ impl Render for Osd {
             .rounded_2xl()
             .bg(rgba((p.bg << 8) | GLASS))
             .border_1()
-            .border_color(rgba((p.dim << 8) | A_STRONG))
+            .border_color(rgba((p.fg << 8) | A_BORDER))
             .text_color(rgb(p.fg))
             .child(div().font_family(NF).font_weight(FontWeight::MEDIUM).text_size(px(20.)).w(px(24.)).child(glyph))
             .child(
@@ -826,7 +829,7 @@ impl Render for Bar {
             .px_3()
             .bg(rgba((p.bg << 8) | GLASS))
             .border_t_1()
-            .border_color(rgba((p.dim << 8) | A_STRONG))
+            .border_color(rgba((p.fg << 8) | A_BORDER))
             .text_color(rgb(p.fg))
             .text_size(px(14.))
             // left: workspaces
@@ -890,10 +893,10 @@ impl Render for Bar {
                             .justify_center()
                             .rounded_lg()
                             .font_family(NF).font_weight(FontWeight::MEDIUM)
-                            .text_size(px(18.))
+                            .text_size(px(24.))
                             .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
                             .on_click(|_, _, cx| toggle_taskview(cx))
-                            .child("\u{f056e}"),
+                            .child("\u{f0574}"),
                     )
                     .children(apps),
             )
