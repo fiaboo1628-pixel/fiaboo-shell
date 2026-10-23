@@ -280,9 +280,7 @@ struct State {
     time: String,
 }
 
-fn hyprctl_json(arg: &str) -> serde_json::Value {
-    wm::hypr_json(arg)
-}
+use wm::hypr_json as hyprctl_json;
 
 fn read_state() -> State {
     let active = hyprctl_json("activewindow");
@@ -504,10 +502,10 @@ struct Bar {
     panels_open: bool, // popups were hidden for an open panel
 }
 
-static HYPR_DIRTY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
-
 /// The compositor event stream (Hyprland .socket2) flags the bar to refresh when windows/workspaces change,
 /// instead of polling `hyprctl` several times a second.
+static HYPR_DIRTY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
 // ---------- volume OSD ----------
 static OSD_PENDING: Mutex<Option<(f32, bool)>> = Mutex::new(None);
 
