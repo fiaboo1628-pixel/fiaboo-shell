@@ -3,6 +3,7 @@
 use crate::*;
 
 // ---------- notifications: popups + center ----------
+const NC_ROWS: usize = 4; // cards shown before the center scrolls
 pub(crate) const CARD_H: f32 = 108.; // app + summary + 2 body lines (~80px) + padding; 100 clipped the 2nd body line
 
 pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, in_center: bool, id: usize, today: &str) -> gpui::AnyElement {
@@ -281,7 +282,6 @@ impl Render for NotifCenter {
             .child(
                 div()
                     .w(px(400.))
-                    .max_h(px(620.))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
                     .flex()
@@ -332,7 +332,8 @@ impl Render for NotifCenter {
                     .child(
                         div()
                             .id("nc-list")
-                            .flex_1()
+                            // whole cards: max_h on the panel left a fifth card cut by the border
+                            .h(px(list.len().clamp(1, NC_ROWS) as f32 * (CARD_H + 8.) - 8.))
                             .overflow_y_scroll()
                             .flex()
                             .flex_col()
