@@ -305,9 +305,9 @@ impl Render for WpPicker {
                             .text_size(px(12.))
                             .text_color(rgb(p.dim))
                             .child(if self.query.is_empty() {
-                                format!("{} images   ·   Type to filter   ·   Enter: apply   ·   Ctrl+R: shuffle   ·   Esc: close", self.list.len())
+                                format!("{} images · Type: filter · Enter: apply · Ctrl+R: shuffle · Esc: close", self.list.len())
                             } else {
-                                format!("Filter: {}\u{258f}   ·   {} of {}   ·   Backspace: edit   ·   Enter: apply", self.query, shown.len(), self.list.len())
+                                format!("Filter: {}\u{258f} · {} of {} · Backspace: edit · Enter: apply · Esc: close", self.query, shown.len(), self.list.len())
                             }),
                     ),
             )

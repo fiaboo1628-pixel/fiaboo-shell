@@ -441,7 +441,7 @@ impl Render for NotifCenter {
                         div()
                             .text_size(px(12.))
                             .text_color(rgb(p.dim))
-                            .child("Enter: open · Del: dismiss · Ctrl+Z: undo · Esc"),
+                            .child("Enter: open · Del: dismiss · Esc: close"),
                     ),
             )
     }

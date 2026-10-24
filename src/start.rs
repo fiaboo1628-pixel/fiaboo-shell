@@ -106,12 +106,13 @@ impl StartMenu {
         }
     }
 
-    fn results(&self) -> Vec<Entry> {
+    /// Ranked hits; the second value is the hidden .desktop stem when that is what matched.
+    fn results(&self) -> Vec<(Entry, Option<String>)> {
         let q = self.query.to_lowercase();
         let mut hits: Vec<(u8, Entry)> =
             self.all.iter().filter_map(|e| search_rank(&e.name, &e.stem, &q).map(|r| (r, e.clone()))).collect();
         hits.sort_by_key(|(r, _)| *r); // stable: alphabetical within a rank
-        hits.into_iter().map(|(_, e)| e).collect()
+        hits.into_iter().map(|(r, e)| { let why = (r == 3).then(|| format!("matches {}", e.stem)); (e, why) }).collect()
     }
 }
 
@@ -125,8 +126,8 @@ fn search_rank(name: &str, stem: &str, q: &str) -> Option<u8> {
         Some(1)
     } else if name.contains(q) {
         Some(2)
-    } else if stem.contains(q) {
-        Some(3)
+    } else if q.len() >= 3 && stem.contains(q) {
+        Some(3) // hidden-stem matches only once the query is specific enough to explain
     } else {
         None
     }
@@ -141,7 +142,8 @@ mod tests {
         assert_eq!(search_rank("Files", "org.gnome.nautilus", "fi"), Some(0));
         assert_eq!(search_rank("COSMIC Files", "com.system76.cosmicfiles", "fi"), Some(1));
         assert_eq!(search_rank("Easy Effects", "easyeffects", "ff"), Some(2));
-        assert_eq!(search_rank("Homelab", "firefox-homelab", "fi"), Some(3));
+        assert_eq!(search_rank("Homelab", "firefox-homelab", "fi"), None);
+        assert_eq!(search_rank("Homelab", "firefox-homelab", "fire"), Some(3));
         assert_eq!(search_rank("Zed", "dev.zed.zed", "fi"), None);
     }
 }
@@ -203,7 +205,7 @@ impl Render for StartMenu {
             div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(rgb(p.dim)).child(title)
         };
 
-        let row = |e: &Entry, i: usize, first: bool| {
+        let row = |e: &Entry, i: usize, first: bool, why: Option<String>| {
             let stem = e.stem.clone();
             let pin_stem = e.stem.clone();
             div()
@@ -228,12 +230,18 @@ impl Render for StartMenu {
                     close_start(window, cx);
                 })
                 .child(tile_icon(e, 26., &p))
-                .child(div().child(e.name.clone()))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .child(div().line_height(px(18.)).child(e.name.clone()))
+                        .when_some(why, |d, why| d.child(div().text_size(px(12.)).line_height(px(14.)).text_color(rgb(p.dim)).child(why))),
+                )
         };
 
         let body = if searching {
             let list: Vec<_> =
-                self.results().iter().take(40).enumerate().map(|(i, e)| row(e, i, i == self.sel)).collect();
+                self.results().into_iter().take(40).enumerate().map(|(i, (e, why))| row(&e, i, i == self.sel, why)).collect();
             div()
                 .id("results")
                 .h(px(BODY_H))
@@ -282,7 +290,7 @@ impl Render for StartMenu {
                             .child(e.name.clone()),
                     )
             });
-            let all: Vec<_> = self.all.iter().enumerate().map(|(i, e)| row(e, 1000 + i, i == self.sel)).collect();
+            let all: Vec<_> = self.all.iter().enumerate().map(|(i, e)| row(e, 1000 + i, i == self.sel, None)).collect();
             div()
                 .h(px(BODY_H))
                 .flex()
@@ -403,7 +411,7 @@ impl Render for StartMenu {
                         }
                     }
                     "enter" => {
-                        if let Some(e) = this.results().get(this.sel) {
+                        if let Some((e, _)) = this.results().get(this.sel) {
                             launch_app(&e.stem);
                             close_start(window, cx);
                         }
@@ -446,7 +454,7 @@ impl Render for StartMenu {
                 div()
                     .text_size(px(12.))
                     .text_color(rgb(p.dim))
-                    .child("Type to search   ·   Enter: open   ·   Right-click: pin or unpin   ·   Esc: close"),
+                    .child("Type: search · Enter: open · Right-click: pin or unpin · Esc: close"),
             )
             .child(footer)
             )

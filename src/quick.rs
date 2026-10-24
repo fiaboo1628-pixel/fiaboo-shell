@@ -263,7 +263,7 @@ impl Render for Quick {
             .on_mouse_down(MouseButton::Left, |_, window, cx| close_quick(window, cx)).on_mouse_down(MouseButton::Right, |_, window, cx| close_quick(window, cx))
             .child(
                 div()
-                    .w(px(380.0))
+                    .w(px(400.)) // same width as the notification center; the hint row needs it
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()).on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
                     .flex()
                     .flex_col()
@@ -363,7 +363,7 @@ impl Render for Quick {
                     .pt_1()
                     .text_size(px(12.))
                     .text_color(rgb(p.dim))
-                    .child("Tab, Enter: toggle · Right-click: its app · Esc"),
+                    .child("Tab, Enter: toggle · Right-click: app · Esc: close"),
             ))
     }
 }
