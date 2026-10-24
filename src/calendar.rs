@@ -233,6 +233,8 @@ pub(crate) struct CalendarPopup {
     month_offset: i32,
     today: (i32, u32, u32),
     weather: Option<Weather>,
+    weather_failed: bool, // the last fetch failed and nothing is cached: say so instead of loading forever
+    retry: bool,          // "click to retry" pressed; the poll loop takes it
     last_input: std::time::Instant,
 }
 
@@ -243,7 +245,8 @@ impl CalendarPopup {
         let mut failed_at: Option<std::time::Instant> = None;
         cx.spawn_in(window, async move |this, cx| loop {
             // offline: retry once a minute, not on every 1.5 s tick
-            if weather_stale() && failed_at.is_none_or(|t| t.elapsed() > Duration::from_secs(60)) {
+            let retry = this.update(cx, |c, _| std::mem::take(&mut c.retry)).unwrap_or(false);
+            if weather_stale() && (retry || failed_at.is_none_or(|t| t.elapsed() > Duration::from_secs(60))) {
                 match cx.background_executor().spawn(async { fetch_weather() }).await {
                     Some(w) => *WEATHER.lock().unwrap() = Some((std::time::Instant::now(), w)),
                     None => failed_at = Some(std::time::Instant::now()),
@@ -252,6 +255,7 @@ impl CalendarPopup {
             let idle = this
                 .update(cx, |c, cx| {
                     c.weather = cached_weather();
+                    c.weather_failed = c.weather.is_none() && failed_at.is_some();
                     cx.notify();
                     c.last_input.elapsed() > Duration::from_secs(90)
                 })
@@ -269,6 +273,8 @@ impl CalendarPopup {
             month_offset: 0,
             today: today_ymd(),
             weather: cached_weather(),
+            weather_failed: false,
+            retry: false,
             last_input: std::time::Instant::now(),
         }
     }
@@ -338,6 +344,25 @@ impl Render for CalendarPopup {
                         .text_color(rgb(p.fg))
                         .child(format!("Feels like {:.0}\u{b0}", w.feels)),
                 )
+                .into_any_element(),
+            None if self.weather_failed => div()
+                .id("w-retry")
+                .cursor_pointer()
+                .h(px(150.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_2xl()
+                .bg(rgba((p.dim << 8) | A_SURFACE))
+                .hover(|s| s.bg(rgba((p.accent << 8) | A_HOVER)))
+                .text_color(rgb(p.dim))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.last_input = std::time::Instant::now();
+                    this.retry = true;
+                    this.weather_failed = false; // shows "Loading…" until the poll answers
+                    cx.notify();
+                }))
+                .child("Weather unavailable \u{b7} click to retry")
                 .into_any_element(),
             None => div()
                 .h(px(150.))
@@ -488,7 +513,14 @@ impl Render for CalendarPopup {
                     ),
             )
             .child(weekdays)
-            .children(weeks);
+            .children(weeks)
+            .child(
+                div()
+                    .pt_2()
+                    .text_size(px(12.))
+                    .text_color(rgb(p.dim))
+                    .child("Small: lunar day \u{b7} 1/9: lunar month begins"),
+            );
 
         div()
             .font_family(NF).font_weight(FontWeight::MEDIUM)
@@ -519,7 +551,6 @@ impl Render for CalendarPopup {
             .child(
                 div()
                     .w(px(400.0))
-                    .h(px(724.))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()).on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
                     .flex()
                     .flex_col()

@@ -506,13 +506,15 @@ struct Bar {
     tray: Vec<tray::TrayItem>,
     notif_gen: u64,
     notif_count: usize,
-    recording: bool,
+    rec_secs: Option<u64>, // screen recording running for this long (the flag file's age)
     panels_open: bool, // popups were hidden for an open panel
 }
 
 /// The compositor event stream (Hyprland .socket2) flags the bar to refresh when windows/workspaces change,
 /// instead of polling `hyprctl` several times a second.
 static HYPR_DIRTY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+/// A fiaboo panel is open (set by the bar loop): tooltips stay away, the button's panel is on top of them.
+static PANELS_OPEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 // ---------- volume OSD ----------
 static OSD_PENDING: Mutex<Option<(f32, bool)>> = Mutex::new(None);
@@ -619,6 +621,109 @@ fn show_osd(cx: &mut App, vol: f32, muted: bool) {
     cx.set_global(OsdState(opened.ok().map(|h| (h, until))));
 }
 
+// ---------- tooltips (bar buttons) ----------
+// An overlay window of its own: the bar is 48 px tall, so GPUI's in-window tooltip would sit on the icons.
+struct TipState(Option<gpui::WindowHandle<Tip>>);
+impl Global for TipState {}
+static TIP_TOKEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+struct Tip {
+    pal: Palette,
+    text: String,
+}
+
+impl Render for Tip {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let p = self.pal.clone();
+        div()
+            .font_family(NF).font_weight(FontWeight::MEDIUM)
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_lg()
+            .bg(rgba((p.bg << 8) | 0xE6))
+            .border_1()
+            .border_color(rgba((p.fg << 8) | A_BORDER))
+            .text_size(px(12.))
+            .text_color(rgb(p.fg))
+            .child(self.text.clone())
+    }
+}
+
+fn hide_tip(cx: &mut App) {
+    TIP_TOKEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed); // a pending show is now stale
+    if let Some(h) = cx.try_global::<TipState>().and_then(|s| s.0) {
+        let _ = h.update(cx, |_, window, _| window.remove_window());
+        cx.set_global(TipState(None));
+    }
+}
+
+/// A 26 px pill just above the bar, centred on `x` (the pointer's x when the hover settled),
+/// kept inside the `screen_w` wide screen. It hides by itself after 2.5 s: a panel opened from the
+/// button takes the pointer and the bar never sees the leave.
+fn show_tip(cx: &mut App, text: String, x: f32, screen_w: f32) {
+    hide_tip(cx);
+    let w = (text.chars().count() as f32 * 7.3 + 20.).round(); // 12 px JetBrainsMono ≈ 7.2 px per glyph
+    let left = (x - w / 2.).clamp(8., (screen_w - w - 16.).max(8.));
+    let opened = cx.open_window(
+        WindowOptions {
+            titlebar: None,
+            window_bounds: Some(WindowBounds::Windowed(Bounds { origin: point(px(0.), px(0.)), size: size(px(w), px(26.)) })),
+            app_id: Some("fiaboo-tip".to_string()),
+            window_background: WindowBackgroundAppearance::Transparent,
+            kind: WindowKind::LayerShell(LayerShellOptions {
+                namespace: "fiaboo-tip".to_string(),
+                layer: Layer::Overlay,
+                anchor: Anchor::BOTTOM | Anchor::LEFT,
+                margin: Some((px(0.), px(0.), px(BAR_HEIGHT + 6.), px(left))),
+                keyboard_interactivity: KeyboardInteractivity::None,
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        move |_, cx| cx.new(|_| Tip { pal: palette(), text }),
+    );
+    let token = TIP_TOKEN.load(std::sync::atomic::Ordering::Relaxed);
+    cx.set_global(TipState(opened.ok()));
+    cx.spawn(async move |cx| {
+        cx.background_executor().timer(Duration::from_millis(2500)).await;
+        let _ = cx.update(|cx| {
+            if TIP_TOKEN.load(std::sync::atomic::Ordering::Relaxed) == token {
+                hide_tip(cx);
+            }
+        });
+    })
+    .detach();
+}
+
+/// Hover for 600 ms shows `text` under the pointer; leaving or pressing hides it.
+fn with_tip<E: StatefulInteractiveElement>(el: E, text: impl Into<String>) -> E {
+    let text = text.into();
+    el.on_hover(move |hovered, window, cx| {
+        if *hovered {
+            let x: f32 = window.mouse_position().x.into();
+            let screen_w: f32 = window.bounds().size.width.into(); // the bar spans the screen
+            let token = TIP_TOKEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            let text = text.clone();
+            cx.spawn(async move |cx| {
+                cx.background_executor().timer(Duration::from_millis(600)).await;
+                let _ = cx.update(|cx| {
+                    if TIP_TOKEN.load(std::sync::atomic::Ordering::Relaxed) == token
+                        && !PANELS_OPEN.load(std::sync::atomic::Ordering::Relaxed)
+                    {
+                        show_tip(cx, text, x, screen_w);
+                    }
+                });
+            })
+            .detach();
+        } else {
+            hide_tip(cx);
+        }
+    })
+    .on_mouse_down(MouseButton::Left, |_, _, cx| hide_tip(cx))
+}
+
 fn hide_osd_if_due(cx: &mut App) {
     if let Some((h, until)) = cx.try_global::<OsdState>().and_then(|s| s.0) {
         if std::time::Instant::now() >= until {
@@ -697,6 +802,7 @@ impl Bar {
                     notify::expire_popups();
                     let g = notify::generation();
                     let panels = panel_open(cx);
+                    PANELS_OPEN.store(panels, std::sync::atomic::Ordering::Relaxed);
                     if g != bar.notif_gen || panels != bar.panels_open {
                         bar.notif_gen = g;
                         bar.panels_open = panels;
@@ -704,9 +810,12 @@ impl Bar {
                         sync_notif_popups(cx);
                         changed = true;
                     }
-                    let rec = std::path::Path::new(&rec_flag).exists();
-                    if rec != bar.recording {
-                        bar.recording = rec;
+                    let rec_secs = fs::metadata(&rec_flag)
+                        .ok()
+                        .and_then(|m| m.modified().ok())
+                        .map(|t| t.elapsed().unwrap_or_default().as_secs());
+                    if rec_secs != bar.rec_secs {
+                        bar.rec_secs = rec_secs; // once a second while recording: the timer ticks
                         changed = true;
                     }
                     if tray_now != bar.tray {
@@ -724,7 +833,7 @@ impl Bar {
             }
         })
         .detach();
-        Bar { pal: palette(), st: State::default(), sys: Sys::default(), tray: tray::items(), notif_gen: u64::MAX, notif_count: 0, recording: false, panels_open: false }
+        Bar { pal: palette(), st: State::default(), sys: Sys::default(), tray: tray::items(), notif_gen: u64::MAX, notif_count: 0, rec_secs: None, panels_open: false }
     }
 }
 
@@ -869,34 +978,40 @@ impl Render for Bar {
                     .justify_center()
                     .gap_1()
                     .child(
-                        div()
-                            .id("start-button")
-                            .cursor_pointer()
-                            .p_1()
-                            .rounded_lg()
-                            .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
-                            .on_click(|_, _, cx| toggle_start(cx))
-                            .child(
-                                img(PathBuf::from(format!("{}/Pictures/fiaboo/cauvang.jpg", home())))
-                                    .size(px(30.))
-                                    .rounded_full()
-                                    .object_fit(ObjectFit::Cover),
-                            ),
+                        with_tip(
+                            div()
+                                .id("start-button")
+                                .cursor_pointer()
+                                .p_1()
+                                .rounded_lg()
+                                .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
+                                .on_click(|_, _, cx| toggle_start(cx))
+                                .child(
+                                    img(PathBuf::from(format!("{}/Pictures/fiaboo/cauvang.jpg", home())))
+                                        .size(px(30.))
+                                        .rounded_full()
+                                        .object_fit(ObjectFit::Cover),
+                                ),
+                            "Start",
+                        ),
                     )
                     .child(
-                        div()
-                            .id("taskview-button")
-                            .cursor_pointer()
-                            .size(px(32.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded_lg()
-                            .font_family(NF).font_weight(FontWeight::MEDIUM)
-                            .text_size(px(24.))
-                            .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
-                            .on_click(|_, _, cx| toggle_taskview(cx))
-                            .child("\u{f0574}"),
+                        with_tip(
+                            div()
+                                .id("taskview-button")
+                                .cursor_pointer()
+                                .size(px(32.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded_lg()
+                                .font_family(NF).font_weight(FontWeight::MEDIUM)
+                                .text_size(px(24.))
+                                .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
+                                .on_click(|_, _, cx| toggle_taskview(cx))
+                                .child("\u{f0574}"),
+                            "Task View",
+                        ),
                     )
                     .children(apps),
             )
@@ -912,7 +1027,8 @@ impl Render for Bar {
                     .child(
                 div().flex().items_center().gap_1().children(self.tray.iter().enumerate().map(|(i, it)| {
                     let (left, right) = (it.clone(), it.clone());
-                    div()
+                    let title = if it.title.is_empty() { "Tray".to_string() } else { it.title.clone() };
+                    with_tip(div()
                         .id(("tray", i))
                         .cursor_pointer()
                         .size(px(36.))
@@ -933,28 +1049,33 @@ impl Render for Bar {
                                 .rounded_full()
                                 .bg(rgba((p.dim << 8) | A_STRONG))
                                 .into_any_element(),
-                        })
+                        }), title)
                 })),
             )
-                    .when(self.recording, |d| {
-                        d.child(
+                    .when_some(self.rec_secs, |d, secs| {
+                        d.child(with_tip(
                             div()
                                 .id("rec")
                                 .cursor_pointer()
                                 .px_2()
-                                .py_1()
+                                .h(px(36.))
                                 .rounded_lg()
+                                .flex()
+                                .items_center()
+                                .gap_1()
                                 .font_family(NF).font_weight(FontWeight::MEDIUM)
                                 .text_size(px(16.))
                                 .text_color(rgb(p.err))
                                 .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
                                 .on_click(|_, _, _| run_bg("~/.local/bin/fiaboo-record"))
-                                .child("\u{f044a}"),
-                        )
+                                .child("\u{f044a}")
+                                .child(div().text_size(px(12.)).line_height(px(16.)).child(format!("{:02}:{:02}", secs / 60, secs % 60))),
+                            "Recording · click to stop",
+                        ))
                     })
                     .child({
                 let (g_wifi, g_bt, g_vol) = sys_glyphs(&self.sys);
-                div()
+                with_tip(div()
                     .id("sys-button")
                     .on_scroll_wheel(|ev, _, _| {
                         let n = scroll_steps(&ev.delta);
@@ -976,10 +1097,10 @@ impl Render for Bar {
                     .on_click(|_, _, cx| toggle_quick(cx))
                     .child(div().text_color(if self.sys.wifi_on { rgb(p.fg) } else { rgb(p.dim) }).child(g_wifi))
                     .child(div().text_color(if self.sys.bt_on { rgb(p.fg) } else { rgb(p.dim) }).child(g_bt))
-                    .child(div().text_color(if self.sys.muted { rgb(p.dim) } else { rgb(p.fg) }).child(g_vol))
+                    .child(div().text_color(if self.sys.muted { rgb(p.dim) } else { rgb(p.fg) }).child(g_vol)), "Quick settings · scroll: volume")
             })
                     .child(
-                        div()
+                        with_tip(div()
                             .id("clock")
                             .cursor_pointer()
                             .rounded_lg()
@@ -994,10 +1115,10 @@ impl Render for Bar {
                             // whole-pixel line heights (16+16 in a 36 px box): GPUI has no hinting, so a fractional
                             // baseline is what makes small text look soft
                             .child(div().text_size(px(14.)).line_height(px(16.)).font_weight(FontWeight::SEMIBOLD).child(clock_time.to_string()))
-                            .child(div().text_size(px(13.)).line_height(px(16.)).text_color(rgb(p.dim)).child(clock_date.to_string())),
+                            .child(div().text_size(px(13.)).line_height(px(16.)).text_color(rgb(p.dim)).child(clock_date.to_string())), "Calendar"),
                     )
                     .child(
-                        div()
+                        with_tip(div()
                             .id("bell")
                             .cursor_pointer()
                             .font_family(NF).font_weight(FontWeight::MEDIUM)
@@ -1019,7 +1140,7 @@ impl Render for Bar {
                                         .text_color(rgb(p.accent))
                                         .child(self.notif_count.to_string()),
                                 )
-                            }),
+                            }), "Notifications"),
                     ),
             )
     }

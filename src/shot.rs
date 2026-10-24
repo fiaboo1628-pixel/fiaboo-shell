@@ -247,6 +247,8 @@ impl Render for ShotOverlay {
                         .py_1()
                         .rounded_full()
                         .bg(rgba((p.bg << 8) | GLASS))
+                        .border_1()
+                        .border_color(rgba((p.fg << 8) | A_BORDER))
                         .text_color(rgb(p.dim))
                         .text_size(px(12.))
                         .child("Drag: region · Click: window · F / Enter: screen · Esc: cancel"),

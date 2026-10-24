@@ -76,7 +76,8 @@ pub(crate) fn read_settings() -> SettingsInfo {
         .iter()
         .filter_map(|s| {
             let name = s["name"].as_str()?.to_string();
-            let desc = s["description"].as_str().unwrap_or(&name).to_string();
+            // node.nick is the short name ("IP2709SG"); the description is the full ALSA string
+            let desc = s["properties"]["node.nick"].as_str().or(s["description"].as_str()).unwrap_or(&name).to_string();
             let is_default = name == default_sink;
             Some((name, desc, is_default))
         })
@@ -88,7 +89,8 @@ pub(crate) fn read_settings() -> SettingsInfo {
         .iter()
         .map(|m| {
             format!(
-                "{} · {:.0}×{:.0} @ {:.0} Hz · scale {}",
+                "{} ({}) · {:.0}×{:.0} @ {:.0} Hz · scale {}",
+                m["model"].as_str().filter(|s| !s.is_empty()).unwrap_or("Display"),
                 m["name"].as_str().unwrap_or("?"),
                 m["width"].as_f64().unwrap_or(0.0),
                 m["height"].as_f64().unwrap_or(0.0),
@@ -148,6 +150,8 @@ pub(crate) struct BtUi {
     busy: Option<(String, bool, std::time::Instant)>,
     /// End of the current scan; Some once a scan was started in this panel (then found devices show).
     scan_until: Option<std::time::Instant>,
+    /// Row whose last click never reached its target state (timed out): says so until clicked again.
+    failed: Option<String>,
 }
 
 impl BtUi {
@@ -155,7 +159,10 @@ impl BtUi {
         self.info = info;
         if let Some((key, want, since)) = &self.busy {
             // pair + trust + connect can take a while
-            if bt_state(&self.info, key) == Some(*want) || since.elapsed() > Duration::from_secs(30) {
+            if bt_state(&self.info, key) == Some(*want) {
+                self.busy = None;
+            } else if since.elapsed() > Duration::from_secs(30) {
+                self.failed = Some(key.clone());
                 self.busy = None;
             }
         }
@@ -172,8 +179,15 @@ pub(crate) trait HasBt: 'static {
 pub(crate) fn bt_rows<T: HasBt>(ui: &BtUi, p: &Palette, cx: &mut Context<T>) -> Vec<gpui::AnyElement> {
     let (accent, dim) = (p.accent, p.dim);
     let busy = ui.busy.as_ref().map(|b| b.0.clone());
+    let failed = ui.failed.clone();
     let row = |id: gpui::ElementId, key: String, label: String, glyph: &'static str, on: bool, want: bool, cmd: String| {
-        let label = if busy.as_deref() == Some(key.as_str()) { format!("{label} · working…") } else { label };
+        let label = if busy.as_deref() == Some(key.as_str()) {
+            format!("{label} · working…")
+        } else if failed.as_deref() == Some(key.as_str()) {
+            format!("{label} · failed, click to retry")
+        } else {
+            label
+        };
         div()
             .id(id)
             .cursor_pointer()
@@ -188,6 +202,7 @@ pub(crate) fn bt_rows<T: HasBt>(ui: &BtUi, p: &Palette, cx: &mut Context<T>) -> 
             .hover(move |s| s.bg(rgba((accent << 8) | if on { A_ACTIVE } else { A_HOVER })))
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.touch();
+                this.bt().failed = None;
                 this.bt().busy = Some((key.clone(), want, std::time::Instant::now()));
                 run_bg(&cmd); // the next refresh shows the new state and clears busy
                 cx.notify();
@@ -325,14 +340,13 @@ impl Render for SettingsPanel {
         let section = |title: &'static str| {
             div().pt_4().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(rgb(p.dim)).child(title)
         };
+        // read-only rows carry no fill: the fill (and hover) now means "this row does something"
         let row = |label: String, value: String| {
             div()
                 .flex()
                 .gap_3()
                 .px_3()
-                .py_2p5()
-                .rounded_lg()
-                .bg(rgba((p.dim << 8) | A_SURFACE))
+                .py_2()
                 .child(div().w(px(170.)).flex_none().overflow_hidden().whitespace_nowrap().text_ellipsis().child(label))
                 .child(div().flex_1().min_w(px(0.)).overflow_hidden().whitespace_nowrap().text_ellipsis().text_color(rgb(p.dim)).child(value))
         };
@@ -390,7 +404,7 @@ impl Render for SettingsPanel {
             .child(
                 div()
                     .w(px(640.))
-                    .h(px(700.))
+                    .max_h(px(960.)) // content height (about 850 px today); the fixed 700 cut the About rows
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
                     .flex()
