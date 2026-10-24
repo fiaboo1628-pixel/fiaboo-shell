@@ -23,8 +23,15 @@ pub fn focus_workspace(n: i64) {
 }
 
 /// `address` is what `hypr_json("clients")` reported.
+/// A minimized window (dropped on the taskbar, see keybindings/default.lua) comes back to the current workspace first.
 pub fn focus_window(address: &str) {
-    hypr_dispatch(&format!("hl.dsp.focus({{ window = \"address:{address}\" }})"));
+    let w = format!("\"address:{address}\"");
+    crate::spawn_bg(Command::new("hyprctl").args(["eval", &format!(
+        "local w = hl.get_window({w}) \
+         if w and w.workspace and w.workspace.name == \"special:minimized\" then \
+           hl.dispatch(hl.dsp.window.move({{ workspace = hl.get_active_workspace().id, window = {w} }})) end \
+         hl.dispatch(hl.dsp.focus({{ window = {w} }}))"
+    )]));
 }
 
 pub fn close_window(address: &str) {
