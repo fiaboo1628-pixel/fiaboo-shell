@@ -41,7 +41,7 @@ hg.preset("glass-bar",    preset({ thickness = 32, bezel_width = 32, blur_streng
 -- no blur (owner kept it clear, 2026-10-17); unfocused it fades with the window (engine patch in GlassDecoration.cpp)
 hg.preset("glass-dark",   preset({ thickness = 40, bezel_width = 36, blur_strength = 0.0, blur_iterations = 1, bevel_strength = 0.2,
                                    tint_color = 0x000000B4, dark = { adaptive_dim = 0.0, saturation = 0.6 } }))
-hg.preset("glass-card",   preset({ thickness = 72, bezel_width = 60, blur_strength = 0.0, blur_iterations = 1, bevel_size = 2.0 }))
+hg.preset("glass-card",   preset({ thickness = 72, bezel_width = 60, blur_strength = 3.0, blur_iterations = 3, bevel_size = 2.0 })) -- frosted (owner, 2026-10-24): clear glass let window text fight the panel text
 hg.preset("glass-small",  preset({ thickness = 28, bezel_width = 24, blur_strength = 0.0, blur_iterations = 1 }))
 
 hg.config({
