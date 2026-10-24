@@ -44,6 +44,6 @@ Before finishing UI, run `ux-audit`.
 
 ## Owner's taste
 - One font everywhere: JetBrainsMono Nerd Font, set on every panel root (`.font_family(NF)`); GPUI otherwise falls back to the system sans. Type scale 12 meta / 14 content / 16 titles.
-- Glass background: constant `GLASS` (alpha 0xC8); the glass plugin sees through it (no blur: owner keeps panels and kitty clear). Text ≥ 12px, heaviest weight `SEMIBOLD`.
+- Glass background: constant `GLASS` (alpha 0xC8); the glass plugin sees through it (panels frosted, blur 3, since 2026-10-24; kitty stays clear). Text ≥ 12px, heaviest weight `SEMIBOLD`.
 - Motion must be soft and slow; the owner has rejected "fast/snappy" easing several times (current: `smoothOut` = easeOutQuint).
 - Music: a thin line on the taskbar's top edge that grows out from the middle with loudness, pushed a little on each kick; mauve in the middle -> blue -> melting into the bar at the ends; fades out in silence. ~3 % CPU at 30 fps, no measurable GPU. No fullscreen view. Rejected: crossing waves (15 % CPU), bars, spikes, filled rings, blurred cover, vinyl view, fullscreen shaders, WayVes (37-87 % iGPU).
