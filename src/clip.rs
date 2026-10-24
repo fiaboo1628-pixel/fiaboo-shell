@@ -18,6 +18,28 @@ pub(crate) struct Clip {
 const CLIP_ROW: f32 = 39.;
 const CLIP_ROWS: f32 = 11.;
 
+/// API keys and tokens by their well-known prefixes (Anthropic/OpenAI sk-, GitHub ghp_/gho_, Slack xox?-, AWS AKIA).
+fn looks_secret(text: &str) -> bool {
+    text.split(|c: char| c.is_whitespace() || c == '"' || c == '\'' || c == '=' || c == ':').any(|w| {
+        let long = w.len() >= 20;
+        long && (w.starts_with("sk-") || w.starts_with("ghp_") || w.starts_with("gho_") || w.starts_with("xox") || w.starts_with("AKIA"))
+    })
+}
+
+#[cfg(test)]
+mod secret_tests {
+    use super::looks_secret;
+
+    #[test]
+    fn keys_are_masked_plain_text_is_not() {
+        assert!(looks_secret("ANTHROPIC_API_KEY=sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789"));
+        assert!(looks_secret("ghp_0123456789abcdefghijklmnopqrstuvwxyzAB"));
+        assert!(looks_secret("export AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE"));
+        assert!(!looks_secret("sk-learn is a python library"));
+        assert!(!looks_secret("Nothing to see here"));
+    }
+}
+
 pub(crate) fn read_clips() -> Vec<Clip> {
     let cache = format!("{}/.cache/fiaboo-shell", home());
     let _ = fs::create_dir_all(&cache);
@@ -51,7 +73,13 @@ pub(crate) fn read_clips() -> Vec<Clip> {
             } else {
                 None
             };
-            let preview = if is_img { "Image".to_string() } else { rest.split_whitespace().collect::<Vec<_>>().join(" ") };
+            let preview = if is_img {
+                "Image".to_string()
+            } else if looks_secret(rest) {
+                "\u{2022}\u{2022}\u{2022}\u{2022} secret \u{b7} Enter copies".to_string() // never on screen (or on camera); copying still works
+            } else {
+                rest.split_whitespace().collect::<Vec<_>>().join(" ")
+            };
             Some(Clip { id: id.to_string(), raw: line.to_string(), preview, image })
         })
         .collect::<Vec<Clip>>();
