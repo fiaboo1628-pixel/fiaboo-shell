@@ -237,6 +237,11 @@ struct AppIcon {
     running: bool,
 }
 
+/// Special workspaces stay off the taskbar, except minimized windows (click restores them).
+fn hidden_ws(ws: &str) -> bool {
+    ws.starts_with("special") && ws != "special:minimized"
+}
+
 /// Pinned ids from the Start menu (~/.local/state/start-pinned.json), resolved to desktop entries.
 fn pinned_ids() -> Vec<String> {
     fs::read_to_string(format!("{}/.local/state/start-pinned.json", home()))
@@ -316,7 +321,7 @@ fn read_state() -> State {
         let win = clients.iter().find(|c| {
             let class = c["class"].as_str().unwrap_or("");
             !class.is_empty()
-                && !c["workspace"]["name"].as_str().unwrap_or("").starts_with("special")
+                && !hidden_ws(c["workspace"]["name"].as_str().unwrap_or(""))
                 && !used_class.iter().any(|u| u == class) // the loose contains() match could let two pins claim one app
                 && class_matches(class, id, d)
         });
@@ -344,7 +349,7 @@ fn read_state() -> State {
     for c in &clients {
         let class = c["class"].as_str().unwrap_or("");
         let ws = c["workspace"]["name"].as_str().unwrap_or("");
-        if class.is_empty() || class == "fiaboo-shell" || ws.starts_with("special") {
+        if class.is_empty() || class == "fiaboo-shell" || hidden_ws(ws) {
             continue;
         }
         if used_class.iter().any(|u| u == class) || extra.iter().any(|a| a.class == class) {
