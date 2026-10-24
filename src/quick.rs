@@ -264,7 +264,6 @@ impl Render for Quick {
             .child(
                 div()
                     .w(px(380.0))
-                    .h(px(if media.is_some() { 358. } else { 282. }))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()).on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
                     .flex()
                     .flex_col()

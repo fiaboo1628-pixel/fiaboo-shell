@@ -513,6 +513,8 @@ struct Bar {
 /// The compositor event stream (Hyprland .socket2) flags the bar to refresh when windows/workspaces change,
 /// instead of polling `hyprctl` several times a second.
 static HYPR_DIRTY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+/// A fiaboo panel is open (set by the bar loop): tooltips stay away, the button's panel is on top of them.
+static PANELS_OPEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 // ---------- volume OSD ----------
 static OSD_PENDING: Mutex<Option<(f32, bool)>> = Mutex::new(None);
@@ -663,7 +665,7 @@ fn hide_tip(cx: &mut App) {
 fn show_tip(cx: &mut App, text: String, x: f32, screen_w: f32) {
     hide_tip(cx);
     let w = (text.chars().count() as f32 * 7.3 + 20.).round(); // 12 px JetBrainsMono ≈ 7.2 px per glyph
-    let left = (x - w / 2.).clamp(8., (screen_w - w - 8.).max(8.));
+    let left = (x - w / 2.).clamp(8., (screen_w - w - 16.).max(8.));
     let opened = cx.open_window(
         WindowOptions {
             titlebar: None,
@@ -707,7 +709,9 @@ fn with_tip<E: StatefulInteractiveElement>(el: E, text: impl Into<String>) -> E 
             cx.spawn(async move |cx| {
                 cx.background_executor().timer(Duration::from_millis(600)).await;
                 let _ = cx.update(|cx| {
-                    if TIP_TOKEN.load(std::sync::atomic::Ordering::Relaxed) == token {
+                    if TIP_TOKEN.load(std::sync::atomic::Ordering::Relaxed) == token
+                        && !PANELS_OPEN.load(std::sync::atomic::Ordering::Relaxed)
+                    {
                         show_tip(cx, text, x, screen_w);
                     }
                 });
@@ -798,6 +802,7 @@ impl Bar {
                     notify::expire_popups();
                     let g = notify::generation();
                     let panels = panel_open(cx);
+                    PANELS_OPEN.store(panels, std::sync::atomic::Ordering::Relaxed);
                     if g != bar.notif_gen || panels != bar.panels_open {
                         bar.notif_gen = g;
                         bar.panels_open = panels;

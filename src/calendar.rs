@@ -551,7 +551,6 @@ impl Render for CalendarPopup {
             .child(
                 div()
                     .w(px(400.0))
-                    .h(px(724.))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()).on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
                     .flex()
                     .flex_col()
