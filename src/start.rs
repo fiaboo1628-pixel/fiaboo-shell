@@ -242,6 +242,8 @@ impl Render for StartMenu {
         let body = if searching {
             let list: Vec<_> =
                 self.results().into_iter().take(40).enumerate().map(|(i, (e, why))| row(&e, i, i == self.sel, why)).collect();
+            let none = list.is_empty();
+            let q = self.query.clone();
             div()
                 .id("results")
                 .h(px(BODY_H))
@@ -250,6 +252,8 @@ impl Render for StartMenu {
                 .flex()
                 .flex_col()
                 .children(list)
+                // the one failure a search can have, said in words (an empty column read as broken)
+                .when(none, |d| d.child(div().py_6().flex().justify_center().text_color(rgb(p.dim)).child(format!("No apps match \u{201c}{q}\u{201d}"))))
                 .into_any_element()
         } else {
             let tiles = self.pins.iter().enumerate().map(|(i, e)| {
@@ -454,7 +458,11 @@ impl Render for StartMenu {
                 div()
                     .text_size(px(12.))
                     .text_color(rgb(p.dim))
-                    .child("Type: search · Enter: open · Right-click: pin or unpin · Esc: close"),
+                    .child(if searching {
+                        "Enter: open · Backspace: edit · Esc: close"
+                    } else {
+                        "Type: search · Enter: open · Right-click: pin or unpin · Esc: close"
+                    }),
             )
             .child(footer)
             )
