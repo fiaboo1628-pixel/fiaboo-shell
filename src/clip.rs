@@ -252,7 +252,7 @@ impl Render for ClipPanel {
         let list = self.visible();
         let sel = self.sel.min(list.len().saturating_sub(1));
         let rows = list.iter().enumerate().map(|(i, c)| {
-            let copy_id = c.id.clone();
+            let (copy_id, copy_id2) = (c.id.clone(), c.id.clone());
             div()
                 .id(("clip", i))
                 .cursor_pointer()
@@ -265,7 +265,12 @@ impl Render for ClipPanel {
                 .rounded_lg()
                 .when(i == sel, |d| d.bg(rgba((p.accent << 8) | A_HOVER)))
                 .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
-                .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation()) // removal is Del (undoable), not a click
+                .on_mouse_down(MouseButton::Right, cx.listener(move |this, _, _, cx| {
+                    cx.stop_propagation();
+                    this.last_input = std::time::Instant::now();
+                    clip_copy(&copy_id2); // copy and stay: pick several in a row
+                    cx.notify();
+                }))
                 .on_click(move |_, window, cx| {
                     clip_copy(&copy_id);
                     close_clip(window, cx);
@@ -428,7 +433,7 @@ impl Render for ClipPanel {
                         div()
                             .text_size(px(12.))
                             .text_color(rgb(p.dim))
-                            .child("Enter: copy   ·   Del: remove   ·   Ctrl+Z: undo   ·   Esc: close"),
+                            .child("Enter: copy · Right-click: copy and stay · Del: remove · Esc: close"),
                     ),
             )
     }

@@ -860,7 +860,7 @@ impl Render for Bar {
                 } else if used {
                     rgb(p.dim)
                 } else {
-                    rgba((p.dim << 8) | A_ACTIVE)
+                    rgba((p.dim << 8) | A_STRONG) // empty workspace: still >= 3:1 on the bar
                 }))
         });
 
@@ -1006,7 +1006,7 @@ impl Render for Bar {
                                 .justify_center()
                                 .rounded_lg()
                                 .font_family(NF).font_weight(FontWeight::MEDIUM)
-                                .text_size(px(24.))
+                                .text_size(px(28.)) // the glyph's ink is small for its em box
                                 .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
                                 .on_click(|_, _, cx| toggle_taskview(cx))
                                 .child("\u{f0574}"),

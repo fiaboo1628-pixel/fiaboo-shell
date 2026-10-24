@@ -219,10 +219,7 @@ impl Render for TaskView {
                 .when(i == sel, |d| d.border_2().border_color(rgb(p.accent)))
                 .hover(|s| s.bg(rgba((p.accent << 8) | A_HOVER)))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .on_mouse_down(MouseButton::Right, cx.listener(move |this, _, window, cx| {
-                    cx.stop_propagation();
-                    this.request_close(i, window, cx);
-                }))
+                .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation()) // closing is Del or the ✕, never a plain click
                 .on_click(move |_, window, cx| {
                     focus_window(&focus_addr);
                     close_taskview(window, cx);
@@ -241,7 +238,25 @@ impl Render for TaskView {
                         } else {
                             div().flex_1().text_size(px(12.)).text_color(rgb(p.dim)).child(w.class.clone())
                         })
-                        .child(div().text_size(px(12.)).text_color(rgb(p.accent)).child(format!("WS {}", w.ws))),
+                        .child(div().text_size(px(12.)).text_color(rgb(p.accent)).child(format!("WS {}", w.ws)))
+                        .child(
+                            div()
+                                .id(("tv-x", i))
+                                .size(px(24.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded_md()
+                                .text_size(px(12.))
+                                .text_color(if pending == Some(i) { rgb(p.err) } else { rgb(p.dim) })
+                                .hover(|s| s.bg(rgba((p.dim << 8) | A_ACTIVE)).text_color(rgb(p.fg)))
+                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    cx.stop_propagation();
+                                    this.request_close(i, window, cx);
+                                }))
+                                .child("\u{2715}"),
+                        ),
                 )
                 .child(
                     div()
@@ -315,7 +330,7 @@ impl Render for TaskView {
                     .when(empty, |d| d.child(div().text_color(rgb(p.dim)).child("No open windows"))),
             )
             .child(
-                div().pt_4().text_size(px(12.)).text_color(rgb(p.dim)).child("Enter: switch   ·   Del or right-click twice: close window   ·   Esc: close"),
+                div().pt_4().text_size(px(12.)).text_color(rgb(p.dim)).child("Enter: switch · Del or ✕ twice: close window · Esc: close"),
             )
     }
 }

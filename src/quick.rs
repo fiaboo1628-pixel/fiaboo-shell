@@ -363,7 +363,7 @@ impl Render for Quick {
                     .pt_1()
                     .text_size(px(12.))
                     .text_color(rgb(p.dim))
-                    .child("Tab, Enter: toggle · Right-click: its app · Esc"),
+                    .child("Tab, Enter: toggle · Right-click: open app · Esc: close"),
             ))
     }
 }
