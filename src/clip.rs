@@ -128,6 +128,65 @@ pub(crate) struct ClipPanel {
     last_input: std::time::Instant,
     confirm_wipe: bool, // "Clear all" asks once before deleting the whole history
     loaded: bool,       // cliphist answered (until then an empty list is not "Nothing here")
+    hidden: std::collections::HashSet<String>, // deleted, still undoable
+    pending: Option<(Vec<Clip>, bool, u64)>,   // (entries, whole history?, timer token)
+    undo_token: u64,
+}
+
+const UNDO_SECS: u64 = 5;
+
+impl ClipPanel {
+    /// Hide `clips` now; cliphist forgets them after UNDO_SECS unless `undo` runs first.
+    fn defer_delete(&mut self, clips: Vec<Clip>, wipe: bool, cx: &mut Context<Self>) {
+        self.commit_pending();
+        self.hidden.extend(clips.iter().map(|c| c.id.clone()));
+        self.undo_token += 1;
+        let token = self.undo_token;
+        self.pending = Some((clips, wipe, token));
+        self.sel = self.sel.min(self.visible().len().saturating_sub(1));
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(Duration::from_secs(UNDO_SECS)).await;
+            let _ = this.update(cx, |t, cx| {
+                if t.pending.as_ref().is_some_and(|p| p.2 == token) {
+                    t.commit_pending();
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn commit_pending(&mut self) {
+        if let Some((clips, wipe, _)) = self.pending.take() {
+            for c in &clips {
+                self.hidden.remove(&c.id);
+            }
+            if wipe {
+                run_bg("cliphist wipe");
+                self.clips.clear();
+            } else {
+                let ids: Vec<String> = clips.iter().map(|c| c.id.clone()).collect();
+                self.clips.retain(|c| !ids.contains(&c.id));
+                std::thread::spawn(move || clips.iter().for_each(|c| clip_delete(&c.raw)));
+            }
+        }
+    }
+
+    fn undo(&mut self) {
+        if let Some((clips, _, _)) = self.pending.take() {
+            for c in clips {
+                self.hidden.remove(&c.id);
+            }
+        }
+    }
+}
+
+// closing the panel (Esc, Enter, idle) must not bring back what the owner deleted
+impl Drop for ClipPanel {
+    fn drop(&mut self) {
+        self.commit_pending();
+    }
 }
 
 impl ClipPanel {
@@ -163,12 +222,15 @@ impl ClipPanel {
             last_input: std::time::Instant::now(),
             confirm_wipe: false,
             loaded: false,
+            hidden: Default::default(),
+            pending: None,
+            undo_token: 0,
         }
     }
 
     fn visible(&self) -> Vec<Clip> {
         let q = self.query.to_lowercase();
-        self.clips.iter().filter(|c| c.preview.to_lowercase().contains(&q)).take(40).cloned().collect()
+        self.clips.iter().filter(|c| !self.hidden.contains(&c.id) && c.preview.to_lowercase().contains(&q)).take(40).cloned().collect()
     }
 }
 
@@ -190,8 +252,7 @@ impl Render for ClipPanel {
         let list = self.visible();
         let sel = self.sel.min(list.len().saturating_sub(1));
         let rows = list.iter().enumerate().map(|(i, c)| {
-            let (copy_id, del_raw) = (c.id.clone(), c.raw.clone());
-            let id = c.id.clone();
+            let copy_id = c.id.clone();
             div()
                 .id(("clip", i))
                 .cursor_pointer()
@@ -204,12 +265,7 @@ impl Render for ClipPanel {
                 .rounded_lg()
                 .when(i == sel, |d| d.bg(rgba((p.accent << 8) | A_HOVER)))
                 .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
-                .on_mouse_down(MouseButton::Right, cx.listener(move |this, _, _, cx| {
-                    clip_delete(&del_raw);
-                    this.clips.retain(|c| c.id != id);
-                    this.sel = this.sel.min(this.visible().len().saturating_sub(1));
-                    cx.notify();
-                }))
+                .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation()) // removal is Del (undoable), not a click
                 .on_click(move |_, window, cx| {
                     clip_copy(&copy_id);
                     close_clip(window, cx);
@@ -257,11 +313,12 @@ impl Render for ClipPanel {
                     }
                     "delete" => {
                         if let Some(c) = this.visible().get(this.sel).cloned() {
-                            clip_delete(&c.raw);
-                            this.clips.retain(|x| x.id != c.id);
-                            this.sel = this.sel.min(this.visible().len().saturating_sub(1));
-                            cx.notify();
+                            this.defer_delete(vec![c], false, cx);
                         }
+                    }
+                    "z" if k.modifiers.control => {
+                        this.undo();
+                        cx.notify();
                     }
                     _ => {
                         if !k.modifiers.control && !k.modifiers.alt && !k.modifiers.platform {
@@ -327,10 +384,9 @@ impl Render for ClipPanel {
                                         .bg(rgba((p.err << 8) | 0xcc))
                                         .text_color(rgb(p.bg)) // on light error red: dark text (white was ~1.7:1)
                                         .on_click(cx.listener(|this, _, _, cx| {
-                                            run_bg("cliphist wipe");
-                                            this.clips.clear();
                                             this.confirm_wipe = false;
-                                            cx.notify();
+                                            let all = this.clips.clone();
+                                            this.defer_delete(all, true, cx);
                                         })),
                                 ]
                             } else {
@@ -352,11 +408,27 @@ impl Render for ClipPanel {
                                 d.child(div().py_6().flex().justify_center().text_color(rgb(p.dim)).child("Nothing here"))
                             }),
                     )
+                    // a deletion waits UNDO_SECS here before cliphist forgets it
+                    .when_some(self.pending.as_ref().map(|p| p.0.len()), |d, n| {
+                        d.child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .text_size(px(12.))
+                                .text_color(rgb(p.dim))
+                                .child(div().flex_1().child(if n == 1 { "Deleted 1 item".to_string() } else { format!("Deleted {n} items") }))
+                                .child(small_btn("clip-undo", "Undo".into()).bg(rgba((p.accent << 8) | A_ACTIVE)).on_click(cx.listener(|this, _, _, cx| {
+                                    this.undo();
+                                    cx.notify();
+                                }))),
+                        )
+                    })
                     .child(
                         div()
                             .text_size(px(12.))
                             .text_color(rgb(p.dim))
-                            .child("Enter: copy   ·   Right-click / Del: remove   ·   Esc: close"),
+                            .child("Enter: copy   ·   Del: remove   ·   Ctrl+Z: undo   ·   Esc: close"),
                     ),
             )
     }

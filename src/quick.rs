@@ -49,6 +49,24 @@ pub(crate) struct Quick {
     sys: Sys,
     focus: FocusHandle,
     last_input: std::time::Instant,
+    focus_i: usize,          // keyboard focus among `actions()`
+    drag_level: Option<i32>, // last volume set while dragging over the segments
+}
+
+/// (tile id, command) in tile order, skipping tiles that cannot act; what Tab/Enter walk.
+fn actions(sys: &Sys) -> Vec<(&'static str, String)> {
+    let mut v = vec![];
+    if sys.wifi_avail {
+        v.push(("q-wifi", format!("nmcli radio wifi {}", if sys.wifi_on { "off" } else { "on" })));
+    }
+    v.push(("q-bt", if sys.bt_on { "bluetoothctl power off".to_string() } else { "rfkill unblock bluetooth; bluetoothctl power on".to_string() }));
+    v.push(("q-night", "pkill -x hyprsunset || setsid hyprsunset".to_string()));
+    v.push(("q-dnd", "@dnd".to_string()));
+    v
+}
+
+fn run_action(cmd: &str) {
+    if cmd == "@dnd" { notify::toggle_dnd() } else { run_bg(cmd) }
 }
 
 impl Quick {
@@ -71,7 +89,7 @@ impl Quick {
             cx.background_executor().timer(Duration::from_millis(1200)).await;
         })
         .detach();
-        Quick { pal: palette(), sys: Sys::default(), focus, last_input: std::time::Instant::now() }
+        Quick { pal: palette(), sys: Sys::default(), focus, last_input: std::time::Instant::now(), focus_i: 0, drag_level: None }
     }
 }
 
@@ -83,6 +101,7 @@ impl Render for Quick {
 
         // left click runs `cmd`; right click opens `app` (if any) to pick a network/device
         // `on`: None = the device is not there; the tile explains itself and does nothing
+        let focused_id = actions(&sys).get(self.focus_i).map(|a| a.0);
         let tile = |id: &'static str, glyph: &'static str, title: &'static str, sub: String, on: Option<bool>, cmd: String, app: Option<&'static str>| {
             let avail = on.is_some();
             let on = on.unwrap_or(false);
@@ -90,6 +109,9 @@ impl Render for Quick {
                 .id(id)
                 .when(avail, |d| d.cursor_pointer())
                 .flex_1()
+                // keyboard focus: a 1 px accent ring (always a border so the tile keeps its size)
+                .border_1()
+                .border_color(if focused_id == Some(id) { rgb(p.accent) } else { rgba(0x00000000) })
                 .flex()
                 .items_center()
                 .gap_3()
@@ -100,7 +122,7 @@ impl Render for Quick {
                 .when(avail, |d| {
                     d.hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE))).on_click(cx.listener(move |this, _, _, cx| {
                         this.last_input = std::time::Instant::now();
-                        if cmd == "@dnd" { notify::toggle_dnd() } else { run_bg(&cmd) }
+                        run_action(&cmd);
                         cx.notify();
                     }))
                 })
@@ -127,12 +149,8 @@ impl Render for Quick {
                 )
         };
 
-        let wifi_cmd = format!("nmcli radio wifi {}", if sys.wifi_on { "off" } else { "on" });
-        let bt_cmd = if sys.bt_on {
-            "bluetoothctl power off".to_string()
-        } else {
-            "rfkill unblock bluetooth; bluetoothctl power on".to_string()
-        };
+        let act = |id: &str| actions(&sys).into_iter().find(|a| a.0 == id).map(|a| a.1).unwrap_or_default();
+        let (wifi_cmd, bt_cmd) = (act("q-wifi"), act("q-bt"));
 
         let level = (sys.vol * 100.0).round() as i32;
         let segments = (1..=20).map(|i| {
@@ -146,8 +164,18 @@ impl Render for Quick {
                 .items_center()
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.last_input = std::time::Instant::now();
+                    this.drag_level = None;
                     run_bg(&format!("wpctl set-volume @DEFAULT_AUDIO_SINK@ {}%", i * 5));
                     cx.notify();
+                }))
+                // button held while moving across the row: a drag in 5 % steps
+                .on_mouse_move(cx.listener(move |this, ev: &gpui::MouseMoveEvent, _, cx| {
+                    if ev.pressed_button == Some(MouseButton::Left) && this.drag_level != Some(i * 5) {
+                        this.last_input = std::time::Instant::now();
+                        this.drag_level = Some(i * 5);
+                        run_bg(&format!("wpctl set-volume @DEFAULT_AUDIO_SINK@ {}%", i * 5));
+                        cx.notify();
+                    }
                 }))
                 .child(
                     div()
@@ -209,9 +237,22 @@ impl Render for Quick {
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                 this.last_input = std::time::Instant::now();
-                if ev.keystroke.key == "escape" {
-                    close_quick(window, cx);
+                let acts = actions(&this.sys);
+                let n = acts.len();
+                let k = &ev.keystroke;
+                match k.key.as_str() {
+                    "escape" => close_quick(window, cx),
+                    "tab" if k.modifiers.shift => this.focus_i = (this.focus_i + n - 1) % n,
+                    "tab" | "right" | "down" => this.focus_i = (this.focus_i + 1) % n,
+                    "left" | "up" => this.focus_i = (this.focus_i + n - 1) % n,
+                    "enter" | "space" => {
+                        if let Some((_, cmd)) = acts.get(this.focus_i) {
+                            run_action(cmd);
+                        }
+                    }
+                    _ => {}
                 }
+                cx.notify();
             }))
             .flex()
             .flex_col()
@@ -277,7 +318,7 @@ impl Render for Quick {
                         "Night light",
                         if sys.night { "On" } else { "Off" }.to_string(),
                         Some(sys.night),
-                        "pkill -x hyprsunset || setsid hyprsunset".to_string(),
+                        act("q-night"),
                         None,
                     ))
                     .child(tile(
@@ -286,7 +327,7 @@ impl Render for Quick {
                         "Do not disturb",
                         if sys.dnd { "On" } else { "Off" }.to_string(),
                         Some(sys.dnd),
-                        "@dnd".to_string(),
+                        act("q-dnd"),
                         None,
                     )),
             )
@@ -317,6 +358,13 @@ impl Render for Quick {
                         if sys.muted { "Muted".to_string() } else { format!("{level}%") },
                     )),
             )
-            .children(media))
+            .children(media)
+            .child(
+                div()
+                    .pt_1()
+                    .text_size(px(12.))
+                    .text_color(rgb(p.dim))
+                    .child("Tab, Enter: toggle · Right-click: its app · Esc"),
+            ))
     }
 }

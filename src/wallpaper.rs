@@ -121,6 +121,14 @@ pub(crate) struct WpPicker {
     scroll: gpui::ScrollHandle,
     last_input: std::time::Instant,
     thumbs_pending: bool, // the generator was running at the last poll
+    query: String,        // typed filter on the file name
+}
+
+impl WpPicker {
+    fn visible(&self) -> Vec<PathBuf> {
+        let q = self.query.to_lowercase();
+        self.list.iter().filter(|p| q.is_empty() || p.file_name().is_some_and(|n| n.to_string_lossy().to_lowercase().contains(&q))).cloned().collect()
+    }
 }
 
 impl WpPicker {
@@ -155,15 +163,16 @@ impl WpPicker {
         })
         .detach();
         let scroll = gpui::ScrollHandle::new();
-        WpPicker { pal: palette(), focus, list, current, sel, scroll, last_input: std::time::Instant::now(), thumbs_pending: true }
+        WpPicker { pal: palette(), focus, list, current, sel, scroll, last_input: std::time::Instant::now(), thumbs_pending: true, query: String::new() }
     }
 }
 
 impl Render for WpPicker {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.pal.clone();
-        let sel = self.sel;
-        let cells = self.list.iter().enumerate().map(|(i, path)| {
+        let shown = self.visible();
+        let sel = self.sel.min(shown.len().saturating_sub(1));
+        let cells = shown.iter().enumerate().map(|(i, path)| {
             let thumb = wp_thumb(path);
             let target = path.clone();
             let is_cur = path.to_string_lossy() == self.current;
@@ -196,7 +205,8 @@ impl Render for WpPicker {
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                 this.last_input = std::time::Instant::now();
-                let n = this.list.len();
+                let n = this.visible().len();
+                let k = &ev.keystroke;
                 let mut go = |this: &mut Self, to: usize, cx: &mut Context<Self>| {
                     this.sel = to;
                     this.scroll.scroll_to_item(to);
@@ -208,17 +218,30 @@ impl Render for WpPicker {
                     "left" if n > 0 => go(this, (this.sel + n - 1) % n, cx),
                     "down" if n > 0 => go(this, (this.sel + WP_COLS).min(n - 1), cx),
                     "up" if n > 0 => go(this, this.sel.saturating_sub(WP_COLS), cx),
-                    "r" => {
+                    "r" if k.modifiers.control => {
                         run_bg("setsid ~/.local/bin/fiaboo-wallpaper --random");
                         close_wp(window, cx);
                     }
                     "enter" => {
-                        if let Some(path) = this.list.get(this.sel) {
+                        if let Some(path) = this.visible().get(this.sel) {
                             wp_apply(path);
                         }
                         close_wp(window, cx);
                     }
-                    _ => {}
+                    "backspace" => {
+                        this.query.pop();
+                        this.sel = 0;
+                        cx.notify();
+                    }
+                    _ => {
+                        if !k.modifiers.control && !k.modifiers.alt && !k.modifiers.platform {
+                            if let Some(ch) = &k.key_char {
+                                this.query.push_str(ch);
+                                this.sel = 0;
+                                cx.notify();
+                            }
+                        }
+                    }
                 }
             }))
             .flex()
@@ -281,7 +304,11 @@ impl Render for WpPicker {
                         div()
                             .text_size(px(12.))
                             .text_color(rgb(p.dim))
-                            .child(format!("{} images   ·   Enter: apply   ·   R: shuffle   ·   Esc: close", self.list.len())),
+                            .child(if self.query.is_empty() {
+                                format!("{} images   ·   Type to filter   ·   Enter: apply   ·   Ctrl+R: shuffle   ·   Esc: close", self.list.len())
+                            } else {
+                                format!("Filter: {}\u{258f}   ·   {} of {}   ·   Backspace: edit   ·   Enter: apply", self.query, shown.len(), self.list.len())
+                            }),
                     ),
             )
     }

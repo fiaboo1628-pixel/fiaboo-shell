@@ -6,8 +6,11 @@ use crate::*;
 const NC_ROWS: usize = 4; // cards shown before the center scrolls
 pub(crate) const CARD_H: f32 = 108.; // app + summary + 2 body lines (~80px) + padding; 100 clipped the 2nd body line
 
-pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, in_center: bool, id: usize, today: &str) -> gpui::AnyElement {
+/// A card; in the center (`center` set) dismissals go through its 5 s undo instead of the store.
+pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, center: Option<gpui::Entity<NotifCenter>>, focused: bool, id: usize, today: &str) -> gpui::AnyElement {
     let (nid, nid2, nid3) = (n.id, n.id, n.id);
+    let in_center = center.is_some();
+    let (c_right, c_x) = (center.clone(), center);
     let icon = find_icon_file(&n.icon).or_else(|| icon_for(&n.app.to_lowercase()));
     div()
         .id(("notif", id))
@@ -23,12 +26,16 @@ pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, in_center: bool, id: us
         .when(in_center, |d| d.bg(rgba((p.dim << 8) | A_SURFACE)))
         .border_1()
         .border_color(if n.critical { rgba((p.err << 8) | 0xcc) } else { rgba((p.fg << 8) | A_BORDER) })
+        .when(focused, |d| d.border_color(rgb(p.accent))) // keyboard focus ring
         .hover(|s| s.bg(rgba((p.accent << 8) | A_HOVER)))
         .text_color(rgb(p.fg))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_mouse_down(MouseButton::Right, move |_, _, cx| {
             cx.stop_propagation();
-            notify::dismiss(nid2);
+            match &c_right {
+                Some(c) => c.update(cx, |t, cx| t.defer_dismiss(vec![nid2], cx)),
+                None => notify::hide_popup(nid2), // a popup's right-click only hides it; the center keeps it
+            }
         })
         .on_click(move |_, _, _| notify::activate(nid))
         .child(match icon {
@@ -86,7 +93,10 @@ pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, in_center: bool, id: us
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(move |_, _, cx| {
                     cx.stop_propagation();
-                    if in_center { notify::dismiss(nid3) } else { notify::hide_popup(nid3) }
+                    match &c_x {
+                        Some(c) => c.update(cx, |t, cx| t.defer_dismiss(vec![nid3], cx)),
+                        None => notify::hide_popup(nid3),
+                    }
                 })
                 .child("\u{2715}"),
         )
@@ -112,7 +122,7 @@ impl Render for NotifPopup {
             .flex_col()
             .gap_2()
             .text_size(px(14.))
-            .children(self.list.iter().enumerate().map(|(i, n)| notif_card(n, &p, false, i, &today)))
+            .children(self.list.iter().enumerate().map(|(i, n)| notif_card(n, &p, None, false, i, &today)))
     }
 }
 
@@ -217,6 +227,58 @@ pub(crate) struct NotifCenter {
     focus: FocusHandle,
     gen: u64,
     confirm_clear: bool, // "Clear all" asks once before deleting every notification
+    focus_i: usize,      // keyboard focus in the visible list
+    hidden: std::collections::HashSet<u32>, // dismissed, still undoable
+    pending: Option<(Vec<u32>, u64)>,       // (ids waiting for the store, token of the timer that commits them)
+    undo_token: u64,
+}
+
+const UNDO_SECS: u64 = 5;
+
+impl NotifCenter {
+    /// Hide `ids` now; they leave the store after UNDO_SECS unless `undo` runs first.
+    fn defer_dismiss(&mut self, ids: Vec<u32>, cx: &mut Context<Self>) {
+        self.commit_pending();
+        self.hidden.extend(ids.iter().copied());
+        self.undo_token += 1;
+        let token = self.undo_token;
+        self.pending = Some((ids, token));
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(Duration::from_secs(UNDO_SECS)).await;
+            let _ = this.update(cx, |t, cx| {
+                if t.pending.as_ref().is_some_and(|p| p.1 == token) {
+                    t.commit_pending();
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn commit_pending(&mut self) {
+        if let Some((ids, _)) = self.pending.take() {
+            for id in ids {
+                self.hidden.remove(&id);
+                notify::dismiss(id);
+            }
+        }
+    }
+
+    fn undo(&mut self) {
+        if let Some((ids, _)) = self.pending.take() {
+            for id in ids {
+                self.hidden.remove(&id);
+            }
+        }
+    }
+}
+
+// closing the center (Esc, bell click, idle) must not resurrect what the owner deleted
+impl Drop for NotifCenter {
+    fn drop(&mut self) {
+        self.commit_pending();
+    }
 }
 
 impl NotifCenter {
@@ -240,16 +302,18 @@ impl NotifCenter {
             }
         })
         .detach();
-        NotifCenter { pal: palette(), focus, gen: notify::generation(), confirm_clear: false }
+        NotifCenter { pal: palette(), focus, gen: notify::generation(), confirm_clear: false, focus_i: 0, hidden: Default::default(), pending: None, undo_token: 0 }
     }
 }
 
 impl Render for NotifCenter {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.pal.clone();
-        let list = notify::all();
+        let list: Vec<notify::Notif> = notify::all().into_iter().filter(|n| !self.hidden.contains(&n.id)).collect();
         let today = today_dm();
         let dnd = notify::dnd();
+        let me = cx.entity();
+        let focus_i = self.focus_i.min(list.len().saturating_sub(1));
         let pill = |id: &'static str, label: String, on: bool| {
             div()
                 .id(id)
@@ -266,10 +330,24 @@ impl Render for NotifCenter {
             .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .track_focus(&self.focus)
-            .on_key_down(cx.listener(|_, ev: &KeyDownEvent, window, cx| {
-                if ev.keystroke.key == "escape" {
-                    close_notif_center(window, cx);
+            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
+                let shown: Vec<u32> = notify::all().iter().map(|n| n.id).filter(|id| !this.hidden.contains(id)).collect();
+                let n = shown.len();
+                let k = &ev.keystroke;
+                match k.key.as_str() {
+                    "escape" => close_notif_center(window, cx),
+                    "tab" if k.modifiers.shift && n > 0 => this.focus_i = (this.focus_i.min(n - 1) + n - 1) % n,
+                    "tab" | "down" if n > 0 => this.focus_i = (this.focus_i + 1) % n,
+                    "up" if n > 0 => this.focus_i = (this.focus_i.min(n - 1) + n - 1) % n,
+                    "delete" | "backspace" if n > 0 => {
+                        let id = shown[this.focus_i.min(n - 1)];
+                        this.defer_dismiss(vec![id], cx);
+                    }
+                    "enter" if n > 0 => notify::activate(shown[this.focus_i.min(n - 1)]),
+                    "z" if k.modifiers.control => this.undo(),
+                    _ => {}
                 }
+                cx.notify();
             }))
             .flex()
             .flex_col()
@@ -307,7 +385,7 @@ impl Render for NotifCenter {
                                 }),
                             ))
                             .children(if self.confirm_clear {
-                                let n = notify::all().len();
+                                let n = list.len();
                                 vec![
                                     pill("nc-keep", "Keep".into(), false).on_click(cx.listener(|this, _, _, cx| {
                                         this.confirm_clear = false;
@@ -317,9 +395,9 @@ impl Render for NotifCenter {
                                         .bg(rgba((p.err << 8) | 0xcc))
                                         .text_color(rgb(p.bg)) // on light error red: dark text (white was ~1.7:1)
                                         .on_click(cx.listener(|this, _, _, cx| {
-                                            notify::clear_all();
+                                            let ids: Vec<u32> = notify::all().iter().map(|n| n.id).filter(|id| !this.hidden.contains(id)).collect();
                                             this.confirm_clear = false;
-                                            cx.notify();
+                                            this.defer_dismiss(ids, cx);
                                         })),
                                 ]
                             } else {
@@ -338,10 +416,32 @@ impl Render for NotifCenter {
                             .flex()
                             .flex_col()
                             .gap_2()
-                            .children(list.iter().enumerate().map(|(i, n)| notif_card(n, &p, true, i, &today)))
+                            .children(list.iter().enumerate().map(|(i, n)| notif_card(n, &p, Some(me.clone()), i == focus_i, i, &today)))
                             .when(list.is_empty(), |d| {
                                 d.child(div().py_6().flex().justify_center().text_color(rgb(p.dim)).child("No notifications"))
                             }),
+                    )
+                    // a deletion waits UNDO_SECS here before it is final
+                    .when_some(self.pending.as_ref().map(|p| p.0.len()), |d, n| {
+                        d.child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .text_size(px(12.))
+                                .text_color(rgb(p.dim))
+                                .child(div().flex_1().child(if n == 1 { "Deleted 1 notification".to_string() } else { format!("Deleted {n} notifications") }))
+                                .child(pill("nc-undo", "Undo".into(), true).on_click(cx.listener(|this, _, _, cx| {
+                                    this.undo();
+                                    cx.notify();
+                                }))),
+                        )
+                    })
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .text_color(rgb(p.dim))
+                            .child("Enter: open · Del: dismiss · Ctrl+Z: undo · Esc"),
                     ),
             )
     }

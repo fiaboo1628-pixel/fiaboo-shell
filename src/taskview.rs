@@ -124,6 +124,7 @@ pub(crate) struct TaskView {
     wins: Vec<TvWin>,
     sel: usize,
     last_input: std::time::Instant,
+    pending_close: Option<(usize, std::time::Instant)>, // card armed by one Del / right-click, and when
 }
 
 impl TaskView {
@@ -157,7 +158,40 @@ impl TaskView {
             }
         })
         .detach();
-        TaskView { pal: palette(), focus, wins, sel: 0, last_input: std::time::Instant::now() }
+        TaskView { pal: palette(), focus, wins, sel: 0, last_input: std::time::Instant::now(), pending_close: None }
+    }
+}
+
+/// Second Del / right-click on the same card within this window closes it; one press only arms it.
+const CLOSE_CONFIRM: Duration = Duration::from_secs(3);
+
+impl TaskView {
+    fn request_close(&mut self, i: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.last_input = std::time::Instant::now();
+        match self.pending_close {
+            Some((j, t)) if j == i && t.elapsed() < CLOSE_CONFIRM => {
+                if let Some(w) = self.wins.get(i) {
+                    wm::close_window(&w.address);
+                }
+                close_taskview(window, cx);
+            }
+            _ => {
+                let armed = std::time::Instant::now();
+                self.pending_close = Some((i, armed));
+                self.sel = i;
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(CLOSE_CONFIRM).await;
+                    let _ = this.update(cx, |t, cx| {
+                        if t.pending_close.is_some_and(|(_, at)| at == armed) {
+                            t.pending_close = None; // the card's hint goes back to the class name
+                            cx.notify();
+                        }
+                    });
+                })
+                .detach();
+                cx.notify();
+            }
+        }
     }
 }
 
@@ -166,8 +200,9 @@ impl Render for TaskView {
         let p = self.pal.clone();
         let empty = self.wins.is_empty();
         let sel = self.sel;
+        let pending = self.pending_close.filter(|(_, t)| t.elapsed() < CLOSE_CONFIRM).map(|(i, _)| i);
         let cards = self.wins.iter().enumerate().map(|(i, w)| {
-            let (focus_addr, close_addr) = (w.address.clone(), w.address.clone());
+            let focus_addr = w.address.clone();
             div()
                 .id(("tv", i))
                 .cursor_pointer()
@@ -184,11 +219,10 @@ impl Render for TaskView {
                 .when(i == sel, |d| d.border_2().border_color(rgb(p.accent)))
                 .hover(|s| s.bg(rgba((p.accent << 8) | A_HOVER)))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .on_mouse_down(MouseButton::Right, move |_, window, cx| {
+                .on_mouse_down(MouseButton::Right, cx.listener(move |this, _, window, cx| {
                     cx.stop_propagation();
-                    wm::close_window(&close_addr);
-                    close_taskview(window, cx);
-                })
+                    this.request_close(i, window, cx);
+                }))
                 .on_click(move |_, window, cx| {
                     focus_window(&focus_addr);
                     close_taskview(window, cx);
@@ -202,7 +236,11 @@ impl Render for TaskView {
                             Some(path) => img(path.clone()).size(px(28.)).object_fit(ObjectFit::Contain).into_any_element(),
                             None => div().size(px(28.)).into_any_element(),
                         })
-                        .child(div().flex_1().text_size(px(12.)).text_color(rgb(p.dim)).child(w.class.clone()))
+                        .child(if pending == Some(i) {
+                            div().flex_1().text_size(px(12.)).text_color(rgb(p.err)).child("Again: close · Esc: keep")
+                        } else {
+                            div().flex_1().text_size(px(12.)).text_color(rgb(p.dim)).child(w.class.clone())
+                        })
                         .child(div().text_size(px(12.)).text_color(rgb(p.accent)).child(format!("WS {}", w.ws))),
                 )
                 .child(
@@ -231,7 +269,15 @@ impl Render for TaskView {
                 this.last_input = std::time::Instant::now();
                 let n = this.wins.len();
                 match ev.keystroke.key.as_str() {
+                    "escape" if this.pending_close.is_some() => {
+                        this.pending_close = None; // keep the window
+                        cx.notify();
+                    }
                     "escape" => close_taskview(window, cx),
+                    "delete" | "backspace" if n > 0 => {
+                        let i = this.sel;
+                        this.request_close(i, window, cx);
+                    }
                     "right" | "down" | "tab" if n > 0 => {
                         this.sel = (this.sel + 1) % n;
                         cx.notify();
@@ -269,7 +315,7 @@ impl Render for TaskView {
                     .when(empty, |d| d.child(div().text_color(rgb(p.dim)).child("No open windows"))),
             )
             .child(
-                div().pt_4().text_size(px(12.)).text_color(rgb(p.dim)).child("Enter: switch   ·   Right-click: close window   ·   Esc: close"),
+                div().pt_4().text_size(px(12.)).text_color(rgb(p.dim)).child("Enter: switch   ·   Del or right-click twice: close window   ·   Esc: close"),
             )
     }
 }

@@ -89,7 +89,8 @@ pub(crate) fn read_settings() -> SettingsInfo {
         .iter()
         .map(|m| {
             format!(
-                "{} · {:.0}×{:.0} @ {:.0} Hz · scale {}",
+                "{} ({}) · {:.0}×{:.0} @ {:.0} Hz · scale {}",
+                m["model"].as_str().filter(|s| !s.is_empty()).unwrap_or("Display"),
                 m["name"].as_str().unwrap_or("?"),
                 m["width"].as_f64().unwrap_or(0.0),
                 m["height"].as_f64().unwrap_or(0.0),
@@ -149,6 +150,8 @@ pub(crate) struct BtUi {
     busy: Option<(String, bool, std::time::Instant)>,
     /// End of the current scan; Some once a scan was started in this panel (then found devices show).
     scan_until: Option<std::time::Instant>,
+    /// Row whose last click never reached its target state (timed out): says so until clicked again.
+    failed: Option<String>,
 }
 
 impl BtUi {
@@ -156,7 +159,10 @@ impl BtUi {
         self.info = info;
         if let Some((key, want, since)) = &self.busy {
             // pair + trust + connect can take a while
-            if bt_state(&self.info, key) == Some(*want) || since.elapsed() > Duration::from_secs(30) {
+            if bt_state(&self.info, key) == Some(*want) {
+                self.busy = None;
+            } else if since.elapsed() > Duration::from_secs(30) {
+                self.failed = Some(key.clone());
                 self.busy = None;
             }
         }
@@ -173,8 +179,15 @@ pub(crate) trait HasBt: 'static {
 pub(crate) fn bt_rows<T: HasBt>(ui: &BtUi, p: &Palette, cx: &mut Context<T>) -> Vec<gpui::AnyElement> {
     let (accent, dim) = (p.accent, p.dim);
     let busy = ui.busy.as_ref().map(|b| b.0.clone());
+    let failed = ui.failed.clone();
     let row = |id: gpui::ElementId, key: String, label: String, glyph: &'static str, on: bool, want: bool, cmd: String| {
-        let label = if busy.as_deref() == Some(key.as_str()) { format!("{label} · working…") } else { label };
+        let label = if busy.as_deref() == Some(key.as_str()) {
+            format!("{label} · working…")
+        } else if failed.as_deref() == Some(key.as_str()) {
+            format!("{label} · failed, click to retry")
+        } else {
+            label
+        };
         div()
             .id(id)
             .cursor_pointer()
@@ -189,6 +202,7 @@ pub(crate) fn bt_rows<T: HasBt>(ui: &BtUi, p: &Palette, cx: &mut Context<T>) -> 
             .hover(move |s| s.bg(rgba((accent << 8) | if on { A_ACTIVE } else { A_HOVER })))
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.touch();
+                this.bt().failed = None;
                 this.bt().busy = Some((key.clone(), want, std::time::Instant::now()));
                 run_bg(&cmd); // the next refresh shows the new state and clears busy
                 cx.notify();

@@ -442,6 +442,12 @@ impl Render for StartMenu {
             .child(search)
             .child(body)
             .when(self.power, |d| d.child(power_row))
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(rgb(p.dim))
+                    .child("Type to search   ·   Enter: open   ·   Right-click: pin or unpin   ·   Esc: close"),
+            )
             .child(footer)
             )
     }
