@@ -475,15 +475,17 @@ fn read_volume() -> (f32, bool) {
 
 fn read_sys() -> Sys {
     let (vol, muted) = read_volume();
+    let wifi_avail = sh("nmcli -t -f TYPE,STATE device").lines().any(|l| l.starts_with("wifi:") && !l.ends_with(":unavailable"));
     Sys {
-        wifi_avail: sh("nmcli -t -f TYPE,STATE device").lines().any(|l| l.starts_with("wifi:") && !l.ends_with(":unavailable")),
-        wifi_on: sh("nmcli -t -f WIFI g") == "enabled",
-        ssid: sh("nmcli -t -f active,ssid dev wifi list --rescan no | grep '^yes' | head -1 | cut -d: -f2-"),
+        wifi_avail,
+        // two more nmcli round trips every 8 s, pointless without an adapter
+        wifi_on: wifi_avail && sh("nmcli -t -f WIFI g") == "enabled",
+        ssid: if wifi_avail { sh("nmcli -t -f active,ssid dev wifi list --rescan no | grep '^yes' | head -1 | cut -d: -f2-") } else { String::new() },
         bt_on: sh("timeout 2 bluetoothctl show | grep -c 'Powered: yes'") == "1",
         vol,
         muted,
         dnd: notify::dnd(),
-        night: !sh("pgrep -x hyprsunset").is_empty(),
+        night: !sh("pidof hyprsunset").is_empty(), // pgrep reads every cmdline (22 ms), pidof only comm
         media: parse_media(&sh("timeout 2 playerctl metadata --format '{{status}}\t{{artist}}\t{{title}}' 2>/dev/null")),
     }
 }
