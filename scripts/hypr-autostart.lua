@@ -8,7 +8,7 @@ hl.on("hyprland.start", function ()
 
     -- Wallpaper daemon + last wallpaper
     hl.exec_cmd("awww-daemon")
-    hl.exec_cmd("~/.local/bin/fiaboo-wallpaper --restore")
+    hl.exec_cmd("fiaboo-wallpaper --restore")
 
     -- Load cursor
     hl.exec_cmd("hyprctl setcursor Bibata-Modern-Ice 24")

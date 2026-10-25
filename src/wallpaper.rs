@@ -74,7 +74,10 @@ pub(crate) fn wp_current() -> String {
 }
 
 pub(crate) fn wp_apply(path: &std::path::Path) {
-    spawn_bg(Command::new("setsid").arg(format!("{}/.local/bin/fiaboo-wallpaper", home())).arg(path));
+    // by name, not ~/.local/bin: on Arch the script was installed there, here it is in the
+    // store and on PATH. The hardcoded path simply did not exist, and spawn_bg swallows that,
+    // so picking a wallpaper did nothing and said nothing.
+    spawn_bg(Command::new("setsid").arg("fiaboo-wallpaper").arg(path));
 }
 
 pub(crate) fn toggle_wp(cx: &mut App) {
@@ -219,7 +222,7 @@ impl Render for WpPicker {
                     "down" if n > 0 => go(this, (this.sel + WP_COLS).min(n - 1), cx),
                     "up" if n > 0 => go(this, this.sel.saturating_sub(WP_COLS), cx),
                     "r" if k.modifiers.control => {
-                        run_bg("setsid ~/.local/bin/fiaboo-wallpaper --random");
+                        run_bg("setsid fiaboo-wallpaper --random");
                         close_wp(window, cx);
                     }
                     "enter" => {
@@ -281,7 +284,7 @@ impl Render for WpPicker {
                                     .bg(rgba((p.dim << 8) | A_HOVER))
                                     .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)))
                                     .on_click(|_, window, cx| {
-                                        run_bg("setsid ~/.local/bin/fiaboo-wallpaper --random");
+                                        run_bg("setsid fiaboo-wallpaper --random");
                                         close_wp(window, cx);
                                     })
                                     .child("Shuffle"),

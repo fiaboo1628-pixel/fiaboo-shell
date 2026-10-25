@@ -1160,7 +1160,7 @@ impl Render for Bar {
                                 .text_size(px(16.))
                                 .text_color(rgb(p.err))
                                 .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
-                                .on_click(|_, _, _| run_bg("~/.local/bin/fiaboo-record"))
+                                .on_click(|_, _, _| run_bg("fiaboo-record"))
                                 .child("\u{f044a}")
                                 .child(div().text_size(px(12.)).line_height(px(16.)).child(format!("{:02}:{:02}", secs / 60, secs % 60))),
                             "Recording · click to stop",
