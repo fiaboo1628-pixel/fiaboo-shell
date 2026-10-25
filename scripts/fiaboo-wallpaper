@@ -30,9 +30,12 @@ fi
 awww img "$img" --transition-type simple || exit 1
 echo "$img" > "$cache"
 
-# fixed Mocha-blue scheme for GTK/Qt/borders, not from the wallpaper (owner, 2026-10-17);
-# same output every time, rerun so a lost or edited colour file heals on the next wallpaper change
-matugen color hex "#89b4fa" -m dark
+# A matugen call stood here, regenerating a fixed Mocha-blue scheme (#89b4fa, never the
+# wallpaper's colours) on every change, purely so a lost colour file would heal. It is gone:
+# matugen is not installed here and has no config here either, so it only ever printed
+# "command not found". Its one consumer is hyprlock, which sources ~/.config/hypr/colors.conf;
+# that file exists and, the input being a fixed hex, would be byte-identical anyway. It is now
+# a hand-kept file like the rest of ~/.config/hypr. (owner, 2026-10-26)
 
 # hyprlock shows these
 magick "$img" -resize 75% -blur 50x30 "$cache_dir/blurred.tmp.png" && mv "$cache_dir/blurred.tmp.png" "$cache_dir/blurred.png"
