@@ -9,21 +9,19 @@ if not hg then return end
 -- the panels paint p.bg at alpha 0xC8: the engine sees through that fill and keeps only
 -- fill_alpha of it, so the glass reads underneath. p.bg = Catppuccin Mocha base (palette() in src/main.rs).
 local BG = 0x1e1e2e
--- how much of the panel fill stays: enough body behind the text that a bright or busy
--- wallpaper doesn't fight it; toasts more, they land on whatever is on screen
-local FILL = 0.6
--- Start opens over bright windows whose text bled through 60 %; owner chose 90 % (2026-10-23)
-local START_FILL = 0.9
--- Toasts were on FILL, which made them the thinnest glass in the shell -- level with the
--- decorative panels -- while being the only surface that appears unbidden, over whatever
--- happens to be on screen, and the only one that can carry a critical error. A screenshot
--- of an urgency=critical toast over a terminal had the terminal's own text legible through
--- the card, across the message. Same problem Start had at 60 %, so the same answer, and
--- the line above finally matches what it has always claimed (2026-10-25).
-local TOAST_FILL = 0.9
--- list panels (labels over terminal text): 80 % on trial (2026-10-24), the rest stays FILL
-local LIST_FILL = 0.8
-local LIST = { ["fiaboo-taskview"] = true, ["fiaboo-clip"] = true, ["fiaboo-settings"] = true, ["fiaboo-quick"] = true, ["fiaboo-notifcenter"] = true }
+-- How much body the glass keeps depends on what is BEHIND a surface, not on what it is.
+-- There used to be four levels (0.6 decorative, 0.8 lists, 0.9 Start, 0.9 toasts). That was
+-- not a ladder, it was four complaints answered on four days: the 0.6 comment still called
+-- the calendar and the tray menu "decorative" while both were full of text.
+--   bar: its exclusive zone keeps windows above it, so the only thing ever behind it is the
+--   wallpaper, which the owner picks. Thin glass is safe.
+--   everything else: can land over any window, including a bright one, so it carries its own body.
+-- Measured over the lightest background a window can actually produce (#a6a6a6 -- the glass
+-- dims a pure-white app by ~35 %): body text holds 6.4:1 at 0.9 and fell to 3.9:1 at 0.6,
+-- under WCAG AA. 0.9 is where the owner landed twice unprompted (Start 2026-10-23, toasts
+-- 2026-10-25); this only spares the rest from having to be complained about first.
+local BAR = 0.7
+local PANEL = 0.9
 
 -- clear glass (n = 1.52), strong colour split at the rim (Abbe 4), a glint from the
 -- upper left, a clear bevel round every shape; the rim reflects the scene around it
@@ -67,14 +65,14 @@ hl.window_rule({ name = "glass-window", match = { class = ".*" }, tag = "+hyprgl
 -- (one tag per rule; these run after the rule above, so they win)
 hl.window_rule({ name = "glass-kitty-1", match = { class = "^kitty$" }, tag = "-hyprglass_preset_glass-window" })
 hl.window_rule({ name = "glass-kitty-2", match = { class = "^kitty$" }, tag = "+hyprglass_preset_glass-dark" })
--- the bar keeps 70 % of its fill: more body than the panels, it sits over every window
+-- the bar: thinner than the panels, because nothing but the wallpaper is ever behind it
 hg.layer("fiaboo-bar", { preset = "glass-bar", shape = { inset = { 0, -80, -80, -80 }, radius = 0 }, adaptive = false,
-                         fill_key = BG, fill_alpha = 0.7 })
+                         fill_key = BG, fill_alpha = BAR })
 -- full-screen overlay layers that draw one card: the glass follows the card's outline
 for _, ns in ipairs({ "fiaboo-start", "fiaboo-quick", "fiaboo-calendar", "fiaboo-clip", "fiaboo-notifcenter",
                       "fiaboo-taskview", "fiaboo-settings", "fiaboo-wallpaper", "fiaboo-traymenu", "fiaboo-shot" }) do
   hg.layer(ns, { preset = "glass-card", mask_mode = "contour", mask_threshold = 0.04, shadow = 0.2,
-                 fill_key = BG, fill_alpha = ns == "fiaboo-start" and START_FILL or (LIST[ns] and LIST_FILL) or FILL })
+                 fill_key = BG, fill_alpha = PANEL })
 end
 -- the panels close with the engine's own motion (from the card it held): Hyprland's layer
 -- fade on top of it showed two panels closing, so it is off for them
@@ -83,6 +81,6 @@ hl.layer_rule({ match = { namespace = "^fiaboo-(start|quick|calendar|clip|notifc
 -- toasts and the OSD: thin glass; the toast stack fades in place (one toast leaving is not the stack closing)
 for _, ns in ipairs({ "fiaboo-notify", "fiaboo-osd" }) do
   hg.layer(ns, { preset = "glass-small", mask_mode = "contour", mask_threshold = 0.04, shadow = 0.16, held_close = false,
-                 fill_key = BG, fill_alpha = TOAST_FILL })
+                 fill_key = BG, fill_alpha = PANEL })
 end
 if not GLASS_IN_RELOAD then hg.commit() end
