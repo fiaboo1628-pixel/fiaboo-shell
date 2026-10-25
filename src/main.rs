@@ -438,14 +438,36 @@ fn launch_app(stem: &str) {
         .flatten()
         .filter_map(|e| e.file_name().to_str()?.strip_suffix(".desktop").map(String::from))
         .find(|s| s.to_lowercase() == stem);
-    let stem = real.as_deref().unwrap_or(stem);
+    // what Start calls it, for the failure toast; the stem is the file, not the app's name
+    let label = apps().0.iter().find(|d| d.stem == stem).map(|d| d.name.clone());
+    let file = real.unwrap_or_else(|| stem.to_string());
+    let label = label.unwrap_or_else(|| file.clone());
+    // `setsid -f` was here with both streams on /dev/null. -f forks, so the status anything
+    // could have waited on was the fork's and never gtk-launch's, and the reason went
+    // nowhere: clicking an entry that cannot start did nothing at all, twice, silently.
+    // Plain setsid execs (this child is not a process group leader), so the child *is*
+    // gtk-launch and its exit code means something, while the app still gets its own
+    // session and outlives a shell restart.
     // args, not `sh -c`: Steam's .desktop names have spaces
-    spawn_bg(
-        Command::new("setsid")
-            .args(["-f", "gtk-launch", stem])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null()),
-    );
+    let Ok(child) = Command::new("setsid")
+        .args(["gtk-launch", &file])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+    else {
+        return;
+    };
+    std::thread::spawn(move || {
+        let Ok(out) = child.wait_with_output() else { return }; // also reaps it
+        if out.status.success() {
+            return;
+        }
+        let err = String::from_utf8_lossy(&out.stderr);
+        let why = err.lines().find(|l| !l.trim().is_empty()).unwrap_or("gtk-launch gave no reason").trim();
+        let _ = Command::new("notify-send")
+            .args(["-u", "critical", "-a", "fiaboo-shell", &format!("{label} did not start"), why])
+            .status();
+    });
 }
 
 /// Start a command without waiting on it; a thread reaps it so it never lingers as a zombie.
