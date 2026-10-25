@@ -10,7 +10,6 @@ pub(crate) struct TvWin {
     address: String,
     title: String,
     ws: i64,
-    icon: Option<PathBuf>,
     stable_id: String,
     thumb: PathBuf, // filled in by a background `grim -T` (Hyprland's stableId is the ext-foreign-toplevel identifier)
 }
@@ -64,7 +63,6 @@ pub(crate) fn tv_windows() -> Vec<TvWin> {
             let stable_id = c["stableId"].as_str().unwrap_or("0").to_string();
             Some(TvWin {
                 address: c["address"].as_str()?.to_string(),
-                icon: icon_for(&class),
                 thumb: PathBuf::from(format!(
                     "{}/.cache/fiaboo-shell/tv-{}-{}.jpg",
                     home(),
@@ -181,7 +179,7 @@ impl TaskView {
                     cx.background_executor().timer(CLOSE_CONFIRM).await;
                     let _ = this.update(cx, |t, cx| {
                         if t.pending_close.is_some_and(|(_, at)| at == armed) {
-                            t.pending_close = None; // the card goes back to its resting header
+                            t.pending_close = None; // the card goes back to showing its title
                             cx.notify();
                         }
                     });
@@ -215,52 +213,25 @@ impl Render for TaskView {
                 .border_1()
                 .border_color(rgba((p.fg << 8) | A_BORDER))
                 .when(i == sel, |d| d.border_2().border_color(rgb(p.accent)))
+                // armed to close: the border carries the warning, because the line below says so
+                // in fg. err at 14 px measures 3.4:1 over the glass, under AA, and a border is
+                // not the only cue -- the text changes too.
+                .when(pending == Some(i), |d| d.border_2().border_color(rgb(p.err)))
                 .hover(|s| s.bg(rgba((p.accent << 8) | A_HOVER)))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation()) // closing is Del or the ✕, never a plain click
+                // The ✕ lived in a header row that is gone, so right-click is the mouse path to
+                // closing now. Still two presses: request_close only arms on the first.
+                .on_mouse_down(
+                    MouseButton::Right,
+                    cx.listener(move |this, _, window, cx| {
+                        cx.stop_propagation();
+                        this.request_close(i, window, cx);
+                    }),
+                )
                 .on_click(move |_, window, cx| {
                     focus_window(&focus_addr);
                     close_taskview(window, cx);
                 })
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .child(match &w.icon {
-                            Some(path) => img(path.clone()).size(px(28.)).object_fit(ObjectFit::Contain).into_any_element(),
-                            None => div().size(px(28.)).into_any_element(),
-                        })
-                        .child(if pending == Some(i) {
-                            // fg, not err: at 12 px over the glass err measures 3.4:1, under AA, and
-                            // this is the line that asks before a window is destroyed. The red lives
-                            // on the x below, where a glyph can carry it at any contrast.
-                            div().flex_1().text_size(px(12.)).text_color(rgb(p.fg)).child("Again: close · Esc: keep")
-                        } else {
-                            // the class string sat here: machine text, untruncated, and a long one pushed the x
-                            // off the card. The window title is already under the thumbnail, ellipsised. Hold the space.
-                            div().flex_1()
-                        })
-                        .child(div().text_size(px(12.)).text_color(rgb(p.accent)).child(format!("WS {}", w.ws)))
-                        .child(
-                            div()
-                                .id(("tv-x", i))
-                                .size(px(24.))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .rounded_md()
-                                .text_size(px(12.))
-                                .text_color(if pending == Some(i) { rgb(p.err) } else { rgb(p.dim) })
-                                .hover(|s| s.bg(rgba((p.dim << 8) | A_ACTIVE)).text_color(rgb(p.fg)))
-                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    cx.stop_propagation();
-                                    this.request_close(i, window, cx);
-                                }))
-                                .child("\u{2715}"),
-                        ),
-                )
                 .child(
                     div()
                         .flex_1()
@@ -276,7 +247,10 @@ impl Render for TaskView {
                         .text_ellipsis()
                         .text_size(px(14.))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child(w.title.clone()),
+                        // the confirmation used to sit in the header row; with that row gone this
+                        // is the only place left to say it, and saying nothing would make one Del
+                        // arm a close with no sign of it on screen
+                        .child(if pending == Some(i) { "Again: close · Esc: keep".to_string() } else { w.title.clone() }),
                 )
         });
         div()
@@ -333,7 +307,7 @@ impl Render for TaskView {
                     .when(empty, |d| d.child(div().text_color(rgb(p.dim)).child("No open windows"))),
             )
             .child(
-                div().pt_4().text_size(px(12.)).text_color(rgb(p.dim)).child("Enter: switch · Del or ✕ twice: close window · Esc: close"),
+                div().pt_4().text_size(px(12.)).text_color(rgb(p.dim)).child("Enter: switch · Del or right-click twice: close window · Esc: close"),
             )
     }
 }

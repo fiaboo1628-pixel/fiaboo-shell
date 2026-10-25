@@ -1260,26 +1260,6 @@ fn send_ipc(cmd: &str) -> ! {
 
 fn main() {
     if let Some(cmd) = std::env::args().nth(1) {
-        if cmd == "icon-debug" {
-            // Why a subcommand and not a log line: the running shell owns the IPC socket and
-            // the notification bus, so a second copy cannot start to be inspected, and the
-            // binary the session supervises is pinned to an immutable store path, so a log
-            // line costs a full re-login to read. This resolves one class and exits.
-            let class = std::env::args().nth(2).unwrap_or_default();
-            let apps = apps();
-            let lower = class.to_lowercase();
-            eprintln!("class      = {class:?}");
-            eprintln!("lower      = {lower:?}");
-            eprintln!("map len    = {}", apps.1.len());
-            eprintln!("map hit    = {:?}", apps.1.get(&lower));
-            if let Some(icon) = apps.1.get(&lower) {
-                eprintln!("file(icon) = {:?}", find_icon_file(icon));
-            }
-            eprintln!("file(lower)= {:?}", find_icon_file(&lower));
-            eprintln!("icon_for   = {:?}", icon_for(&class));
-            eprintln!("app_dirs   = {:#?}", app_dirs());
-            return;
-        }
         send_ipc(&cmd);
     }
     start_ipc();
