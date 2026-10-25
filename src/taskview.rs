@@ -234,7 +234,10 @@ impl Render for TaskView {
                             None => div().size(px(28.)).into_any_element(),
                         })
                         .child(if pending == Some(i) {
-                            div().flex_1().text_size(px(12.)).text_color(rgb(p.err)).child("Again: close · Esc: keep")
+                            // fg, not err: at 12 px over the glass err measures 3.4:1, under AA, and
+                            // this is the line that asks before a window is destroyed. The red lives
+                            // on the x below, where a glyph can carry it at any contrast.
+                            div().flex_1().text_size(px(12.)).text_color(rgb(p.fg)).child("Again: close · Esc: keep")
                         } else {
                             div().flex_1().text_size(px(12.)).text_color(rgb(p.dim)).child(w.class.clone())
                         })
