@@ -46,7 +46,7 @@ pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, center: Option<gpui::En
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded_lg()
+                .rounded_md()
                 .bg(rgba((p.dim << 8) | A_ACTIVE))
                 .font_family(NF).font_weight(FontWeight::MEDIUM)
                 .child("\u{f009c}")

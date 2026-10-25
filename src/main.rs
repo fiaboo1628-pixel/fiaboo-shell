@@ -1068,7 +1068,7 @@ impl Render for Bar {
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .rounded_lg()
+                                .rounded_md()
                                 .font_family(NF).font_weight(FontWeight::MEDIUM)
                                 .text_size(px(28.)) // the glyph's ink is small for its em box
                                 .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
@@ -1179,7 +1179,7 @@ impl Render for Bar {
                             // whole-pixel line heights (16+16 in a 36 px box): GPUI has no hinting, so a fractional
                             // baseline is what makes small text look soft
                             .child(div().text_size(px(14.)).line_height(px(16.)).font_weight(FontWeight::SEMIBOLD).child(clock_time.to_string()))
-                            .child(div().text_size(px(13.)).line_height(px(16.)).text_color(rgb(p.dim)).child(clock_date.to_string())), "Calendar"),
+                            .child(div().text_size(px(12.)).line_height(px(16.)).text_color(rgb(p.dim)).child(clock_date.to_string())), "Calendar"),
                     )
                     .child(
                         with_tip(div()

@@ -408,7 +408,7 @@ impl Render for CalendarPopup {
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded_lg()
+                .rounded_md()
                 .text_size(px(18.))
                 .hover(|s| s.bg(rgba((p.accent << 8) | A_HOVER)))
                 .on_click(cx.listener(move |this, _, _, cx| {
