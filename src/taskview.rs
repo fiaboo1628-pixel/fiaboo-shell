@@ -9,7 +9,6 @@ impl Global for TaskViewState {}
 pub(crate) struct TvWin {
     address: String,
     title: String,
-    class: String,
     ws: i64,
     icon: Option<PathBuf>,
     stable_id: String,
@@ -73,7 +72,6 @@ pub(crate) fn tv_windows() -> Vec<TvWin> {
                     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)
                 )),
                 title,
-                class,
                 ws,
                 stable_id,
             })
@@ -183,7 +181,7 @@ impl TaskView {
                     cx.background_executor().timer(CLOSE_CONFIRM).await;
                     let _ = this.update(cx, |t, cx| {
                         if t.pending_close.is_some_and(|(_, at)| at == armed) {
-                            t.pending_close = None; // the card's hint goes back to the class name
+                            t.pending_close = None; // the card goes back to its resting header
                             cx.notify();
                         }
                     });
@@ -239,7 +237,9 @@ impl Render for TaskView {
                             // on the x below, where a glyph can carry it at any contrast.
                             div().flex_1().text_size(px(12.)).text_color(rgb(p.fg)).child("Again: close · Esc: keep")
                         } else {
-                            div().flex_1().text_size(px(12.)).text_color(rgb(p.dim)).child(w.class.clone())
+                            // the class string sat here: machine text, untruncated, and a long one pushed the x
+                            // off the card. The window title is already under the thumbnail, ellipsised. Hold the space.
+                            div().flex_1()
                         })
                         .child(div().text_size(px(12.)).text_color(rgb(p.accent)).child(format!("WS {}", w.ws)))
                         .child(

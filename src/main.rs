@@ -224,11 +224,18 @@ fn find_icon_file(name: &str) -> Option<PathBuf> {
 }
 
 fn find_icon_file_uncached(name: &str) -> Option<PathBuf> {
-    // the app's own icon first (kora's restyled set only as a fallback); vector, then the PNG nearest
-    // our 26-48 px display sizes: GPUI samples big bitmaps without mipmaps, so 256 px looks grainy
-    // Shape of the search is unchanged; only the prefix is no longer written out. Each
-    // rung is tried across every data directory before moving to the next, so a user
-    // override still beats a system icon of the same rank.
+    // kora first, then the app's own icon. Measured over the 29 Icon= names the installed
+    // .desktop files actually ask for: kora covers 26, hicolor 12, breeze 10, Adwaita 1.
+    // Nine of them sat in both, and with hicolor first those nine -- chromium, kitty, mpv,
+    // CosmicFiles, fcitx, the two gtk3 demos, nix-snowflake, nm-device-wireless -- drew
+    // their vendor icon while the rest drew kora's, so the taskbar carried two visual
+    // languages at once. This desktop already commits to one font and one palette; icons
+    // were the last surface that did not. The three kora misses (btop, Emote, satty) ship
+    // their own icon and still reach it through the rungs below.
+    // Vector first, then the PNG nearest our 26-48 px display sizes: GPUI samples big
+    // bitmaps without mipmaps, so 256 px looks grainy. Each rung is tried across every
+    // data directory before moving to the next, so a user override still beats a system
+    // icon of the same rank.
     let dirs = data_dirs();
     let mut candidates = vec![];
     let mut rung = |pat: &str| {
@@ -236,6 +243,7 @@ fn find_icon_file_uncached(name: &str) -> Option<PathBuf> {
             candidates.push(format!("{d}/{}", pat.replace("{}", name)));
         }
     };
+    rung("icons/kora/apps/scalable/{}.svg");
     rung("icons/hicolor/scalable/apps/{}.svg");
     for size in ["64x64", "128x128", "48x48", "256x256", "512x512"] {
         rung(&format!("icons/hicolor/{size}/apps/{{}}.png"));
@@ -245,7 +253,6 @@ fn find_icon_file_uncached(name: &str) -> Option<PathBuf> {
     }
     rung("pixmaps/{}.png");
     rung("pixmaps/{}.svg");
-    rung("icons/kora/apps/scalable/{}.svg");
     candidates.into_iter().map(PathBuf::from).find(|p| p.exists())
 }
 
