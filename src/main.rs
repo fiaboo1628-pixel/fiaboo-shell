@@ -109,10 +109,46 @@ struct Palette {
     err: u32,
 }
 
-// One fixed Catppuccin Mocha palette (owner, 2026-10-17); nothing follows the wallpaper.
-// secondary text is subtext1, not subtext0: it sits on see-through glass
+/// Catppuccin Mocha unless a theme says otherwise; nothing follows the wallpaper.
+/// Secondary text is subtext1, not subtext0: it sits on see-through glass.
+///
+/// nixos-config's `theme` writes palette.conf from the same colours it gives kitty, btop,
+/// the window borders and the glass, so the whole desktop moves together. The values below
+/// are what that file holds for the catppuccin theme, and what every field falls back to:
+/// a missing file, or one line of it being unreadable, costs that one colour and nothing
+/// else. Read once -- palette() is called from seventeen places and each panel keeps a
+/// copy, so a theme change needs the shell restarted, which `theme` does.
 fn palette() -> Palette {
-    Palette { bg: 0x1e1e2e, fg: 0xcdd6f4, accent: 0x89b4fa, accent2: 0xcba6f7, dim: 0xbac2de, err: 0xf38ba8 }
+    static CACHE: OnceLock<Palette> = OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            let mut p =
+                Palette { bg: 0x1e1e2e, fg: 0xcdd6f4, accent: 0x89b4fa, accent2: 0xcba6f7, dim: 0xbac2de, err: 0xf38ba8 };
+            match fs::read_to_string(format!("{}/.config/fiaboo-shell/palette.conf", home())) {
+                Ok(text) => palette_from(&text, p),
+                Err(_) => p,
+            }
+        })
+        .clone()
+}
+
+/// Overlay `key = 0xrrggbb` lines onto `p`. Comments, blanks and anything that does not
+/// parse are skipped, so one bad line costs one colour.
+fn palette_from(text: &str, mut p: Palette) -> Palette {
+    for line in text.lines() {
+        let Some((key, value)) = line.split_once('=') else { continue };
+        let Ok(n) = u32::from_str_radix(value.trim().trim_start_matches("0x"), 16) else { continue };
+        match key.trim() {
+            "bg" => p.bg = n,
+            "fg" => p.fg = n,
+            "accent" => p.accent = n,
+            "accent2" => p.accent2 = n,
+            "dim" => p.dim = n,
+            "err" => p.err = n,
+            _ => {}
+        }
+    }
+    p
 }
 
 // ---------- icon lookup ----------
@@ -1349,6 +1385,29 @@ mod tests {
         assert_eq!(net_row(&f(["wlp3s0", "wifi", "connected", "Home"])), ("Wi-Fi".into(), "Connected · Home".into()));
         assert_eq!(net_row(&f(["tailscale0", "tun", "connected (externally)", "tailscale0"])), ("VPN".into(), "Connected".into()));
         assert_eq!(net_row(&f(["enp2s0", "ethernet", "unavailable", ""])), ("Ethernet".into(), "Cable unplugged".into()));
+    }
+
+    #[test]
+    fn palette_file_sets_what_it_parses_and_nothing_else() {
+        let base = Palette { bg: 1, fg: 2, accent: 3, accent2: 4, dim: 5, err: 6 };
+        let p = palette_from(
+            "# a theme, as `theme` writes it\n\
+             bg      = 0x0b1b2b\n\
+             accent  = 0x2b5e8f\n\
+             \n\
+             dim     = 0x{{ light_foreground_strip }}\n\
+             err     = not-a-colour\n\
+             nonsense\n\
+             unknown = 0xffffff\n",
+            base,
+        );
+        assert_eq!(p.bg, 0x0b1b2b, "a good line applies");
+        assert_eq!(p.accent, 0x2b5e8f);
+        // An unrendered token, a bad value, a line with no '=', and a key nobody knows all
+        // leave their field alone rather than taking the whole file down with them.
+        assert_eq!(p.dim, 5, "an unsubstituted template token keeps the default");
+        assert_eq!(p.err, 6, "an unparseable value keeps the default");
+        assert_eq!((p.fg, p.accent2), (2, 4), "fields the file never mentions keep theirs");
     }
 
     #[test]
