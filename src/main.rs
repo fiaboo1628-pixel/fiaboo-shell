@@ -153,9 +153,17 @@ static ICON_CACHE: OnceLock<Mutex<HashMap<String, Option<PathBuf>>>> = OnceLock:
 
 /// Installed apps; rescanned when an applications dir changes (installs/removals rename files in it).
 fn apps() -> Arc<(Vec<Desktop>, DesktopIndex)> {
-    static CACHE: Mutex<Option<(Vec<Option<std::time::SystemTime>>, Arc<(Vec<Desktop>, DesktopIndex)>)>> =
+    #[allow(clippy::type_complexity)]
+    static CACHE: Mutex<Option<(Vec<(Option<PathBuf>, Option<std::time::SystemTime>)>, Arc<(Vec<Desktop>, DesktopIndex)>)>> =
         Mutex::new(None);
-    let stamp: Vec<_> = app_dirs().iter().map(|d| fs::metadata(d).and_then(|m| m.modified()).ok()).collect();
+    // The resolved path, not only the mtime: on NixOS /usr/share/applications is a
+    // symlink into the store, where every directory has mtime 1, so mtime alone never
+    // changed and Start kept its first list until the shell restarted. The store path
+    // carries the hash of the package set, so it changes on every install.
+    let stamp: Vec<_> = app_dirs()
+        .iter()
+        .map(|d| (fs::canonicalize(d).ok(), fs::metadata(d).and_then(|m| m.modified()).ok()))
+        .collect();
     let mut cache = CACHE.lock().unwrap();
     if let Some((s, a)) = cache.as_ref() {
         if *s == stamp {
