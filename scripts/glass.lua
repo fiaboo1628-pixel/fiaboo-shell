@@ -7,8 +7,13 @@ local hg = hl.plugin.hyprglass
 if not hg then return end
 
 -- the panels paint p.bg at alpha 0xC8: the engine sees through that fill and keeps only
--- fill_alpha of it, so the glass reads underneath. p.bg = Catppuccin Mocha base (palette() in src/main.rs).
-local BG = 0x1e1e2e
+-- fill_alpha of it, so the glass reads underneath. This has to be the same colour
+-- palette().bg returns in src/main.rs, or a panel's body ends up a different colour from
+-- its own text. nixos-config's `theme` writes glass-colors.lua beside the hypr config when
+-- a theme is applied; the literal is the Catppuccin Mocha base, which is both what
+-- palette() still hardcodes and what the file holds when the theme is catppuccin.
+local ok, themed = pcall(dofile, os.getenv("HOME") .. "/.config/hypr/glass-colors.lua")
+local BG = (ok and type(themed) == "table" and themed.bg) or 0x1e1e2e
 -- How much body the glass keeps depends on what is BEHIND a surface, not on what it is.
 -- There used to be four levels (0.6 decorative, 0.8 lists, 0.9 Start, 0.9 toasts). That was
 -- not a ladder, it was four complaints answered on four days: the 0.6 comment still called
