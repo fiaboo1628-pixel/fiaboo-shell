@@ -56,6 +56,28 @@ fn home() -> String {
     std::env::var("HOME").unwrap_or_default()
 }
 
+/// The XDG data directories, most specific first: $XDG_DATA_HOME then $XDG_DATA_DIRS.
+///
+/// Every icon and desktop-entry lookup below goes through this. The paths used to be
+/// written out as /usr/share/..., which is true on Arch and false on NixOS -- there they
+/// only resolved because the system configuration symlinks /usr/share into the store, a
+/// workaround living in a different repository from the assumption that needed it. The
+/// environment already names the right directories on both.
+pub(crate) fn data_dirs() -> Vec<String> {
+    let data_home = std::env::var("XDG_DATA_HOME")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| format!("{}/.local/share", home()));
+    // The defaults are the spec's own, for a session that sets neither.
+    let dirs = std::env::var("XDG_DATA_DIRS")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "/usr/local/share:/usr/share".to_string());
+    std::iter::once(data_home)
+        .chain(dirs.split(':').filter(|s| !s.is_empty()).map(|s| s.trim_end_matches('/').to_string()))
+        .collect()
+}
+
 /// Write an RGBA image as PNG under a temp name, then rename: callers reuse any file that exists,
 /// so a half-written one (crash, full disk) would otherwise stay a broken icon for good.
 fn write_png(file: &std::path::Path, w: u32, h: u32, rgba: &[u8]) -> Option<()> {
@@ -104,8 +126,8 @@ struct Desktop {
 }
 
 // User dir first: a same-named file there overrides (or hides) the system one, per XDG.
-fn app_dirs() -> [String; 2] {
-    [format!("{}/.local/share/applications", home()), "/usr/share/applications".to_string()]
+fn app_dirs() -> Vec<String> {
+    data_dirs().into_iter().map(|d| format!("{d}/applications")).collect()
 }
 
 /// `desktop` is `$XDG_CURRENT_DESKTOP`: entries with OnlyShowIn/NotShowIn for other desktops are skipped.
@@ -204,17 +226,26 @@ fn find_icon_file(name: &str) -> Option<PathBuf> {
 fn find_icon_file_uncached(name: &str) -> Option<PathBuf> {
     // the app's own icon first (kora's restyled set only as a fallback); vector, then the PNG nearest
     // our 26-48 px display sizes: GPUI samples big bitmaps without mipmaps, so 256 px looks grainy
-    let mut candidates = vec![format!("/usr/share/icons/hicolor/scalable/apps/{name}.svg")];
+    // Shape of the search is unchanged; only the prefix is no longer written out. Each
+    // rung is tried across every data directory before moving to the next, so a user
+    // override still beats a system icon of the same rank.
+    let dirs = data_dirs();
+    let mut candidates = vec![];
+    let mut rung = |pat: &str| {
+        for d in &dirs {
+            candidates.push(format!("{d}/{}", pat.replace("{}", name)));
+        }
+    };
+    rung("icons/hicolor/scalable/apps/{}.svg");
     for size in ["64x64", "128x128", "48x48", "256x256", "512x512"] {
-        candidates.push(format!("/usr/share/icons/hicolor/{size}/apps/{name}.png"));
+        rung(&format!("icons/hicolor/{size}/apps/{{}}.png"));
     }
     for size in ["256x256", "128x128", "64x64", "48x48", "512x512"] {
-        candidates.push(format!("/usr/share/icons/hicolor/{size}/apps/{name}.svg"));
+        rung(&format!("icons/hicolor/{size}/apps/{{}}.svg"));
     }
-    candidates.push(format!("{}/.local/share/icons/hicolor/256x256/apps/{name}.png", home()));
-    candidates.push(format!("/usr/share/pixmaps/{name}.png"));
-    candidates.push(format!("/usr/share/pixmaps/{name}.svg"));
-    candidates.push(format!("{}/.local/share/icons/kora/apps/scalable/{name}.svg", home()));
+    rung("pixmaps/{}.png");
+    rung("pixmaps/{}.svg");
+    rung("icons/kora/apps/scalable/{}.svg");
     candidates.into_iter().map(PathBuf::from).find(|p| p.exists())
 }
 
@@ -1001,12 +1032,30 @@ impl Render for Bar {
                                 .rounded_lg()
                                 .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
                                 .on_click(|_, _, cx| toggle_start(cx))
-                                .child(
-                                    img(PathBuf::from(format!("{}/Pictures/fiaboo/cauvang.jpg", home())))
-                                        .size(px(30.))
-                                        .rounded_full()
-                                        .object_fit(ObjectFit::Cover),
-                                ),
+                                // A missing file makes img() draw nothing, and the button
+                                // is 30px of empty space you can still click -- which is
+                                // exactly what happened when ~/Pictures/fiaboo was not
+                                // copied to this machine and Start went invisible for
+                                // days. Check first and fall back to a glyph, so a lost
+                                // image leaves a button that looks wrong rather than one
+                                // that looks absent.
+                                .child({
+                                    let face = PathBuf::from(format!("{}/Pictures/fiaboo/cauvang.jpg", home()));
+                                    if face.exists() {
+                                        img(face).size(px(30.)).rounded_full().object_fit(ObjectFit::Cover).into_any_element()
+                                    } else {
+                                        div()
+                                            .size(px(30.))
+                                            .rounded_full()
+                                            .bg(rgba((p.accent << 8) | A_ACTIVE))
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .text_color(rgb(p.bg))
+                                            .child("\u{2630}")
+                                            .into_any_element()
+                                    }
+                                }),
                             "Start",
                         ),
                     )

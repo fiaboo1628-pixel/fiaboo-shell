@@ -273,12 +273,13 @@ fn find_in_themes(name: &str) -> Option<PathBuf> {
         return hit.clone();
     }
     let mut found = None;
-    'outer: for base in [
-        format!("{}/.local/share/icons/kora", home()),
-        "/usr/share/icons/Adwaita".to_string(),
-        "/usr/share/icons/breeze".to_string(),
-        "/usr/share/icons/hicolor".to_string(),
-    ] {
+    // Theme order is the preference and stays fixed; the prefix comes from the
+    // environment rather than a written-out /usr/share (see data_dirs).
+    let bases: Vec<String> = ["kora", "Adwaita", "breeze", "hicolor"]
+        .iter()
+        .flat_map(|theme| crate::data_dirs().into_iter().map(move |d| format!("{d}/icons/{theme}")))
+        .collect();
+    'outer: for base in bases {
         let Ok(l1) = fs::read_dir(&base) else { continue };
         for a in l1.flatten() {
             let Ok(l2) = fs::read_dir(a.path()) else { continue };

@@ -11,9 +11,16 @@ if not hg then return end
 local BG = 0x1e1e2e
 -- how much of the panel fill stays: enough body behind the text that a bright or busy
 -- wallpaper doesn't fight it; toasts more, they land on whatever is on screen
-local FILL, TOAST_FILL = 0.6, 0.6
+local FILL = 0.6
 -- Start opens over bright windows whose text bled through 60 %; owner chose 90 % (2026-10-23)
 local START_FILL = 0.9
+-- Toasts were on FILL, which made them the thinnest glass in the shell -- level with the
+-- decorative panels -- while being the only surface that appears unbidden, over whatever
+-- happens to be on screen, and the only one that can carry a critical error. A screenshot
+-- of an urgency=critical toast over a terminal had the terminal's own text legible through
+-- the card, across the message. Same problem Start had at 60 %, so the same answer, and
+-- the line above finally matches what it has always claimed (2026-10-25).
+local TOAST_FILL = 0.9
 -- list panels (labels over terminal text): 80 % on trial (2026-10-24), the rest stays FILL
 local LIST_FILL = 0.8
 local LIST = { ["fiaboo-taskview"] = true, ["fiaboo-clip"] = true, ["fiaboo-settings"] = true, ["fiaboo-quick"] = true, ["fiaboo-notifcenter"] = true }
