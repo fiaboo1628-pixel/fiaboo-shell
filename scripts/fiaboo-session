@@ -13,6 +13,9 @@ GLASS_SRC=${FIABOO_GLASS_SRC:-$HOME/Projects/fiaboo-shell/scripts}   # hyprglass
 # loaded (its crash report names hyprglass and is newer than the build), it stays off until rebuilt.
 glass() {
     local ver so build cache=$HOME/.cache/fiaboo-shell report
+    # NixOS packages the engine and loads it from conf/autostart.lua, pointing GLASS_SRC at a
+    # placeholder; without this the cp below fails and prints an error on every session start
+    [ -d "$GLASS_SRC/hyprglass" ] || return
     ver=$(hyprctl version -j 2>/dev/null | jq -r '.version // empty'); [ -n "$ver" ] || return
     so=$cache/hyprglass-$ver.so; mkdir -p "$cache"
     if [ ! -f "$so" ] || [ -n "$(find "$GLASS_SRC/hyprglass" -newer "$so" | head -1)" ]; then
