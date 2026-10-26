@@ -1,6 +1,7 @@
 //! Settings panel (network, sound, Bluetooth, displays, about).
 
 use crate::*;
+use zbus::blocking::{fdo::ObjectManagerProxy, Connection};
 
 // ---------- settings ----------
 pub(crate) struct SettingsState(pub(crate) Option<AnyWindowHandle>);
@@ -14,17 +15,9 @@ pub(crate) struct SettingsInfo {
     about: Vec<(&'static str, String)>,
 }
 
-/// `bluetoothctl devices …` lines: "Device <MAC> <name>" -> (mac, name)
-pub(crate) fn bt_device_lines(text: &str) -> Vec<(String, String)> {
-    text.lines()
-        .filter_map(|l| {
-            let mut it = l.strip_prefix("Device ")?.splitn(2, ' ');
-            let mac = it.next()?.to_string();
-            // the MAC goes into shell commands, so accept only AA:BB:CC:DD:EE:FF
-            let valid = mac.len() == 17 && mac.char_indices().all(|(i, c)| if i % 3 == 2 { c == ':' } else { c.is_ascii_hexdigit() });
-            valid.then(|| (mac.clone(), it.next().unwrap_or(&mac).to_string()))
-        })
-        .collect()
+/// A bluez address goes into the shell commands below, so accept only AA:BB:CC:DD:EE:FF.
+pub(crate) fn valid_mac(mac: &str) -> bool {
+    mac.len() == 17 && mac.char_indices().all(|(i, c)| if i % 3 == 2 { c == ':' } else { c.is_ascii_hexdigit() })
 }
 
 /// Split one `nmcli -t` line: fields are ':'-separated, literal ':' is escaped as "\:".
@@ -127,20 +120,41 @@ pub(crate) struct BtInfo {
     pub(crate) found: Vec<(String, String)>,        // (mac, name) known to bluez but not paired, named only
 }
 
+/// bluez lives on the system bus; one connection for the life of the process, like `tray`'s.
+fn bluez_objects() -> Option<zbus::fdo::ManagedObjects> {
+    static CONN: OnceLock<Connection> = OnceLock::new();
+    if CONN.get().is_none() {
+        let _ = CONN.set(Connection::system().ok()?);
+    }
+    let om = ObjectManagerProxy::new(CONN.get()?, "org.bluez", "/").ok()?;
+    om.get_managed_objects().ok()
+}
+
+/// One D-Bus round trip, where this used to spawn four `bluetoothctl` processes every 3 s
+/// for as long as the panel stayed open. Measured: 0.53 ms a call.
 pub(crate) fn read_bt() -> BtInfo {
-    let connected = bt_device_lines(&sh("timeout 2 bluetoothctl devices Connected"));
-    let paired: Vec<_> = bt_device_lines(&sh("timeout 2 bluetoothctl devices Paired"))
-        .into_iter()
-        .map(|(mac, name)| {
-            let on = connected.iter().any(|c| c.0 == mac);
-            (mac, name, on)
-        })
-        .collect();
-    let found = bt_device_lines(&sh("timeout 2 bluetoothctl devices"))
-        .into_iter()
-        .filter(|(mac, name)| name.replace('-', ":") != *mac && !paired.iter().any(|p| p.0 == *mac))
-        .collect();
-    BtInfo { on: sh("timeout 2 bluetoothctl show | grep -c 'Powered: yes'") == "1", paired, found }
+    let Some(objs) = bluez_objects() else { return BtInfo::default() };
+    let mut info = BtInfo::default();
+    for ifaces in objs.values() {
+        if let Some(a) = ifaces.get("org.bluez.Adapter1") {
+            info.on |= a.get("Powered").and_then(|v| v.downcast_ref::<bool>().ok()).unwrap_or(false);
+        }
+        let Some(d) = ifaces.get("org.bluez.Device1") else { continue };
+        let flag = |k: &str| d.get(k).and_then(|v| v.downcast_ref::<bool>().ok()).unwrap_or(false);
+        let text = |k: &str| d.get(k).and_then(|v| v.downcast_ref::<String>().ok());
+        let Some(mac) = text("Address").filter(|m| valid_mac(m)) else { continue };
+        let name = text("Alias").unwrap_or_else(|| mac.clone());
+        if flag("Paired") {
+            info.paired.push((mac, name, flag("Connected")));
+        } else if text("Name").is_some() {
+            // bluez sets Name only once a device reports one; the rest is MAC noise from the scan
+            info.found.push((mac, name));
+        }
+    }
+    // GetManagedObjects comes back in hash order, so without this the rows swap places on refresh
+    info.paired.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.cmp(&b.0)));
+    info.found.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.cmp(&b.0)));
+    info
 }
 
 /// Current on/off of a Bluetooth row: "power" or a device MAC (on = connected).
@@ -325,7 +339,7 @@ impl SettingsPanel {
         // Two cadences. Measured over /proc cutime+cstime, an open panel cost 4.2% of a
         // core against 1.3% closed, all of it these commands. The About rows are about
         // half the processes and none of the change, so they go to every tenth pass;
-        // net, sound and Bluetooth stay at 3 s.
+        // net and sound stay at 3 s (Bluetooth is a D-Bus read now, not a process).
         let mut pass: u32 = 0;
         cx.spawn_in(window, async move |this, cx| loop {
             let slow = pass % 10 == 0;
