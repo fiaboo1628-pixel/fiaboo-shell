@@ -97,14 +97,14 @@ pub(crate) fn read_settings() -> SettingsInfo {
 
 /// The About rows, split out because they are the slow half and the still half.
 ///
-/// Five commands, but `free -h | awk` and `df -h / | awk` are three processes each, so
-/// this is roughly twelve of the twenty-six a refresh spawns -- against a host name and a
-/// kernel version that never change while the panel is open, and an uptime nobody reads
-/// to the second. The caller runs it on every tenth pass; net, sound and Bluetooth keep
-/// the 3 s cadence, because those are what a person sits in this panel waiting on.
+/// Four commands, but `free -h | awk` and `df -h / | awk` are three processes each, so
+/// this is ten processes -- against a host name and a kernel version that never change
+/// while the panel is open, and an uptime nobody reads to the second. The caller runs it
+/// on every tenth pass; net and sound keep the 3 s cadence, because those are what a
+/// person sits in this panel waiting on.
 pub(crate) fn read_about() -> Vec<(&'static str, String)> {
     vec![
-        ("Host", sh("cat /etc/hostname")),
+        ("Host", fs::read_to_string("/etc/hostname").unwrap_or_default().trim().to_string()),
         ("Kernel", sh("uname -r")),
         ("Uptime", sh("uptime -p").trim_start_matches("up ").to_string()),
         ("Memory", sh("free -h | awk '/^Mem/ {print $3 \" / \" $2}'")),
@@ -402,7 +402,8 @@ impl Render for SettingsPanel {
                 .hover(move |s| s.bg(rgba((p.accent << 8) | if *is_default { A_ACTIVE } else { A_HOVER })))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.last_input = std::time::Instant::now();
-                    run_bg(&format!("pactl set-default-sink '{name}'"));
+                    // no shell: a sink name is device-supplied and would otherwise need quoting
+                    spawn_bg(Command::new("pactl").args(["set-default-sink", name.as_str()]));
                     for s in this.info.sinks.iter_mut() {
                         s.2 = s.0 == name; // show it now, the next refresh confirms
                     }
