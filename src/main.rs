@@ -590,7 +590,7 @@ fn read_sys() -> Sys {
         // two more nmcli round trips every 8 s, pointless without an adapter
         wifi_on: wifi_avail && sh("nmcli -t -f WIFI g") == "enabled",
         ssid: if wifi_avail { sh("nmcli -t -f active,ssid dev wifi list --rescan no | grep '^yes' | head -1 | cut -d: -f2-") } else { String::new() },
-        bt_on: sh("timeout 2 bluetoothctl show | grep -c 'Powered: yes'") == "1",
+        bt_on: read_bt().on,
         vol,
         muted,
         dnd: notify::dnd(),
@@ -1436,10 +1436,8 @@ mod tests {
         );
         assert_eq!(parse_media("Paused\t\tVideo\twith tab").map(|m| (m.playing, m.title)), Some((false, "Video\twith tab".into())));
         assert_eq!(parse_media(""), None);
-        assert_eq!(
-            bt_device_lines("Device 4C:3C:8F:5D:76:9B JBL Go 4\nnoise\nDevice ;rm${IFS}-rf:x evil"),
-            [("4C:3C:8F:5D:76:9B".to_string(), "JBL Go 4".to_string())]
-        );
+        assert!(valid_mac("4C:3C:8F:5D:76:9B"));
+        assert!(!valid_mac(";rm${IFS}-rf:x")); // an address this shape would reach a shell command
         let bt = BtInfo { on: true, paired: vec![("AA".into(), "JBL".into(), false)], ..Default::default() };
         assert_eq!((bt_state(&bt, "power"), bt_state(&bt, "AA"), bt_state(&bt, "BB")), (Some(true), Some(false), None));
         assert_eq!(nmcli_fields("wlan0:wifi:connected:My\\:Net"), ["wlan0", "wifi", "connected", "My:Net"]);
