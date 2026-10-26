@@ -53,6 +53,15 @@ The source of truth for what runs is `FIABOO_SHELL_BIN`, which `scripts/fiaboo-s
    In a session that does have cargo: `dbus-run-session -- cargo test --release` (plain
    `cargo test` fails the tray tests because the running shell owns the watcher name).
 6. Verify the UI with `grim` screenshots. Don't rely on ydotool mouse positioning (inaccurate).
+   For video, **`wf-recorder` is not on the system PATH** — `package.nix` only puts it in
+   `fiaboo-record`'s wrapper, so `command -v wf-recorder` finding nothing does *not* mean the
+   Shift+Print binding is broken. And `fiaboo-record` itself cannot be driven over SSH: it calls
+   `slurp -o`, which waits for a click. Call the binary straight instead:
+   `timeout -s INT 10 wf-recorder -o DP-1 -D -r 30 -f out.mp4`, with `XDG_RUNTIME_DIR` and
+   `WAYLAND_DISPLAY` exported (`hyprctl` additionally needs `HYPRLAND_INSTANCE_SIGNATURE`, which
+   is the one directory name under `$XDG_RUNTIME_DIR/hypr` and changes every session). Expect a
+   capture of an unattended desktop to look like a frozen screenshot — nothing moves when nobody
+   is at the machine, and only `-D` keeps it a real 30 fps stream rather than a file with no video.
 
 ## Git
 - Work on a feature branch, merge into `main` with `git merge --no-ff` ("Merge <branch>: <summary>").
