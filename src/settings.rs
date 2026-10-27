@@ -450,7 +450,7 @@ impl Render for SettingsPanel {
                     .gap_2()
                     .p_4()
                     .rounded_2xl()
-                    .bg(rgba((p.bg << 8) | GLASS))
+                    .bg(rgba((p.bg << 8) | PANEL_FILL))
                     .border_1()
                     .border_color(rgba((p.fg << 8) | A_BORDER))
                     .text_color(rgb(p.fg))
