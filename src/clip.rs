@@ -14,9 +14,9 @@ pub(crate) struct Clip {
     image: Option<PathBuf>,
 }
 
-/// Text row height (8 + 12 px line + 8 as before, rounded to the pitch B measured); 11 rows showed whole before.
-const CLIP_ROW: f32 = 39.;
-const CLIP_ROWS: f32 = 11.;
+/// Text row height: roomier since 2026-10-27 (owner: rows "only just fit the text", 39 -> 44), so 10 rows keep the panel height.
+const CLIP_ROW: f32 = 44.;
+const CLIP_ROWS: f32 = 10.;
 
 /// API keys and tokens by their well-known prefixes (Anthropic/OpenAI sk-, GitHub ghp_/gho_, Slack xox?-, AWS AKIA).
 fn looks_secret(text: &str) -> bool {
@@ -269,8 +269,10 @@ impl Render for ClipPanel {
             div()
                 .id(id)
                 .cursor_pointer()
-                .px_3()
-                .py_2()
+                .px_4()
+                .h(px(44.))
+                .flex()
+                .items_center()
                 .rounded_lg()
                 .text_size(px(12.))
                 .bg(rgba((p.dim << 8) | A_HOVER))
@@ -289,7 +291,7 @@ impl Render for ClipPanel {
                 .flex()
                 .items_center()
                 .gap_3()
-                .px_3()
+                .px_4()
                 .rounded_lg()
                 .when(i == sel, |d| d.bg(rgba((p.accent << 8) | A_HOVER)))
                 .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
@@ -371,13 +373,13 @@ impl Render for ClipPanel {
             .on_mouse_down(MouseButton::Right, |_, window, cx| close_clip(window, cx))
             .child(
                 div()
-                    .w(px(560.))
+                    .w(px(600.))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
                     .flex()
                     .flex_col()
-                    .gap_3()
-                    .p_4()
+                    .gap_4()
+                    .p_6()
                     .rounded_2xl()
                     .bg(rgba((p.bg << 8) | GLASS))
                     .border_1()
@@ -392,7 +394,7 @@ impl Render for ClipPanel {
                             .child(
                                 div()
                                     .flex_1()
-                                    .h(px(40.))
+                                    .h(px(44.))
                                     .flex()
                                     .items_center()
                                     .px_4()
