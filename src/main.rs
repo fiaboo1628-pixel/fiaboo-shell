@@ -46,9 +46,9 @@ const BAR_HEIGHT: f32 = 48.0;
 /// Panel/bar background alpha: the glass plugin (scripts/glass.lua) sees through this fill.
 const GLASS: u32 = 0xC8;
 /// Panels have no glass since 2026-10-28 (owner: the text slid ahead of the glass, "bỏ kính toàn bộ panel
-/// cho đồng nhất"), so their fill carries the readability alone: opaque, the same on every panel
-/// (at 95 % the text of the window behind still showed through Start's list).
-const PANEL_FILL: u32 = 0xFF;
+/// cho đồng nhất"), then Hyprland blur behind them ("blur đi"): 80 % over the blurred wallpaper,
+/// the same on every panel. (Opaque before the blur: at 95 % unblurred, window text showed through.)
+const PANEL_FILL: u32 = 0xCC;
 // alpha steps for palette colours used as fills and borders (never for text)
 const A_SURFACE: u32 = 0x20; // resting tiles, chips
 const A_HOVER: u32 = 0x30;
