@@ -73,14 +73,10 @@ hl.window_rule({ name = "glass-kitty-2", match = { class = "^kitty$" }, tag = "+
 -- the bar: thinner than the panels, because nothing but the wallpaper is ever behind it
 hg.layer("fiaboo-bar", { preset = "glass-bar", shape = { inset = { 0, -80, -80, -80 }, radius = 0 }, adaptive = false,
                          fill_key = BG, fill_alpha = BAR })
--- full-screen overlay layers that draw one card: the glass follows the card's outline
-for _, ns in ipairs({ "fiaboo-start", "fiaboo-quick", "fiaboo-calendar", "fiaboo-clip", "fiaboo-notifcenter",
-                      "fiaboo-taskview", "fiaboo-settings", "fiaboo-wallpaper", "fiaboo-traymenu", "fiaboo-shot" }) do
-  hg.layer(ns, { preset = "glass-card", mask_mode = "contour", mask_threshold = 0.04, shadow = 0.2,
-                 fill_key = BG, fill_alpha = PANEL })
-end
--- the panels close with the engine's own motion (from the card it held): Hyprland's layer
--- fade on top of it showed two panels closing, so it is off for them
+-- panels (Start, quick settings, calendar, ...) have no glass since 2026-10-28: the engine follows a
+-- panel's painted outline a few frames late, so any in-app motion showed the text running ahead of
+-- its glass. They paint an opaque fill (PANEL_FILL in main.rs) instead.
+-- the panels open and close without Hyprland's layer animation (the calendar drops in-app)
 hl.layer_rule({ match = { namespace = "^fiaboo-(start|quick|calendar|clip|notifcenter|taskview|settings|wallpaper|traymenu|shot)$" },
                 no_anim = true, animation = "none" })
 -- toasts and the OSD: thin glass; the toast stack fades in place (one toast leaving is not the stack closing)

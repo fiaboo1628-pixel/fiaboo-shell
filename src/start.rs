@@ -171,8 +171,6 @@ pub(crate) fn tile_icon(e: &Entry, size_px: f32, p: &Palette) -> gpui::AnyElemen
     }
 }
 
-/// 90 %: Start opens over bright windows, where the 78 % GLASS lets their text bleed into the list.
-const START_FILL: u32 = 0xE6;
 /// All apps row (8 + 26 icon + 8); the list is a whole number of rows so no row is cut at the bottom.
 const ROW_H: f32 = 42.;
 const LIST_ROWS: f32 = 7.;
@@ -446,7 +444,7 @@ impl Render for StartMenu {
             .gap_3()
             .p_4()
             .rounded_2xl()
-            .bg(rgba((p.bg << 8) | START_FILL))
+            .bg(rgba((p.bg << 8) | PANEL_FILL))
             .border_1()
             .border_color(rgba((p.fg << 8) | A_BORDER))
             .text_color(rgb(p.fg))
