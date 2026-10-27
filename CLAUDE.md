@@ -5,9 +5,7 @@
 A Rust GPUI desktop shell for Hyprland 0.56 (Lua config), replacing ML4W/quickshell: taskbar, Start, Task View, tray, quick settings + media, OSD, notifications, clipboard, screenshots, wallpaper, Settings, lunar calendar, music line.
 UI text is English. Current state and history live in auto memory.
 
-**This repo is no longer deployed with cargo.** It is a flake input of `~/Projects/nixos-config`
-(`fiaboo-shell-src`), packaged by `package.nix`, and the running desktop is a NixOS generation.
-See "Build, test, upgrade" — the old `~/.local/bin/fiaboo-shell` path is dead.
+Back on Arch since 2026-10-27 after a NixOS trial: deployed with cargo again (the `package.nix`/flake path in `~/Projects/nixos-config` is history).
 
 ## Never break the running desktop
 - The shell is the owner's live desktop, used at the desk; remote use is SSH from an iPhone (Tailscale), VNC is rare, so don't design the UI around touch. Replace things gradually, always keep a fallback (swaync for notifications, fuzzel as launcher fallback, nm-applet).
@@ -29,39 +27,13 @@ See "Build, test, upgrade" — the old `~/.local/bin/fiaboo-shell` path is dead.
 - System data comes from shelling out (`sh`, `run_bg`: hyprctl, wpctl, pactl, playerctl, cliphist, grim…), not libraries. The music line is its own 8 px layer surface (`fiaboo-musicline`, Layer::Top over the bar's top edge, so the bar never redraws for it); `playerctl --follow status` drives it, and only while a player plays does it exist and run `parec` (default sink monitor), measuring just loudness and bass.
 
 ## Build, test, upgrade
-
-The source of truth for what runs is `FIABOO_SHELL_BIN`, which `scripts/fiaboo-session` gets
-**baked in by `package.nix`** as an immutable store path. So:
-
-1. **Commit first.** The flake input is `git+file:///home/fiaboo/Projects/fiaboo-shell`, which
-   sees only committed files — an uncommitted edit builds the previous code and looks like a
-   change that did nothing. (`path:` would work but copies `target/`, 2.9 GB, into the store on
-   every update; that is why it was changed.)
-2. Then, in `nixos-config`: `nix flake update fiaboo-shell-src` → `sudo nixos-rebuild switch --flake .`.
-   `boot` alone is not enough: the wrapper reads the path from `/run/current-system`, so a
-   `boot`-only build leaves a logout starting the *old* binary.
-3. **Log out and back in.** `switch` cannot swap the running shell — it is a live process on the
-   old store path. `pkill -9 -x fiaboo-shell` restarts it, but the supervisor re-execs the same
-   pinned path, so that is a restart, not an upgrade. (Use `-9`: 143/130 means "stopped on
-   purpose" and the supervisor exits, leaving no shell. If the shell dies within 30 s of
-   starting, the supervisor starts swaync and retries every 30 s, log path in the notification.)
-4. Long builds: run in the background; on OOM use `-j4`.
-5. Tests: `package.nix` has **`doCheck` off**, so a green `nixos-rebuild` says nothing about the
-   suite. There is also no cargo on `PATH` on this machine. To actually run a test, either turn
-   `doCheck` on for one build, or — for a self-contained function — copy it with its test into a
-   scratch file and `rustc --edition 2021 --test` it (needs `cc` on `PATH` from a gcc-wrapper).
-   In a session that does have cargo: `dbus-run-session -- cargo test --release` (plain
-   `cargo test` fails the tray tests because the running shell owns the watcher name).
-6. Verify the UI with `grim` screenshots. Don't rely on ydotool mouse positioning (inaccurate).
-   For video, **`wf-recorder` is not on the system PATH** — `package.nix` only puts it in
-   `fiaboo-record`'s wrapper, so `command -v wf-recorder` finding nothing does *not* mean the
-   Shift+Print binding is broken. And `fiaboo-record` itself cannot be driven over SSH: it calls
-   `slurp -o`, which waits for a click. Call the binary straight instead:
-   `timeout -s INT 10 wf-recorder -o DP-1 -D -r 30 -f out.mp4`, with `XDG_RUNTIME_DIR` and
-   `WAYLAND_DISPLAY` exported (`hyprctl` additionally needs `HYPRLAND_INSTANCE_SIGNATURE`, which
-   is the one directory name under `$XDG_RUNTIME_DIR/hypr` and changes every session). Expect a
-   capture of an unattended desktop to look like a frozen screenshot — nothing moves when nobody
-   is at the machine, and only `-D` keeps it a real 30 fps stream rather than a file with no video.
+1. Long cargo builds: run in the background; on OOM use `-j4`.
+2. Test: `dbus-run-session -- cargo test --release` (plain `cargo test` fails the tray tests because the running shell owns the watcher name). One test: `dbus-run-session -- cargo test --release <name>`.
+3. Upgrade the live shell: build release → `cp target/release/fiaboo-shell ~/.local/bin/fiaboo-shell.new && mv ~/.local/bin/fiaboo-shell.new ~/.local/bin/fiaboo-shell` → `pkill -9 -x fiaboo-shell` once. The supervisor restarts it after ~1 s. `scripts/fiaboo-session` is installed the same way as `~/.local/bin/fiaboo-session` (takes effect at the next login).
+   - Use `-9`: exit code 143/130 (SIGTERM/SIGINT) means "stopped on purpose" and the supervisor exits, leaving no shell. 137 (`-9`) always restarts at once.
+   - If the shell dies any other way within 30 s of starting, the supervisor starts swaync and retries every 30 s (log path in the notification).
+   - The supervisor's process name is `bash`, so `pgrep fiaboo-session` finds nothing; use `pgrep -af bin/fiaboo-session`. Never start a second one.
+4. Verify the UI with `grim` screenshots. Don't rely on ydotool mouse positioning (inaccurate).
 
 ## Git
 - Work on a feature branch, merge into `main` with `git merge --no-ff` ("Merge <branch>: <summary>").
@@ -80,7 +52,7 @@ Before finishing UI, run `ux-audit`.
 - One font everywhere: JetBrainsMono Nerd Font, set on every panel root (`.font_family(NF)`); GPUI otherwise falls back to the system sans. Type scale 12 meta / 14 content / 16 titles. Anything larger is a one-off display number (clock, OSD percentage), not a scale step — don't reach for 18 or 20 as "slightly bigger".
 - Radii in use: `md` small controls, `lg` inner surfaces and rows, `xl` cards, `2xl` panel shells, `full` pills and dots. Those five, nothing new; the drift that got cleaned up in 2026-10 was single elements picking a neighbour's radius.
 - Glass background: constant `GLASS` (alpha 0xC8); the glass plugin sees through it (panels frosted, blur 3, since 2026-10-24; kitty stays clear). Text ≥ 12px, heaviest weight `SEMIBOLD`.
-- **Colours are not literals.** `palette()` reads `~/.config/fiaboo-shell/palette.conf` (written by `nixos-config`'s `theme`) once at startup, with Catppuccin Mocha as the fallback. Take colours from the `Palette` and the `A_*` alpha constants; a new hex in a panel is a bug, because it won't follow the theme.
+- **Colours are not literals.** `palette()` reads `~/.config/fiaboo-shell/palette.conf` (written by `theme`, `~/.local/bin/theme`, themes in `~/.local/share/fiaboo-theme`) once at startup, with Catppuccin Mocha as the fallback. Take colours from the `Palette` and the `A_*` alpha constants; a new hex in a panel is a bug, because it won't follow the theme.
 - **The glass has two fills, keyed on what is behind a surface, not on what it is.** `scripts/glass.lua`: `BAR = 0.7` for the taskbar, whose exclusive zone means only the wallpaper is ever behind it; `PANEL = 0.9` for everything else, which can land over a bright window. Measured over the lightest background a window can produce, body text holds 6.4:1 at 0.9 and falls to 3.9:1 at 0.6. There used to be four levels; they were four complaints answered on four days, not a ladder.
 - `fill_key` in glass.lua is a **chroma key** and must equal the colour the panels actually paint, i.e. `palette().bg`. It is rendered into `~/.config/hypr/glass-colors.lua` from the same `colors.toml` for exactly that reason — hand-editing one and not the other makes a panel's body a different colour from its own text.
 - Motion must be soft and slow; the owner has rejected "fast/snappy" easing several times (current: `smoothOut` = easeOutQuint).
