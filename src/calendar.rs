@@ -1,6 +1,7 @@
 //! Calendar popup with weather and the lunar date.
 
 use crate::*;
+use gpui::{Animation, AnimationExt};
 
 // ---------- calendar + weather ----------
 #[derive(Clone)]
@@ -548,6 +549,15 @@ impl Render for CalendarPopup {
             .text_size(px(14.))
             .child(calendar)
             .child(div().w(px(320.)).flex().flex_col().gap_4().child(card).child(forecast))
+            // drops in from the top edge (owner, 2026-10-27). Done here, not with a Hyprland
+            // "slide top" layer rule: on this full-screen glass layer that left the panel
+            // invisible for seconds after opening. Position only, no fade: the glass keys on
+            // the panel's exact fill colour, which an opacity ramp would change.
+            .with_animation(
+                "cal-drop",
+                Animation::new(std::time::Duration::from_millis(400)).with_easing(gpui::ease_out_quint()),
+                |panel, t| panel.mt(px(-40. * (1. - t))),
+            )
             )
     }
 }

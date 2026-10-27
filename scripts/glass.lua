@@ -81,10 +81,8 @@ for _, ns in ipairs({ "fiaboo-start", "fiaboo-quick", "fiaboo-calendar", "fiaboo
 end
 -- the panels close with the engine's own motion (from the card it held): Hyprland's layer
 -- fade on top of it showed two panels closing, so it is off for them
-hl.layer_rule({ match = { namespace = "^fiaboo-(start|quick|clip|notifcenter|taskview|settings|wallpaper|traymenu|shot)$" },
+hl.layer_rule({ match = { namespace = "^fiaboo-(start|quick|calendar|clip|notifcenter|taskview|settings|wallpaper|traymenu|shot)$" },
                 no_anim = true, animation = "none" })
--- the calendar drops in from the top edge (owner, 2026-10-27); layersIn is the soft smoothOut curve
-hl.layer_rule({ match = { namespace = "^fiaboo-calendar$" }, animation = "slide top" })
 -- toasts and the OSD: thin glass; the toast stack fades in place (one toast leaving is not the stack closing)
 for _, ns in ipairs({ "fiaboo-notify", "fiaboo-osd" }) do
   hg.layer(ns, { preset = "glass-small", mask_mode = "contour", mask_threshold = 0.04, shadow = 0.16, held_close = false,
