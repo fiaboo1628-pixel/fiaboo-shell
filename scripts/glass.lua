@@ -49,8 +49,9 @@ hg.preset("glass-bar",    preset({ thickness = 32, bezel_width = 32, blur_streng
                                    bevel_angle = 0, bevel_strength = 0.3, bevel_shadow = 0.0 }))
 -- kitty: black glass, a neutral black tint (adaptive_dim took the wallpaper's hue instead);
 -- no blur (owner kept it clear, 2026-10-17); unfocused it fades with the window (engine patch in GlassDecoration.cpp)
-hg.preset("glass-dark",   preset({ thickness = 40, bezel_width = 36, blur_strength = 0.0, blur_iterations = 1, bevel_strength = 0.2,
-                                   tint_color = 0x000000B4, dark = { adaptive_dim = 0.0, saturation = 0.6 } }))
+-- 85 % black and a narrower rim (owner, 2026-10-28): the wallpaper behind the text read too much at 70 %
+hg.preset("glass-dark",   preset({ thickness = 24, bezel_width = 20, blur_strength = 0.0, blur_iterations = 1, bevel_strength = 0.2,
+                                   tint_color = 0x000000D9, dark = { adaptive_dim = 0.0, saturation = 0.6 } }))
 hg.preset("glass-card",   preset({ thickness = 72, bezel_width = 60, blur_strength = 3.0, blur_iterations = 3, bevel_size = 2.0 })) -- frosted (owner, 2026-10-24): clear glass let window text fight the panel text
 hg.preset("glass-small",  preset({ thickness = 28, bezel_width = 24, blur_strength = 0.0, blur_iterations = 1 }))
 
