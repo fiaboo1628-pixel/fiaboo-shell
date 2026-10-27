@@ -79,6 +79,12 @@ hg.layer("fiaboo-bar", { preset = "glass-bar", shape = { inset = { 0, -80, -80, 
 -- the panels open and close without Hyprland's layer animation (the calendar drops in-app)
 hl.layer_rule({ match = { namespace = "^fiaboo-(start|quick|calendar|clip|notifcenter|taskview|settings|wallpaper|traymenu|shot)$" },
                 no_anim = true, animation = "none" })
+-- Hyprland's own blur behind them instead (owner, 2026-10-28: "blur đi"): drawn in the same frame as
+-- the panel, so it cannot lag the way the glass did. ignore_alpha keeps it to the painted card (the
+-- rest of these full-screen layers is transparent); decoration xray blurs only the wallpaper, so
+-- window text does not come through.
+hl.layer_rule({ match = { namespace = "^fiaboo-(start|quick|calendar|clip|notifcenter|taskview|settings|wallpaper|traymenu|shot)$" },
+                blur = true, ignore_alpha = 0.5 })
 -- toasts and the OSD: thin glass; the toast stack fades in place (one toast leaving is not the stack closing)
 for _, ns in ipairs({ "fiaboo-notify", "fiaboo-osd" }) do
   hg.layer(ns, { preset = "glass-small", mask_mode = "contour", mask_threshold = 0.04, shadow = 0.16, held_close = false,
