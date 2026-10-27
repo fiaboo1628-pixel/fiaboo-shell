@@ -555,8 +555,8 @@ impl Render for CalendarPopup {
             // the panel's exact fill colour, which an opacity ramp would change.
             .with_animation(
                 "cal-drop",
-                Animation::new(std::time::Duration::from_millis(400)).with_easing(gpui::ease_out_quint()),
-                |panel, t| panel.mt(px(-40. * (1. - t))),
+                Animation::new(std::time::Duration::from_millis(700)).with_easing(gpui::ease_out_quint()), // 400 ms / 40 px read as a pop (owner: "sao nó mở nhanh")
+                |panel, t| panel.mt(px(-120. * (1. - t))),
             )
             )
     }
