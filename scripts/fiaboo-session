@@ -43,6 +43,7 @@ while true; do
     "$BIN" >>"$LOG" 2>&1
     rc=$?
     if [ $rc -eq 143 ] || [ $rc -eq 130 ]; then exit 0; fi          # stopped on purpose
+    if [ $rc -eq 137 ]; then sleep 1; continue; fi                   # pkill -9 = deliberate restart (theme, upgrade), even in the first 30 s
     if [ "$(stat -c %Y "$BIN" 2>/dev/null)" != "$stamp" ]; then sleep 1; continue; fi  # binary upgraded: just restart
     if [ $(( $(date +%s) - start )) -lt 30 ]; then
         # failing at start: keep notifications working meanwhile, then try again

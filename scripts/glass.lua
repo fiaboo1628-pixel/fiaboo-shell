@@ -88,4 +88,7 @@ for _, ns in ipairs({ "fiaboo-notify", "fiaboo-osd" }) do
   hg.layer(ns, { preset = "glass-small", mask_mode = "contour", mask_threshold = 0.04, shadow = 0.16, held_close = false,
                  fill_key = BG, fill_alpha = PANEL })
 end
+-- The ags desktop card (~/.config/ags/app.ts) gets the panels' clear glass; contour masking
+-- because its surface is transparent except the card.
+hg.layer("ags-dash", { preset = "glass-window", mask_mode = "contour", mask_threshold = 0.04, shadow = 0.2 })
 if not GLASS_IN_RELOAD then hg.commit() end
