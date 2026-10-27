@@ -15,7 +15,6 @@ pub(crate) struct Day {
 pub(crate) struct Weather {
     city: String,
     temp: f64,
-    feels: f64,
     code: i64,
     is_day: bool,
     days: Vec<Day>,
@@ -78,7 +77,7 @@ pub(crate) fn weekday_short(date: &str) -> String {
 pub(crate) fn fetch_weather() -> Option<Weather> {
     let (city, lat, lon) = weather_location();
     let url = format!(
-        "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,apparent_temperature,weather_code,is_day&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=5"
+        "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,weather_code,is_day&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=5"
     );
     let out = Command::new("curl").args(["-s", "-m", "10", &url]).output().ok()?;
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
@@ -97,7 +96,6 @@ pub(crate) fn fetch_weather() -> Option<Weather> {
     Some(Weather {
         city,
         temp: c["temperature_2m"].as_f64()?,
-        feels: c["apparent_temperature"].as_f64().unwrap_or(0.0),
         code: c["weather_code"].as_i64()?,
         is_day: c["is_day"].as_i64().unwrap_or(1) == 1,
         days,
@@ -336,14 +334,6 @@ impl Render for CalendarPopup {
                                 .child(weather_glyph(w.code, w.is_day)),
                         ),
                 )
-                .child(
-                    div()
-                        .flex()
-                        .gap_4()
-                        .text_size(px(12.))
-                        .text_color(rgb(p.fg))
-                        .child(format!("Feels like {:.0}\u{b0}", w.feels)),
-                )
                 .into_any_element(),
             None if self.weather_failed => div()
                 .id("w-retry")
@@ -377,21 +367,21 @@ impl Render for CalendarPopup {
         };
 
         // ---- 5-day forecast ----
-        let forecast = div().flex().gap_2().children(
+        // one roomy row per day (was five 72 px tiles of three 12 px lines each: "toàn chữ")
+        let forecast = div().flex().flex_col().gap_1().children(
             self.weather.iter().flat_map(|w| w.days.iter().cloned()).enumerate().map(|(i, d)| {
                 div()
-                    .flex_1()
+                    .h(px(44.))
                     .flex()
-                    .flex_col()
                     .items_center()
-                    .gap_1()
-                    .py_2()
+                    .gap_4()
+                    .px_4()
                     .rounded_xl()
-                    .bg(if i == 0 { rgba((p.accent << 8) | A_HOVER) } else { rgba((p.dim << 8) | A_SURFACE) })
-                    .child(div().text_size(px(12.)).text_color(rgb(p.dim)).child(if i == 0 { "Today".to_string() } else { d.label.clone() }))
-                    .child(div().font_family(NF).font_weight(FontWeight::MEDIUM).text_size(px(24.)).text_color(rgb(p.accent)).child(weather_glyph(d.code, true)))
-                    .child(div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).child(format!("{:.0}\u{b0}", d.tmax)))
-                    .child(div().text_size(px(12.)).text_color(rgb(p.dim)).child(format!("{:.0}\u{b0}", d.tmin)))
+                    .when(i == 0, |r| r.bg(rgba((p.accent << 8) | A_HOVER)))
+                    .child(div().w(px(56.)).text_color(if i == 0 { rgb(p.fg) } else { rgb(p.dim) }).child(if i == 0 { "Today".to_string() } else { d.label.clone() }))
+                    .child(div().flex_1().font_family(NF).font_weight(FontWeight::MEDIUM).text_size(px(22.)).text_color(rgb(p.accent)).child(weather_glyph(d.code, true)))
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child(format!("{:.0}\u{b0}", d.tmax)))
+                    .child(div().w(px(36.)).text_color(rgb(p.dim)).flex().justify_end().child(format!("{:.0}\u{b0}", d.tmin)))
             }),
         );
 
@@ -427,7 +417,7 @@ impl Render for CalendarPopup {
             let p = p2.clone();
             // a row of only next-month days is left blank; it stays so the panel height (and ‹ ›) don't move
             let spare = r * 7 >= first + dim_cur;
-            div().h(px(40.)).flex().when(!spare, |d| d.children((0..7).map(move |c| {
+            div().h(px(52.)).flex().when(!spare, |d| d.children((0..7).map(move |c| {
                 let idx = r * 7 + c;
                 let (day, current) = if idx < first {
                     (dim_prev - (first - idx - 1), false)
@@ -438,13 +428,14 @@ impl Render for CalendarPopup {
                 };
                 let is_today = current && (year, month, day) == today;
                 let weekend = c >= 5;
-                let lunar_txt = current.then(|| {
-                    let (ld, lm, _) = lunar::solar_to_lunar(day as i32, month as i32, year);
-                    if ld == 1 { format!("{ld}/{lm}") } else { ld.to_string() }
+                // lunar date only where it matters -- the 1st (as d/m), the 15th, today -- not under
+                // every day: 42 extra numbers made the panel "nhiều chữ quá" (owner, 2026-10-27)
+                let lunar_txt = current.then(|| lunar::solar_to_lunar(day as i32, month as i32, year)).and_then(|(ld, lm, _)| {
+                    if ld == 1 { Some(format!("{ld}/{lm}")) } else if ld == 15 || is_today { Some(ld.to_string()) } else { None }
                 });
-                div().flex_1().h(px(40.)).flex().items_center().justify_center().child(
+                div().flex_1().h(px(52.)).flex().items_center().justify_center().child(
                     div()
-                        .size(px(38.))
+                        .size(px(46.))
                         .flex()
                         .flex_col()
                         .items_center()
@@ -470,6 +461,7 @@ impl Render for CalendarPopup {
         });
 
         let calendar = div()
+            .flex_1()
             .flex()
             .flex_col()
             .gap_1()
@@ -513,14 +505,7 @@ impl Render for CalendarPopup {
                     ),
             )
             .child(weekdays)
-            .children(weeks)
-            .child(
-                div()
-                    .pt_2()
-                    .text_size(px(12.))
-                    .text_color(rgb(p.dim))
-                    .child("Small: lunar day \u{b7} 1/9: lunar month begins"),
-            );
+            .children(weeks);
 
         div()
             .font_family(NF).font_weight(FontWeight::MEDIUM)
@@ -543,28 +528,26 @@ impl Render for CalendarPopup {
             }))
             .flex()
             .flex_col()
-            .justify_end()
-            .items_end()
-            .pr(px(10.0))
-            .pb(px(56.))
+            .justify_start() // drops from the top edge (owner, 2026-10-27); the slide is Hyprland's layer animation
+            .items_center()
+            .pt(px(12.))
             .on_mouse_down(MouseButton::Left, |_, window, cx| close_calendar(window, cx)).on_mouse_down(MouseButton::Right, |_, window, cx| close_calendar(window, cx))
             .child(
                 div()
-                    .w(px(400.0))
+                    .w(px(820.0))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()).on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
                     .flex()
-                    .flex_col()
-            .gap_3()
-            .p_4()
+                    .flex_row()
+            .gap_6()
+            .p_6()
             .rounded_2xl()
             .bg(rgba((p.bg << 8) | GLASS))
             .border_1()
             .border_color(rgba((p.fg << 8) | A_BORDER))
             .text_color(rgb(p.fg))
             .text_size(px(14.))
-            .child(card)
-            .child(forecast)
             .child(calendar)
+            .child(div().w(px(320.)).flex().flex_col().gap_4().child(card).child(forecast))
             )
     }
 }
