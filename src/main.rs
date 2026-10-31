@@ -551,6 +551,7 @@ struct Sys {
     muted: bool,
     dnd: bool,
     night: bool,
+    gamma: i32, // hyprsunset gamma %, the software brightness (the monitor has no DDC/CI); 100 = off
     media: Option<Media>,
 }
 
@@ -588,6 +589,7 @@ fn read_volume() -> (f32, bool) {
 
 fn read_sys() -> Sys {
     let (vol, muted) = read_volume();
+    let sunset = !sh("pidof hyprsunset").is_empty(); // pgrep reads every cmdline (22 ms), pidof only comm
     let wifi_avail = sh("nmcli -t -f TYPE,STATE device").lines().any(|l| l.starts_with("wifi:") && !l.ends_with(":unavailable"));
     Sys {
         wifi_avail,
@@ -598,7 +600,8 @@ fn read_sys() -> Sys {
         vol,
         muted,
         dnd: notify::dnd(),
-        night: !sh("pidof hyprsunset").is_empty(), // pgrep reads every cmdline (22 ms), pidof only comm
+        night: sunset && sh("hyprctl hyprsunset temperature").parse::<f32>().is_ok_and(|t| t < 6500.),
+        gamma: if sunset { sh("hyprctl hyprsunset gamma").parse::<f32>().map_or(100, |g| g.round() as i32) } else { 100 },
         media: parse_media(&sh("timeout 2 playerctl metadata --format '{{status}}\t{{artist}}\t{{title}}' 2>/dev/null")),
     }
 }
