@@ -275,8 +275,9 @@ impl Render for ClipPanel {
                 .items_center()
                 .rounded_lg()
                 .text_size(px(12.))
-                .bg(rgba((p.dim << 8) | A_HOVER))
-                .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)))
+                .bg(card_fill(p.accent, false))
+                .shadow(card_shadow(&p, false))
+                .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)).shadow(card_shadow(&p, true)))
                 .child(label)
         };
         let list = self.visible();
@@ -293,7 +294,7 @@ impl Render for ClipPanel {
                 .gap_3()
                 .px_4()
                 .rounded_lg()
-                .when(i == sel, |d| d.bg(rgba((p.accent << 8) | A_HOVER)))
+                .when(i == sel, |d| d.bg(card_fill(p.accent, true)).shadow(card_shadow(&p, false)))
                 .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
                 .on_mouse_down(MouseButton::Right, cx.listener(move |this, _, _, cx| {
                     cx.stop_propagation();
@@ -399,7 +400,7 @@ impl Render for ClipPanel {
                                     .items_center()
                                     .px_4()
                                     .rounded_xl()
-                                    .bg(rgba((p.dim << 8) | A_HOVER))
+                                    .bg(card_fill(p.accent, false))
                                     .gap_2()
                                     .child(div().text_color(rgb(p.dim)).child("\u{f002}"))
                                     .child(if self.query.is_empty() {
