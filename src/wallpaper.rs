@@ -188,6 +188,7 @@ impl Render for WpPicker {
                 .rounded_lg()
                 .overflow_hidden()
                 .bg(rgba((p.dim << 8) | A_HOVER))
+                .shadow(card_shadow(&p, i == sel))
                 .border_2()
                 .border_color(if i == sel {
                     rgb(p.accent)
@@ -281,8 +282,9 @@ impl Render for WpPicker {
                                     .py_1()
                                     .rounded_lg()
                                     .text_size(px(12.))
-                                    .bg(rgba((p.dim << 8) | A_HOVER))
-                                    .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)))
+                                    .bg(card_fill(p.accent, false))
+                                    .shadow(card_shadow(&p, false))
+                                    .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)).shadow(card_shadow(&p, true)))
                                     .on_click(|_, window, cx| {
                                         run_bg("setsid fiaboo-wallpaper --random");
                                         close_wp(window, cx);

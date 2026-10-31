@@ -56,6 +56,38 @@ const A_ACTIVE: u32 = 0x48; // selected / pressed; keeps fg >= 4.5:1 even on an 
 const A_STRONG: u32 = 0x70; // focus rings, the accent card corner
 const A_BORDER: u32 = 0x90; // panel borders: fg at this alpha stays >= 3:1 over the glass whatever is behind it
 
+/// A card tinted with `c`: brighter at the top-left, fading towards the bottom-right.
+fn card_fill(c: u32, strong: bool) -> gpui::Background {
+    let (hi, lo) = if strong { (0x80, 0x38) } else { (0x40, 0x12) };
+    gpui::linear_gradient(155., gpui::linear_color_stop(rgba((c << 8) | hi), 0.), gpui::linear_color_stop(rgba((c << 8) | lo), 1.))
+}
+
+/// `a` to `b` at `t` (0..1), per channel.
+fn mix(a: u32, b: u32, t: f32) -> u32 {
+    let ch = |s: u32| {
+        let (x, y) = (((a >> s) & 0xff) as f32, ((b >> s) & 0xff) as f32);
+        ((x + (y - x) * t).round() as u32) << s
+    };
+    ch(16) | ch(8) | ch(0)
+}
+
+/// A raised card: lit top edge, dark bottom edge, a faint inner bloom and a soft drop shadow,
+/// so the rows of a panel read as thick slabs resting on it. `lifted` = hovered: longer shadow.
+fn card_shadow(p: &Palette, lifted: bool) -> Vec<gpui::BoxShadow> {
+    let lit = |a: u32| -> gpui::Hsla { rgba((p.fg << 8) | a).into() };
+    let dark = |a: f32| gpui::hsla(0., 0., 0., a);
+    let sh = |color, x: f32, y: f32, blur: f32, spread: f32, inset| gpui::BoxShadow {
+        color, offset: point(px(x), px(y)), blur_radius: px(blur), spread_radius: px(spread), inset,
+    };
+    vec![
+        sh(lit(0x55), 0., 1., 0., 0., true),
+        sh(dark(0.35), 0., -1., 0., 0., true),
+        sh(lit(0x1A), 0., 16., 28., -18., true),
+        sh(dark(0.25), 0., 2., 2., 0., false),
+        if lifted { sh(dark(0.55), 0., 14., 28., -8., false) } else { sh(dark(0.45), 0., 8., 18., -8., false) },
+    ]
+}
+
 fn home() -> String {
     std::env::var("HOME").unwrap_or_default()
 }

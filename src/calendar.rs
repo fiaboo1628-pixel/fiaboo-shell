@@ -297,11 +297,8 @@ impl Render for CalendarPopup {
                 .gap_3()
                 .p_4()
                 .rounded_2xl()
-                .bg(gpui::linear_gradient(
-                    135.,
-                    gpui::linear_color_stop(rgba((p.accent << 8) | A_HOVER), 0.),
-                    gpui::linear_color_stop(rgba((p.dim << 8) | A_SURFACE), 1.),
-                ))
+                .bg(card_fill(p.accent, true))
+                .shadow(card_shadow(&p, false))
                 .child(
                     div()
                         .flex()
@@ -344,7 +341,8 @@ impl Render for CalendarPopup {
                 .items_center()
                 .justify_center()
                 .rounded_2xl()
-                .bg(rgba((p.dim << 8) | A_SURFACE))
+                .bg(card_fill(p.accent, false))
+                .shadow(card_shadow(&p, false))
                 .hover(|s| s.bg(rgba((p.accent << 8) | A_HOVER)))
                 .text_color(rgb(p.dim))
                 .on_click(cx.listener(|this, _, _, cx| {
@@ -361,7 +359,8 @@ impl Render for CalendarPopup {
                 .items_center()
                 .justify_center()
                 .rounded_2xl()
-                .bg(rgba((p.dim << 8) | A_SURFACE))
+                .bg(card_fill(p.accent, false))
+                .shadow(card_shadow(&p, false))
                 .text_color(rgb(p.dim))
                 .child("Loading weather\u{2026}")
                 .into_any_element(),
@@ -378,7 +377,7 @@ impl Render for CalendarPopup {
                     .gap_4()
                     .px_4()
                     .rounded_xl()
-                    .when(i == 0, |r| r.bg(rgba((p.accent << 8) | A_HOVER)))
+                    .when(i == 0, |r| r.bg(card_fill(p.accent2, true)).shadow(card_shadow(&p, false)))
                     .child(div().w(px(56.)).text_color(if i == 0 { rgb(p.fg) } else { rgb(p.dim) }).child(if i == 0 { "Today".to_string() } else { d.label.clone() }))
                     .child(div().flex_1().font_family(NF).font_weight(FontWeight::MEDIUM).text_size(px(22.)).text_color(rgb(p.accent)).child(weather_glyph(d.code, true)))
                     .child(div().font_weight(FontWeight::SEMIBOLD).child(format!("{:.0}\u{b0}", d.tmax)))

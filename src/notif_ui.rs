@@ -23,7 +23,7 @@ pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, center: Option<gpui::En
         .p_3()
         .rounded_xl()
         .bg(rgba((p.bg << 8) | if in_center { 0x00 } else { GLASS }))
-        .when(in_center, |d| d.bg(rgba((p.dim << 8) | A_SURFACE)))
+        .when(in_center, |d| d.bg(card_fill(if n.critical { p.err } else { p.accent }, false)).shadow(card_shadow(&p, false)))
         .border_1()
         .border_color(if n.critical { rgba((p.err << 8) | 0xcc) } else { rgba((p.fg << 8) | A_BORDER) })
         .when(focused, |d| d.border_color(rgb(p.accent))) // keyboard focus ring
@@ -322,8 +322,9 @@ impl Render for NotifCenter {
                 .py_1()
                 .rounded_lg()
                 .text_size(px(12.))
-                .bg(if on { rgba((p.accent << 8) | A_ACTIVE) } else { rgba((p.dim << 8) | A_HOVER) })
-                .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)))
+                .bg(card_fill(p.accent2, on))
+                .shadow(card_shadow(&p, false))
+                .hover(|s| s.bg(card_fill(p.accent2, true)).shadow(card_shadow(&p, true)))
                 .child(label)
         };
         div()

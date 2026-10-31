@@ -189,7 +189,7 @@ impl Render for StartMenu {
             .items_center()
             .px_4()
             .rounded_xl()
-            .bg(rgba((p.dim << 8) | A_HOVER))
+            .bg(card_fill(p.accent, false))
             .text_size(px(16.))
             .gap_2()
             .child(div().text_color(rgb(p.dim)).child("\u{f002}"))
@@ -221,7 +221,7 @@ impl Render for StartMenu {
                 .h(px(ROW_H))
                 .flex_none() // the list scrolls; without this the rows shrink to fit it
                 .rounded_lg()
-                .when(first, |d| d.bg(rgba((p.accent << 8) | A_HOVER)))
+                .when(first, |d| d.bg(card_fill(p.accent, true)).shadow(card_shadow(&p, false)))
                 .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
                 .on_click(move |_, window, cx| {
                     launch_app(&stem);
@@ -273,10 +273,9 @@ impl Render for StartMenu {
                     .justify_center()
                     .gap_1()
                     .rounded_lg()
-                    .bg(rgba((p.dim << 8) | A_SURFACE))
-                    .border_1()
-                    .border_color(rgba((p.fg << 8) | A_BORDER))
-                    .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
+                    .bg(card_fill(if i % 2 == 0 { p.accent } else { p.accent2 }, false))
+                    .shadow(card_shadow(&p, false))
+                    .hover(|s| s.bg(card_fill(if i % 2 == 0 { p.accent } else { p.accent2 }, true)).shadow(card_shadow(&p, true)))
                     .on_click(move |_, window, cx| {
                         launch_app(&stem);
                         close_start(window, cx);
@@ -323,8 +322,9 @@ impl Render for StartMenu {
                 .py_2p5()
                 .rounded_lg()
                 .text_size(px(14.))
-                .bg(rgba((p.dim << 8) | A_HOVER))
-                .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)))
+                .bg(card_fill(p.accent, false))
+                .shadow(card_shadow(&p, false))
+                .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)).shadow(card_shadow(&p, true)))
                 .on_click(move |_, window, cx| {
                     spawn_bg(Command::new("sh").args(["-c", &format!("setsid {cmd} >/dev/null 2>&1 &")]));
                     close_start(window, cx);
@@ -340,8 +340,9 @@ impl Render for StartMenu {
                 .py_2p5()
                 .rounded_lg()
                 .text_size(px(14.))
-                .bg(rgba((p.dim << 8) | A_HOVER))
-                .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)))
+                .bg(card_fill(p.accent, false))
+                .shadow(card_shadow(&p, false))
+                .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)).shadow(card_shadow(&p, true)))
                 .child(label)
         };
         let power_row = match self.confirm {

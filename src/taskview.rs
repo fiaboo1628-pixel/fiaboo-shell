@@ -209,7 +209,8 @@ impl Render for TaskView {
                 .flex_col()
                 .gap_2()
                 .rounded_xl()
-                .bg(rgba((p.dim << 8) | A_SURFACE))
+                .bg(card_fill(if i % 2 == 0 { p.accent } else { p.accent2 }, i == sel))
+                .shadow(card_shadow(&p, i == sel))
                 .border_1()
                 .border_color(rgba((p.fg << 8) | A_BORDER))
                 .when(i == sel, |d| d.border_2().border_color(rgb(p.accent)))
@@ -217,7 +218,7 @@ impl Render for TaskView {
                 // in fg. err at 14 px measures 3.4:1 over the glass, under AA, and a border is
                 // not the only cue -- the text changes too.
                 .when(pending == Some(i), |d| d.border_2().border_color(rgb(p.err)))
-                .hover(|s| s.bg(rgba((p.accent << 8) | A_HOVER)))
+                .hover(|s| s.bg(card_fill(if i % 2 == 0 { p.accent } else { p.accent2 }, true)).shadow(card_shadow(&p, true)))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 // The ✕ lived in a header row that is gone, so right-click is the mouse path to
                 // closing now. Still two presses: request_close only arms on the first.

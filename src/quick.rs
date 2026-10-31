@@ -118,6 +118,7 @@ impl Render for Quick {
         let tile = |id: &'static str, glyph: &'static str, title: &'static str, sub: String, on: Option<bool>, cmd: String, app: Option<&'static str>| {
             let avail = on.is_some();
             let on = on.unwrap_or(false);
+            let c = if matches!(id, "q-wifi" | "q-dnd") { p.accent } else { p.accent2 }; // checkerboard
             div()
                 .id(id)
                 .when(avail, |d| d.cursor_pointer())
@@ -131,9 +132,10 @@ impl Render for Quick {
                 .px_3()
                 .py_3()
                 .rounded_xl()
-                .bg(if on { rgba((p.accent << 8) | A_HOVER) } else { rgba((p.dim << 8) | A_SURFACE) })
+                .bg(if avail { card_fill(c, on) } else { rgba((p.dim << 8) | A_SURFACE).into() })
+                .shadow(card_shadow(&p, false))
                 .when(avail, |d| {
-                    d.hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE))).on_click(cx.listener(move |this, _, _, cx| {
+                    d.hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)).shadow(card_shadow(&p, true))).on_click(cx.listener(move |this, _, _, cx| {
                         this.last_input = std::time::Instant::now();
                         run_action(&cmd);
                         cx.notify();
@@ -150,7 +152,7 @@ impl Render for Quick {
                     div()
                         .font_family(NF).font_weight(FontWeight::MEDIUM)
                         .text_size(px(22.))
-                        .text_color(if on { rgb(p.accent) } else if avail { rgb(p.fg) } else { rgb(p.dim) })
+                        .text_color(if on { rgb(mix(c, p.fg, 0.5)) } else if avail { rgb(p.fg) } else { rgb(p.dim) })
                         .child(glyph),
                 )
                 .child(
@@ -196,7 +198,7 @@ impl Render for Quick {
                             .w_full()
                             .h(if filled { px(8.) } else { px(5.) })
                             .rounded_full()
-                            .bg(if filled { rgb(p.accent) } else { rgba((p.dim << 8) | A_ACTIVE) }),
+                            .bg(if filled { rgb(mix(p.accent, p.accent2, (i - 1) as f32 / 19.)) } else { rgba((p.dim << 8) | A_ACTIVE) }),
                     )
             })
             .collect::<Vec<_>>()
@@ -238,7 +240,8 @@ impl Render for Quick {
                 .px_3()
                 .py_2()
                 .rounded_xl()
-                .bg(rgba((p.dim << 8) | A_SURFACE))
+                .bg(card_fill(mix(p.accent, p.accent2, 0.5), false))
+                .shadow(card_shadow(&p, false))
                 .child(
                     div()
                         .flex_1()
@@ -360,7 +363,8 @@ impl Render for Quick {
                     .px_3()
                     .py_2()
                     .rounded_xl()
-                    .bg(rgba((p.dim << 8) | A_SURFACE))
+                    .bg(card_fill(p.accent2, false))
+                    .shadow(card_shadow(&p, false))
                     .child(div().font_family(NF).font_weight(FontWeight::MEDIUM).text_size(px(22.)).child("\u{f00df}"))
                     .child(div().flex_1().flex().gap_0p5().children(bright))
                     .child(div().w(px(40.)).text_size(px(12.)).text_color(rgb(p.dim)).child(format!("{}%", sys.gamma))),
@@ -373,7 +377,8 @@ impl Render for Quick {
                     .px_3()
                     .py_2()
                     .rounded_xl()
-                    .bg(rgba((p.dim << 8) | A_SURFACE))
+                    .bg(card_fill(p.accent, false))
+                    .shadow(card_shadow(&p, false))
                     .child(
                         div()
                             .id("q-mute")

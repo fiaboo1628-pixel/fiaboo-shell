@@ -222,8 +222,9 @@ pub(crate) fn bt_rows<T: HasBt>(ui: &BtUi, p: &Palette, cx: &mut Context<T>) -> 
             .py_2p5()
             .rounded_lg()
             // selected stays the strongest fill; hover on an unselected tile must not outshine it
-            .bg(if on { rgba((accent << 8) | A_ACTIVE) } else { rgba((dim << 8) | A_SURFACE) })
-            .hover(move |s| s.bg(rgba((accent << 8) | if on { A_ACTIVE } else { A_HOVER })))
+            .bg(card_fill(accent, on))
+            .shadow(card_shadow(&p, false))
+            .hover(|s| s.bg(card_fill(accent, true)).shadow(card_shadow(&p, true)))
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.touch();
                 this.bt().failed = None;
@@ -255,8 +256,9 @@ pub(crate) fn bt_rows<T: HasBt>(ui: &BtUi, p: &Palette, cx: &mut Context<T>) -> 
             .py_2p5()
             .rounded_lg()
             .text_color(rgb(if scanning { dim } else { p.fg }))
-            .bg(rgba((dim << 8) | A_HOVER))
-            .hover(|s| s.bg(rgba((accent << 8) | A_ACTIVE)))
+            .bg(card_fill(p.accent2, false))
+            .shadow(card_shadow(&p, false))
+            .hover(|s| s.bg(card_fill(p.accent2, true)).shadow(card_shadow(&p, true)))
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.touch();
                 if !scanning {
@@ -398,8 +400,9 @@ impl Render for SettingsPanel {
                 .px_3()
                 .py_2p5()
                 .rounded_lg()
-                .bg(if *is_default { rgba((p.accent << 8) | A_ACTIVE) } else { rgba((p.dim << 8) | A_SURFACE) })
-                .hover(move |s| s.bg(rgba((p.accent << 8) | if *is_default { A_ACTIVE } else { A_HOVER })))
+                .bg(card_fill(p.accent, *is_default))
+                .shadow(card_shadow(&p, false))
+                .hover(|s| s.bg(card_fill(p.accent, true)).shadow(card_shadow(&p, true)))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.last_input = std::time::Instant::now();
                     // no shell: a sink name is device-supplied and would otherwise need quoting
@@ -420,8 +423,9 @@ impl Render for SettingsPanel {
                 .py_2p5()
                 .rounded_lg()
                 .text_size(px(14.))
-                .bg(rgba((p.dim << 8) | A_HOVER))
-                .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)))
+                .bg(card_fill(p.accent2, false))
+                .shadow(card_shadow(&p, false))
+                .hover(|s| s.bg(card_fill(p.accent2, true)).shadow(card_shadow(&p, true)))
                 .child(label)
         };
         div()
