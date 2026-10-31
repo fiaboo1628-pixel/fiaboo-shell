@@ -1,4 +1,4 @@
-//! Quick settings: Wi-Fi/Bluetooth/Night light/DND tiles, volume, media.
+//! Quick settings: Wi-Fi/Bluetooth/Night light/DND tiles, brightness, volume, media.
 
 use crate::*;
 
@@ -50,7 +50,7 @@ pub(crate) struct Quick {
     focus: FocusHandle,
     last_input: std::time::Instant,
     focus_i: usize,          // keyboard focus among `actions()`
-    drag_level: Option<i32>, // last volume set while dragging over the segments
+    drag_level: Option<(&'static str, i32)>, // (slider, level) last set while dragging over the segments
 }
 
 /// (tile id, command) in tile order, skipping tiles that cannot act; what Tab/Enter walk.
@@ -60,9 +60,22 @@ fn actions(sys: &Sys) -> Vec<(&'static str, String)> {
         v.push(("q-wifi", format!("nmcli radio wifi {}", if sys.wifi_on { "off" } else { "on" })));
     }
     v.push(("q-bt", if sys.bt_on { "bluetoothctl power off".to_string() } else { "rfkill unblock bluetooth; bluetoothctl power on".to_string() }));
-    v.push(("q-night", "pkill -x hyprsunset || setsid hyprsunset".to_string()));
+    v.push(("q-night", sunset_cmd(!sys.night, sys.gamma)));
     v.push(("q-dnd", "@dnd".to_string()));
     v
+}
+
+/// One hyprsunset carries both night light (temperature) and brightness (gamma).
+/// The lock keeps a fast drag from starting two of them.
+fn sunset_cmd(night: bool, gamma: i32) -> String {
+    let t = if night { 5000 } else { 6500 };
+    if !night && gamma >= 100 {
+        return "pkill -x hyprsunset".into();
+    }
+    format!(
+        "flock -o $XDG_RUNTIME_DIR/fiaboo-sunset.lock sh -c 'if pidof hyprsunset; then hyprctl hyprsunset temperature {t}; hyprctl hyprsunset gamma {gamma}; \
+         else setsid -f hyprsunset -t {t} -g {gamma}; sleep 0.3; fi'"
+    )
 }
 
 fn run_action(cmd: &str) {
@@ -153,37 +166,46 @@ impl Render for Quick {
         let (wifi_cmd, bt_cmd) = (act("q-wifi"), act("q-bt"));
 
         let level = (sys.vol * 100.0).round() as i32;
-        let segments = (1..=20).map(|i| {
-            let filled = !sys.muted && (i * 5) <= level + 2;
-            div()
-                .id(("vol", i as usize))
-                .cursor_pointer()
-                .flex_1()
-                .h(px(22.))
-                .flex()
-                .items_center()
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.last_input = std::time::Instant::now();
-                    this.drag_level = None;
-                    run_bg(&format!("wpctl set-volume @DEFAULT_AUDIO_SINK@ {}%", i * 5));
-                    cx.notify();
-                }))
-                // button held while moving across the row: a drag in 5 % steps
-                .on_mouse_move(cx.listener(move |this, ev: &gpui::MouseMoveEvent, _, cx| {
-                    if ev.pressed_button == Some(MouseButton::Left) && this.drag_level != Some(i * 5) {
+        // 20 segments in 5 % steps; click one, or hold the button and move across the row
+        let slider = |cx: &Context<Self>, id: &'static str, level: i32, set: fn(&mut Quick, i32)| {
+            (1..=20).map(|i| {
+                let filled = (i * 5) <= level + 2;
+                div()
+                    .id((id, i as usize))
+                    .cursor_pointer()
+                    .flex_1()
+                    .h(px(22.))
+                    .flex()
+                    .items_center()
+                    .on_click(cx.listener(move |this, _, _, cx| {
                         this.last_input = std::time::Instant::now();
-                        this.drag_level = Some(i * 5);
-                        run_bg(&format!("wpctl set-volume @DEFAULT_AUDIO_SINK@ {}%", i * 5));
+                        this.drag_level = None;
+                        set(this, i * 5);
                         cx.notify();
-                    }
-                }))
-                .child(
-                    div()
-                        .w_full()
-                        .h(if filled { px(8.) } else { px(5.) })
-                        .rounded_full()
-                        .bg(if filled { rgb(p.accent) } else { rgba((p.dim << 8) | A_ACTIVE) }),
-                )
+                    }))
+                    .on_mouse_move(cx.listener(move |this, ev: &gpui::MouseMoveEvent, _, cx| {
+                        if ev.pressed_button == Some(MouseButton::Left) && this.drag_level != Some((id, i * 5)) {
+                            this.last_input = std::time::Instant::now();
+                            this.drag_level = Some((id, i * 5));
+                            set(this, i * 5);
+                            cx.notify();
+                        }
+                    }))
+                    .child(
+                        div()
+                            .w_full()
+                            .h(if filled { px(8.) } else { px(5.) })
+                            .rounded_full()
+                            .bg(if filled { rgb(p.accent) } else { rgba((p.dim << 8) | A_ACTIVE) }),
+                    )
+            })
+            .collect::<Vec<_>>()
+        };
+        let segments = slider(cx, "vol", if sys.muted { 0 } else { level }, |_, v| run_bg(&format!("wpctl set-volume @DEFAULT_AUDIO_SINK@ {v}%")));
+        let bright = slider(cx, "bright", sys.gamma, |this, v| {
+            let g = v.max(20); // below 20 % gamma the screen is unreadable
+            run_bg(&sunset_cmd(this.sys.night, g));
+            this.sys.gamma = g; // show it now, the next poll confirms
         });
 
         let media_btn = |id: &'static str, glyph: &'static str, cmd: &'static str| {
@@ -329,6 +351,19 @@ impl Render for Quick {
                         act("q-dnd"),
                         None,
                     )),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .px_3()
+                    .py_2()
+                    .rounded_xl()
+                    .bg(rgba((p.dim << 8) | A_SURFACE))
+                    .child(div().font_family(NF).font_weight(FontWeight::MEDIUM).text_size(px(22.)).child("\u{f00df}"))
+                    .child(div().flex_1().flex().gap_0p5().children(bright))
+                    .child(div().w(px(40.)).text_size(px(12.)).text_color(rgb(p.dim)).child(format!("{}%", sys.gamma))),
             )
             .child(
                 div()
