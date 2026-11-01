@@ -7,7 +7,8 @@ their look (same font, same blur, same theme pipeline).
 | file | installed at | role |
 |---|---|---|
 | `config` | `~/.config/ghostty/config` | the terminal: font, padding, 85 % black body, blur, cursor, shader |
-| `shaders/cursor-trail.glsl` | `~/.config/ghostty/shaders/cursor-trail.glsl` | kitty-style cursor trail |
+| `shaders/cursor-neon.glsl` | `~/.config/ghostty/shaders/cursor-neon.glsl` | the trail in use: neon comet |
+| `shaders/cursor-trail.glsl` | `~/.config/ghostty/shaders/cursor-trail.glsl` | plain kitty-style trail (diamond), kept as the fallback |
 | `ghostty.conf.tpl` | `~/.local/share/fiaboo-theme/templates/ghostty.conf.tpl` | rendered by `theme` to `~/.config/ghostty/current-theme.conf` |
 
 ## Measured facts (do not undo)
@@ -21,6 +22,16 @@ their look (same font, same blur, same theme pipeline).
 - `theme` reloads Ghostty with SIGUSR2 (tested safe).
 - The trail must feel like kitty's `cursor_trail 1`, `cursor_trail_decay 0.1 0.5`: each corner
   slides home with exp2 decay, leading corners in 0.1 s, trailing in 0.5 s.
+
+## Neon comet (2026-11-01, owner's pick)
+
+`cursor-neon.glsl` replaced the kitty-style trail in `config`. A solid comet in the cursor's colour
+runs from the old cursor's back edge (tail, 0.5 s) to the new one's front edge (head, 0.1 s), with
+a blue glow; faint for a typed character, full from 4 cells up. Tried and dropped on the way:
+three separate neon strands (their own timing made the trail look stiff), the diamond plus a glow
+(the owner wanted a comet), and a comet drawn between the cursor centres (a typed character left no
+visible tail: the cursor covered it). Test trails by typing real keys in fish, not only with jumps.
+The neon colour is a constant in the shader, not from `theme`.
 
 ## What changed in these copies
 
