@@ -28,9 +28,6 @@ hl.on("hyprland.start", function ()
     -- Load cliphist history
     hl.exec_cmd("wl-paste --watch cliphist store")
 
-    -- Orca (agent IDE) stays running so the iPhone app can reach it; plain secret store by choice
-    hl.exec_cmd("~/.local/bin/orca.AppImage --password-store=basic")
-
     -- Start autostart cleanup
     hl.exec_cmd("~/.config/hypr/scripts/cleanup.sh")
 end)
