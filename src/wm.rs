@@ -57,7 +57,7 @@ pub fn follow_events(changed: impl Fn()) {
         let ev = line.split(">>").next().unwrap_or("");
         if matches!(
             ev,
-            // not windowtitle: the bar shows classes, and kitty/Chromium retitle on every prompt or page
+            // not windowtitle: the bar shows classes, and Ghostty/Chromium retitle on every prompt or page
             "workspace" | "workspacev2" | "focusedmon" | "focusedmonv2" | "activewindow" | "activewindowv2"
                 | "openwindow" | "closewindow" | "movewindow" | "movewindowv2"
                 | "createworkspace" | "createworkspacev2" | "destroyworkspace"

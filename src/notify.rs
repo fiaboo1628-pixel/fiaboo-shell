@@ -118,15 +118,6 @@ pub fn dismiss(id: u32) {
     emit(|e| async move { Server::notification_closed(&e, id, 2).await });
 }
 
-pub fn clear_all() {
-    let ids: Vec<u32> = LIST.lock().unwrap().drain(..).map(|n| n.id).collect();
-    changed();
-    save();
-    for id in ids {
-        emit(|e| async move { Server::notification_closed(&e, id, 2).await });
-    }
-}
-
 /// Click on a notification: run its default action (if any), then dismiss it.
 pub fn activate(id: u32) {
     let has_default = LIST.lock().unwrap().iter().any(|n| n.id == id && n.actions.iter().any(|(k, _)| k == "default"));
@@ -147,18 +138,20 @@ where
     }
 }
 
-/// Notification bodies may carry a small HTML subset: drop tags, decode the basic entities.
 /// "dd/mm HH:MM" → "HH:MM" when it is today (entries saved before dates were added are plain "HH:MM").
 pub fn short_time(t: &str, today: &str) -> String {
     t.strip_prefix(today).map(|r| r.trim_start().to_string()).unwrap_or_else(|| t.to_string())
 }
 
+/// Notification bodies may carry a small HTML subset: drop tags, decode the basic entities.
+/// A '<' that does not start a tag (`a < b`, unescaped by the sender) is kept as text.
 pub fn strip_markup(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut in_tag = false;
-    for c in s.chars() {
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
         match c {
-            '<' => in_tag = true,
+            '<' if !in_tag && chars.peek().is_some_and(|n| n.is_ascii_alphabetic() || *n == '/') => in_tag = true,
             '>' if in_tag => in_tag = false,
             _ if !in_tag => out.push(c),
             _ => {}
@@ -428,6 +421,8 @@ mod tests {
     fn markup_is_stripped() {
         assert_eq!(strip_markup("<b>Hi</b> &amp; <i>bye</i> &lt;3"), "Hi & bye <3");
         assert_eq!(strip_markup("plain"), "plain");
+        assert_eq!(strip_markup("1 < 2 and 3 > 2"), "1 < 2 and 3 > 2", "a bare '<' is not a tag");
+        assert_eq!(strip_markup("<a href=\"x\">link</a> <br/>end"), "link end");
     }
 
     #[test]

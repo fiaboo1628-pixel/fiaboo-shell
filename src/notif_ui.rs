@@ -126,7 +126,6 @@ impl Render for NotifPopup {
     }
 }
 
-/// Open, resize (by reopening) or close the popup window so it matches notify::popups().
 /// Any shell panel or the screenshot overlay is open.
 pub(crate) fn panel_open(cx: &App) -> bool {
     fn on<G: Global>(cx: &App, open: impl Fn(&G) -> bool) -> bool {
@@ -144,6 +143,7 @@ pub(crate) fn panel_open(cx: &App) -> bool {
         || on::<TaskViewState>(cx, |s| s.0.is_some())
 }
 
+/// Open, resize (by reopening) or close the popup window so it matches notify::popups().
 pub(crate) fn sync_notif_popups(cx: &mut App) {
     // popups would cover the open panel, or end up in a screenshot; they come back when it closes
     let list = if panel_open(cx) { Vec::new() } else { notify::popups() };

@@ -68,7 +68,8 @@ pub(crate) fn weather_location() -> (String, f64, f64) {
 
 pub(crate) fn weekday_short(date: &str) -> String {
     let p: Vec<i32> = date.split('-').filter_map(|x| x.parse().ok()).collect();
-    if p.len() != 3 {
+    // the API's date, not ours: a month outside 1..=12 would index past the table and take the shell down
+    if p.len() != 3 || !(1..=12).contains(&p[1]) || !(1..=31).contains(&p[2]) {
         return String::new();
     }
     let w = weekday(p[0], p[1] as u32, p[2] as u32);
@@ -558,5 +559,22 @@ impl Render for CalendarPopup {
                 |panel, t| panel.mt(px(-120. * (1. - t))),
             )
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn calendar_maths() {
+        assert_eq!(weekday(2026, 11, 1), 0, "2026-11-01 is a Sunday");
+        assert_eq!(weekday(2024, 2, 29), 4, "2024-02-29 is a Thursday");
+        assert_eq!((days_in_month(2024, 2), days_in_month(2025, 2), days_in_month(2100, 2), days_in_month(2000, 2)), (29, 28, 28, 29));
+        assert_eq!(weekday_short("2026-11-01"), "Sun");
+        // the API's date, not ours: nothing here may index past a table and take the shell down
+        assert_eq!(weekday_short("2026-13-01"), "");
+        assert_eq!(weekday_short("2026-00-10"), "");
+        assert_eq!(weekday_short("garbage"), "");
     }
 }

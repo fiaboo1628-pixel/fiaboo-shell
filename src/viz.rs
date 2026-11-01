@@ -194,9 +194,11 @@ pub fn toggle_mini(cx: &mut App) {
     cx.spawn(async move |cx| {
         let mut motion = Motion::default();
         let mut win: Option<WindowHandle<Line>> = None;
-        let mut frame = 0u64;
         loop {
-            let current = cx.update(|cx| cx.try_global::<VizState>().is_some_and(|s| s.on && s.run == run));
+            let (on, run_now) = cx.update(|cx| cx.try_global::<VizState>().map_or((false, 0), |s| (s.on, s.run)));
+            let current = on && run_now == run;
+            // off then on again before this loop had faded out: the new loop owns the capture now
+            let superseded = on && run_now != run;
             let playing = current && PLAYING.load(Ordering::Relaxed);
             if playing {
                 capture_start();
@@ -208,19 +210,17 @@ pub fn toggle_mini(cx: &mut App) {
                     win = cx.update(open_line);
                 }
                 if let Some(h) = win {
-                    let pal = (frame % (FPS * 2) == 0).then(palette); // a new wallpaper shows within ~2 s
                     let (level, kick, alpha) = (motion.level, motion.kick, motion.alpha);
                     let _ = h.update(cx, |l, _, cx| {
-                        if let Some(p) = pal {
-                            l.pal = p;
-                        }
                         (l.level, l.kick, l.alpha) = (level, kick, alpha);
                         cx.notify();
                     });
                 }
             } else {
                 // nothing to show: no surface, no capture, and a slow idle tick
-                capture_stop();
+                if !superseded {
+                    capture_stop();
+                }
                 if let Some(h) = win.take() {
                     let _ = h.update(cx, |_, window, _| window.remove_window());
                 }
@@ -231,7 +231,6 @@ pub fn toggle_mini(cx: &mut App) {
             }
             let wait = if visible || playing { 1000 / FPS } else { 250 };
             cx.background_executor().timer(Duration::from_millis(wait)).await;
-            frame += 1;
         }
     })
     .detach();
@@ -271,7 +270,7 @@ pub struct Line {
 
 impl Render for Line {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        // the wallpaper's second colour in the middle, its main colour towards the sides, then
+        // the theme's second accent in the middle, its main accent towards the sides, then
         // nothing: the ends melt into the bar; a faint glow spills down from the middle
         let (mid, side) = (self.pal.accent2, self.pal.accent);
         let c = |rgb: u32, v: f32| rgba((rgb << 8) | ((v * self.alpha).clamp(0., 1.) * 255.) as u32);

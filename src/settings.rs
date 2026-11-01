@@ -46,7 +46,10 @@ pub(crate) fn net_row(f: &[String]) -> (String, String) {
         s if s.starts_with("connected") => "Connected".to_string(), // "(externally)": managed by Tailscale etc.
         "unavailable" if kind == "ethernet" => "Cable unplugged".to_string(),
         "unavailable" => "Unavailable".to_string(),
-        s => s[..1].to_uppercase() + &s[1..],
+        s => {
+            let mut c = s.chars();
+            c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
+        }
     };
     let conn = if conn == dev || conn.is_empty() { String::new() } else { format!(" · {conn}") };
     (label.to_string(), state + &conn)

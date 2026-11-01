@@ -45,8 +45,7 @@ fn sun_longitude(jdn: f64) -> f64 {
         + (0.019993 - 0.000101 * t) * (dr * 2.0 * m).sin()
         + 0.00029 * (dr * 3.0 * m).sin();
     let l = (l0 + dl) * dr;
-    let l = l - PI * 2.0 * (l / (PI * 2.0)).floor();
-    l
+    l - PI * 2.0 * (l / (PI * 2.0)).floor()
 }
 
 fn new_moon_day(k: i32, tz: f64) -> i32 {
@@ -94,15 +93,11 @@ pub fn solar_to_lunar(dd: i32, mm: i32, yy: i32) -> (i32, i32, bool) {
     }
     let mut a11 = lunar_month_11(yy, tz);
     let mut b11 = a11;
-    let lunar_year;
     if a11 >= month_start {
-        lunar_year = yy;
         a11 = lunar_month_11(yy - 1, tz);
     } else {
-        lunar_year = yy + 1;
         b11 = lunar_month_11(yy + 1, tz);
     }
-    let _ = lunar_year;
     let lunar_day = day - month_start + 1;
     let diff = (month_start - a11) / 29;
     let mut leap = false;
@@ -129,6 +124,6 @@ mod tests {
     fn tet_2025_and_known_dates() {
         assert_eq!(solar_to_lunar(29, 1, 2025), (1, 1, false)); // Tết Ất Tỵ
         assert_eq!(solar_to_lunar(17, 2, 2026), (1, 1, false)); // Tết Bính Ngọ
-        assert_eq!(solar_to_lunar(3, 10, 2026).0 >= 1, true);
+        assert!(solar_to_lunar(3, 10, 2026).0 >= 1);
     }
 }
