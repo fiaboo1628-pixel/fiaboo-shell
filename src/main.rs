@@ -43,19 +43,16 @@ use gpui::{
 use gpui_platform::application;
 
 const BAR_HEIGHT: f32 = 48.0;
-/// Wash on the glass surfaces (bar, toasts, OSD): the glass under it carries the rest of their body
-/// as its tint, so its rim shows above the colour. scripts/glass.lua's WASH must match.
-const GLASS: u32 = 0x80;
-/// Panels have no glass since 2026-10-28 (owner: the text slid ahead of the glass, "bỏ kính toàn bộ panel
-/// cho đồng nhất"), then Hyprland blur behind them ("blur đi"): 80 % over the blurred wallpaper,
-/// the same on every panel. (Opaque before the blur: at 95 % unblurred, window text showed through.)
+/// Every surface (panels since 2026-10-28, the bar, toasts and OSD since the glass plugin went on
+/// 2026-11-01): 80 % over Hyprland's blur of the wallpaper, the same everywhere. (Opaque before the
+/// blur: at 95 % unblurred, window text showed through.)
 const PANEL_FILL: u32 = 0xCC;
 // alpha steps for palette colours used as fills and borders (never for text)
 const A_SURFACE: u32 = 0x20; // resting tiles, chips
 const A_HOVER: u32 = 0x30;
 const A_ACTIVE: u32 = 0x48; // selected / pressed; keeps fg >= 4.5:1 even on an accent fill
 const A_STRONG: u32 = 0x70; // focus rings, the accent card corner
-const A_BORDER: u32 = 0x90; // panel borders: fg at this alpha stays >= 3:1 over the glass whatever is behind it
+const A_BORDER: u32 = 0x90; // panel borders: fg at this alpha stays >= 3:1 over the fill whatever is behind it
 
 /// A card tinted with `c`: brighter at the top-left, fading towards the bottom-right.
 fn card_fill(c: u32, strong: bool) -> gpui::Background {
@@ -147,10 +144,10 @@ struct Palette {
 }
 
 /// Catppuccin Mocha unless a theme says otherwise; nothing follows the wallpaper.
-/// Secondary text is subtext1, not subtext0: it sits on see-through glass.
+/// Secondary text is subtext1, not subtext0: it sits on a see-through 80 % fill.
 ///
-/// nixos-config's `theme` writes palette.conf from the same colours it gives kitty, btop,
-/// the window borders and the glass, so the whole desktop moves together. The values below
+/// `theme` (~/.local/bin/theme) writes palette.conf from the same colours it gives kitty, btop
+/// and the window borders, so the whole desktop moves together. The values below
 /// are what that file holds for the catppuccin theme, and what every field falls back to:
 /// a missing file, or one line of it being unreadable, costs that one colour and nothing
 /// else. Read once -- palette() is called from seventeen places and each panel keeps a
@@ -717,7 +714,7 @@ impl Render for Osd {
             .gap_3()
             .px_4()
             .rounded_2xl()
-            .bg(rgba((p.bg << 8) | GLASS))
+            .bg(rgba((p.bg << 8) | PANEL_FILL))
             .border_1()
             .border_color(rgba((p.fg << 8) | A_BORDER))
             .text_color(rgb(p.fg))
@@ -1087,7 +1084,7 @@ impl Render for Bar {
             .flex_row()
             .items_center()
             .px_3()
-            .bg(rgba((p.bg << 8) | GLASS))
+            .bg(rgba((p.bg << 8) | PANEL_FILL))
             .border_t_1()
             .border_color(rgba((p.fg << 8) | A_BORDER))
             .text_color(rgb(p.fg))

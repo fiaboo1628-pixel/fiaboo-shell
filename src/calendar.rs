@@ -549,9 +549,9 @@ impl Render for CalendarPopup {
             .child(calendar)
             .child(div().w(px(320.)).flex().flex_col().gap_4().child(card).child(forecast))
             // drops in from the top edge (owner, 2026-10-27). Done here, not with a Hyprland
-            // "slide top" layer rule: on this full-screen glass layer that left the panel
-            // invisible for seconds after opening. Position only, no fade: the glass keys on
-            // the panel's exact fill colour, which an opacity ramp would change.
+            // "slide top" layer rule: on this full-screen layer that left the panel invisible
+            // for seconds after opening. Position only, no fade (back when the panel had glass,
+            // that keyed on its exact fill colour; a fade was never retried).
             .with_animation(
                 "cal-drop",
                 Animation::new(std::time::Duration::from_millis(700)).with_easing(gpui::ease_out_quint()), // 400 ms / 40 px read as a pop (owner: "sao nó mở nhanh")
