@@ -22,7 +22,7 @@ pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, center: Option<gpui::En
         .gap_3()
         .p_3()
         .rounded_xl()
-        .bg(rgba((p.bg << 8) | if in_center { 0x00 } else { GLASS }))
+        .bg(rgba((p.bg << 8) | if in_center { 0x00 } else { PANEL_FILL }))
         .when(in_center, |d| d.bg(card_fill(if n.critical { p.err } else { p.accent }, false)).shadow(card_shadow(&p, false)))
         .border_1()
         .border_color(if n.critical { rgba((p.err << 8) | 0xcc) } else { rgba((p.fg << 8) | A_BORDER) })

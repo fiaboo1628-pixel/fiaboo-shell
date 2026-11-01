@@ -1,8 +1,8 @@
 //! Music line: while a player plays, a thin line on the taskbar's top edge grows out from the
 //! middle with the loudness, a kick pushes it a little further, and its ends melt into the bar.
 //! Audio comes from the default sink monitor via `parec`; only loudness and bass are measured.
-//! The line lives in its own small layer surface on top of the bar, so the bar (and its glass)
-//! never redraws for it, and the surface exists only while there is something to show.
+//! The line lives in its own small layer surface on top of the bar, so the bar never
+//! redraws for it, and the surface exists only while there is something to show.
 
 use std::{
     io::{BufRead, BufReader, Read},

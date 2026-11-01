@@ -215,7 +215,7 @@ impl Render for TaskView {
                 .border_color(rgba((p.fg << 8) | A_BORDER))
                 .when(i == sel, |d| d.border_2().border_color(rgb(p.accent)))
                 // armed to close: the border carries the warning, because the line below says so
-                // in fg. err at 14 px measures 3.4:1 over the glass, under AA, and a border is
+                // in fg. err at 14 px measured 3.4:1 over the old glass, under AA, and a border is
                 // not the only cue -- the text changes too.
                 .when(pending == Some(i), |d| d.border_2().border_color(rgb(p.err)))
                 .hover(|s| s.bg(card_fill(if i % 2 == 0 { p.accent } else { p.accent2 }, true)).shadow(card_shadow(&p, true)))
