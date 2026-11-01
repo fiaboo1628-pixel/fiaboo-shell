@@ -65,10 +65,13 @@ hg.config({
   layers = { enabled = true, live_resample_fps = 30 },
 })
 
--- windows get their preset by tag; kitty swaps it for its own (one tag per rule, later rules win)
+-- windows get their preset by tag (one tag per rule, later rules win). kitty has no glass since
+-- 2026-11-01 (owner: the ported glass looked too clear, "làm kiểu blur cho gọn"): an 85 % black body
+-- in kitty.conf over Hyprland's blur, which the engine would turn off on a glassed window. To bring
+-- the glass back, tag it "+hyprglass_preset_fiaboo-kitty" and set kitty's background_opacity to 0.
 hl.window_rule({ name = "glass-window", match = { class = ".*" }, tag = "+hyprglass_preset_fiaboo-window" })
 hl.window_rule({ name = "glass-kitty-1", match = { class = "^kitty$" }, tag = "-hyprglass_preset_fiaboo-window" })
-hl.window_rule({ name = "glass-kitty-2", match = { class = "^kitty$" }, tag = "+hyprglass_preset_fiaboo-kitty" })
+hl.window_rule({ name = "glass-kitty-2", match = { class = "^kitty$" }, tag = "+hyprglass_disabled" })
 
 -- listing a layer whitelists it: only these three get glass. The bar's shape reaches past the
 -- screen on three sides, so its rim shows only along the top.
