@@ -14,7 +14,7 @@ pub(crate) struct TvWin {
     thumb: PathBuf, // filled in by a background `grim -T` (Hyprland's stableId is the ext-foreign-toplevel identifier)
 }
 
-/// Capture every window (hidden workspaces too) into small JPEGs. Each open uses fresh file
+/// Capture every listed window (other workspaces too, not special ones) into small JPEGs. Each open uses fresh file
 /// names so GPUI's image cache never shows an old frame; the previous set is deleted.
 pub(crate) fn tv_capture(wins: Vec<(String, PathBuf)>) {
     let dir = PathBuf::from(format!("{}/.cache/fiaboo-shell", home()));

@@ -41,7 +41,6 @@ pub(crate) fn open_tray_menu(cx: &mut App, item: tray::TrayItem) {
 }
 
 pub(crate) fn show_tray_menu(cx: &mut App, item: tray::TrayItem, entries: Vec<tray::MenuEntry>) {
-    let rows = entries.iter().map(|e| if e.separator { 9.0 } else { 34.0 }).sum::<f32>();
     let opened = cx.open_window(
         WindowOptions {
             titlebar: None,

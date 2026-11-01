@@ -1,5 +1,6 @@
-//! fiaboo-shell prototype: a GPUI layer-shell bar (bottom of the screen) with logo, workspaces,
-//! running apps (icons, click to focus) and clock. Colours: fixed Catppuccin Mocha (`palette()`).
+//! fiaboo-shell: a GPUI layer-shell bar (bottom of the screen) with Start, workspaces, running
+//! apps (icons, click to focus), tray, status icons and clock, plus one module per panel.
+//! Colours come from `palette()` (palette.conf written by `theme`, Catppuccin Mocha fallback).
 mod lunar;
 mod notify;
 mod tray;
@@ -43,9 +44,9 @@ use gpui::{
 use gpui_platform::application;
 
 const BAR_HEIGHT: f32 = 48.0;
-/// Every surface (panels since 2026-10-28, the bar, toasts and OSD since the glass plugin went on
-/// 2026-11-01): 80 % over Hyprland's blur of the wallpaper, the same everywhere. (Opaque before the
-/// blur: at 95 % unblurred, window text showed through.)
+/// Every surface (panels since 2026-10-28, the bar, toasts and OSD since the glass plugin was
+/// removed on 2026-11-01): 80 % over Hyprland's blur of the wallpaper, the same everywhere.
+/// (Opaque before the blur: at 95 % unblurred, window text showed through.)
 const PANEL_FILL: u32 = 0xCC;
 // alpha steps for palette colours used as fills and borders (never for text)
 const A_SURFACE: u32 = 0x20; // resting tiles, chips
@@ -146,7 +147,7 @@ struct Palette {
 /// Catppuccin Mocha unless a theme says otherwise; nothing follows the wallpaper.
 /// Secondary text is subtext1, not subtext0: it sits on a see-through 80 % fill.
 ///
-/// `theme` (~/.local/bin/theme) writes palette.conf from the same colours it gives kitty, btop
+/// `theme` (~/.local/bin/theme) writes palette.conf from the same colours it gives Ghostty, btop
 /// and the window borders, so the whole desktop moves together. The values below
 /// are what that file holds for the catppuccin theme, and what every field falls back to:
 /// a missing file, or one line of it being unreadable, costs that one colour and nothing
@@ -156,7 +157,7 @@ fn palette() -> Palette {
     static CACHE: OnceLock<Palette> = OnceLock::new();
     CACHE
         .get_or_init(|| {
-            let mut p =
+            let p =
                 Palette { bg: 0x1e1e2e, fg: 0xcdd6f4, accent: 0x89b4fa, accent2: 0xcba6f7, dim: 0xbac2de, err: 0xf38ba8 };
             match fs::read_to_string(format!("{}/.config/fiaboo-shell/palette.conf", home())) {
                 Ok(text) => palette_from(&text, p),
@@ -402,7 +403,6 @@ fn class_matches(class: &str, id: &str, d: &Desktop) -> bool {
 struct State {
     active_ws: i64,
     occupied: Vec<i64>,
-    title: String,
     apps: Vec<AppIcon>,
     time: String,
 }
@@ -487,7 +487,6 @@ fn read_state() -> State {
     State {
         active_ws,
         occupied,
-        title: active["title"].as_str().unwrap_or("").to_string(),
         apps,
         time: Command::new("date")
             .arg("+%H:%M|%d/%m/%Y")
@@ -914,9 +913,15 @@ impl Bar {
             use std::sync::atomic::Ordering;
             let long_ago = std::time::Instant::now() - Duration::from_secs(60);
             let (mut last_full, mut last_sys) = (long_ago, long_ago);
+            let mut last_minute = 0;
             loop {
+                // the clock rides on read_state, which otherwise runs on a Hyprland change or every 10 s:
+                // without this a minute could turn up to 10 s late on the bar
+                let minute = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() / 60);
+                let new_minute = minute != last_minute;
+                last_minute = minute;
                 // window/workspace state: only when Hyprland reports a change (plus a slow refresh for the clock and pins)
-                let st = if HYPR_DIRTY.swap(false, Ordering::Relaxed) || last_full.elapsed() > Duration::from_secs(10) {
+                let st = if HYPR_DIRTY.swap(false, Ordering::Relaxed) || new_minute || last_full.elapsed() > Duration::from_secs(10) {
                     last_full = std::time::Instant::now();
                     Some(cx.background_executor().spawn(async { read_state() }).await)
                 } else {
@@ -1465,6 +1470,16 @@ mod tests {
         fs::remove_dir_all(&root).unwrap();
         assert_eq!(names, ["B2", "E"]);
     }
+    #[test]
+    fn pins_match_their_windows() {
+        let d = Desktop { name: "Files".into(), stem: "org.gnome.nautilus".into(), icon: "nautilus".into(), wm_class: "nautilus".into(), settings: false };
+        assert!(class_matches("org.gnome.Nautilus", "org.gnome.nautilus", &d), "the stem, any case");
+        assert!(class_matches("nautilus", "org.gnome.nautilus", &d), "StartupWMClass");
+        assert!(class_matches("Nautilus-Window", "nautilus", &d), "a pin id inside the class");
+        assert!(!class_matches("firefox", "org.gnome.nautilus", &d));
+        assert!(hidden_ws("special:scratch") && !hidden_ws("special:minimized") && !hidden_ws("3"));
+    }
+
     #[test]
     fn media_line() {
         assert_eq!(

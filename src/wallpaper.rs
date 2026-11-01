@@ -211,7 +211,7 @@ impl Render for WpPicker {
                 this.last_input = std::time::Instant::now();
                 let n = this.visible().len();
                 let k = &ev.keystroke;
-                let mut go = |this: &mut Self, to: usize, cx: &mut Context<Self>| {
+                let go = |this: &mut Self, to: usize, cx: &mut Context<Self>| {
                     this.sel = to;
                     this.scroll.scroll_to_item(to);
                     cx.notify();
