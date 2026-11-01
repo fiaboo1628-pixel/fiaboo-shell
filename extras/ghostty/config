@@ -22,9 +22,10 @@ background-opacity = 0.85
 background = #000000
 background-blur = true
 
-# kitty-style cursor trail (cursor_trail 1, cursor_trail_decay 0.1 0.5), see shaders/README.
+# neon comet cursor trail (head 0.1 s, tail 0.5 s like kitty's cursor_trail_decay, blue glow), see README.
 # `true` animates only the focused surface; the shader itself returns early when unfocused.
-custom-shader = ~/.config/ghostty/shaders/cursor-trail.glsl
+custom-shader = ~/.config/ghostty/shaders/cursor-neon.glsl
+# plain trail without the glow: custom-shader = ~/.config/ghostty/shaders/cursor-trail.glsl
 custom-shader-animation = true
 cursor-style = block
 cursor-style-blink = false
