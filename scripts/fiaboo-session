@@ -8,8 +8,8 @@ BIN=${FIABOO_SHELL_BIN:-$HOME/.local/bin/fiaboo-shell}
 LOG=$HOME/.cache/fiaboo-shell.log
 GLASS_SRC=${FIABOO_GLASS_SRC:-$HOME/Projects/fiaboo-shell/scripts}   # hyprglass/ (engine) and glass.lua
 
-# True glass (hyprglass Hyprland plugin): built once per Hyprland version into ~/.cache, loaded, then
-# glass.lua applied (custom.lua re-applies it on every reload). If Hyprland crashed with the plugin
+# Glass (hyprglass Hyprland plugin): built once per Hyprland version into ~/.cache, loaded, then
+# glass.lua applied by a config reload (custom.lua runs it on every parse). If Hyprland crashed with the plugin
 # loaded (its crash report names hyprglass and is newer than the build), it stays off until rebuilt.
 glass() {
     local ver so build cache=$HOME/.cache/fiaboo-shell report
@@ -21,7 +21,7 @@ glass() {
     if [ ! -f "$so" ] || [ -n "$(find "$GLASS_SRC/hyprglass" -newer "$so" | head -1)" ]; then
         build=$cache/hyprglass-build
         rm -rf "$build" && cp -r "$GLASS_SRC/hyprglass" "$build" || return
-        if ! make -C "$build" -j4 HYPRGLASS_VERSION=1.0.1 >"$cache/hyprglass-build.log" 2>&1; then
+        if ! make -C "$build" -j4 HYPRGLASS_VERSION=1.1.0 >"$cache/hyprglass-build.log" 2>&1; then
             notify-send "fiaboo-shell" "Glass: engine build failed (log: $cache/hyprglass-build.log)" 2>/dev/null; return
         fi
         # new inode: a running Hyprland may still have the old .so mapped (in-place rewrite = SIGBUS)
@@ -33,7 +33,8 @@ glass() {
     fi
     # glass.lua is installed next to the .so: custom.lua reads it from there, not from the repo
     cp "$GLASS_SRC/glass.lua" "$cache/glass.lua"
-    hyprctl plugin load "$so" >/dev/null 2>&1 && hyprctl eval "dofile('$cache/glass.lua')" >/dev/null 2>&1
+    # the engine applies presets once a config parse ends: reparse (custom.lua runs glass.lua)
+    hyprctl plugin load "$so" >/dev/null 2>&1 && hyprctl reload >/dev/null 2>&1
 }
 glass &
 

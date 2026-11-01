@@ -1,6 +1,4 @@
-#include "Diagnostics.hpp"
 #include "BackgroundDamageObserver.hpp"
-#include "Frost.hpp"
 
 #include "GlassDecoration.hpp"
 #include "GlassLayerSurface.hpp"
@@ -10,7 +8,7 @@
 
 #include <hyprland/src/desktop/view/LayerSurface.hpp>
 #include <hyprland/src/desktop/view/WLSurface.hpp>
-#include <hyprland/src/desktop/view/Window.hpp>
+#include <hyprland/src/desktop/view/window/Window.hpp>
 #include <hyprland/src/event/EventBus.hpp>
 #include <hyprland/src/protocols/XDGShell.hpp>
 #include <hyprland/src/protocols/core/Compositor.hpp>
@@ -18,7 +16,6 @@
 #include <hyprland/src/protocols/types/SurfaceRole.hpp>
 
 #include <algorithm>
-#include <array>
 #include <exception>
 #include <format>
 
@@ -83,13 +80,13 @@ namespace {
         if (!window)
             return true;
 
-        if (!window->m_isMapped)
+        if (!window->mapped())
             return false;
 
         if (view->type() == VIEW_TYPE_WINDOW && window->isHidden())
             return false;
 
-        return !window->m_workspace || window->m_workspace->m_visible;
+        return !window->m_workspace || window->m_workspace->visible();
     }
 
     // A self-sampling window draws its own content into its glass, so a commit that
@@ -146,6 +143,31 @@ namespace {
         return root->findFirstPreorder([&surface](SP<CWLSurfaceResource> candidate) { return candidate == surface; }) != nullptr;
     }
 
+    // A contour layer's outline was traced from its own content: a commit that changes that
+    // content makes it stale. Unconditional like damageSelfSamplingWindow(): it has nothing to
+    // do with live resample, only with what the layer itself draws.
+    void invalidateContourOnOwnCommit(const SP<CWLSurfaceResource>& resource) {
+        if (!g_pGlobalState || g_pGlobalState->contourScratch.users <= 0)
+            return;
+
+        // same bit Hyprland tests: a commit without damage changes no pixel
+        if (!resource->m_current.updated.bits.damage)
+            return;
+
+        for (const auto& [_, state] : g_pGlobalState->layerSurfaces) {
+            if (!state || !state->holdsContour())
+                continue;
+
+            const auto layer = state->getLayerSurface();
+            if (!layer || !layer->mapped() || !layer->wlSurface())
+                continue;
+
+            // the layer's own surfaces, not its popups: those are not in what the field was traced from
+            if (surfaceInTree(resource, layer->wlSurface()->resource()))
+                state->markContourContentChanged();
+        }
+    }
+
     void onSurfaceCommit(const SP<CWLSurfaceResource>& resource) {
         if (!g_pGlobalState || !resource)
             return;
@@ -155,30 +177,10 @@ namespace {
         // Two independent sides can want this observer armed: layers (tracked
         // surfaces + layers:enabled) and windows (any decoration + windows:live_resample).
         // Early-out only when *neither* side has anything to gain from this commit.
-        const bool layersTracked  = config.layersEnabled && **config.layersEnabled && (!g_pGlobalState->layerSurfaces.empty() || !g_pGlobalState->layerPopupSurfaces.empty());
+        const bool layersTracked  = config.layersEnabled && **config.layersEnabled && !g_pGlobalState->layerSurfaces.empty();
         const bool windowsTracked = config.windowsLiveResample && **config.windowsLiveResample && !g_pGlobalState->decorations.empty();
         if (!layersTracked && !windowsTracked)
             return;
-
-        // A glassed layer's own commit changes its shape (contour layers measure and
-        // rebuild it), live resample or not.
-        // (remembered, so the background pass below skips them without searching again)
-        std::array<const CGlassLayerSurface*, 4> own{};
-        size_t                                   ownCount = 0;
-        if (layersTracked && resource->m_current.updated.bits.damage) {
-            for (const auto* states : {&g_pGlobalState->layerSurfaces, &g_pGlobalState->layerPopupSurfaces})
-                for (const auto& [_, state] : *states) {
-                    const auto layer = state->getLayerSurface();
-                    if (layer && layer->m_mapped &&
-                        (state->isPopups() ? state->ownsSurface(resource)
-                                           : surfaceInTree(resource, layer->wlSurface() ? layer->wlSurface()->resource() : nullptr))) {
-                        state->markContentDirty();
-                        if (ownCount < own.size())
-                            own[ownCount++] = state.get();
-                    }
-                }
-        }
-        const auto isOwn = [&](const CGlassLayerSurface* st) { return std::find(own.begin(), own.begin() + ownCount, st) != own.begin() + ownCount; };
 
         // cheap skip when nothing can want a live resample
         const bool layersWantLive  = (config.layersLiveResample && **config.layersLiveResample) ||
@@ -200,7 +202,6 @@ namespace {
         // not sampled from under the lock
         if (!view || view->type() == VIEW_TYPE_LOCK_SCREEN)
             return;
-        const auto committingLayer = view->type() == VIEW_TYPE_LAYER_SURFACE ? Desktop::View::CLayerSurface::fromView(view) : nullptr;
 
         const auto viewWindow = CWindow::fromView(view); // non-null only for a window root
         // Resolved once, shared with the window loop's self-exclusion below.
@@ -214,35 +215,22 @@ namespace {
         if (!box.has_value())
             return;
 
-        CRegion damage = wlSurface->computeDamage();
+        CRegion damage = wlSurface->computeDamage(box);
         if (damage.empty())
             return;
 
         // X11 clients draw at their own scale; only a window root carries it
-        if (viewWindow && viewWindow->m_isX11 && viewWindow->m_X11SurfaceScaledBy != 1.f)
-            damage.scale(1.0 / viewWindow->m_X11SurfaceScaledBy);
+        if (viewWindow && viewWindow->backend().isX11() && viewWindow->backend().surfaceScale() != 1.f)
+            damage.scale(1.0 / viewWindow->backend().surfaceScale());
 
         // the animated origin, not Hyprland's animation goal: it is where the
         // content is actually drawn this frame
         damage.translate(box->pos());
         const CBox damagedBox = damage.getExtents();
 
-        for (const auto* states : {&g_pGlobalState->layerSurfaces, &g_pGlobalState->layerPopupSurfaces})
-        for (const auto& [_, state] : *states) {
+        for (const auto& [_, state] : g_pGlobalState->layerSurfaces) {
             const auto layer = state->getLayerSurface();
-            if (!layer || !layer->m_mapped)
-                continue;
-
-            // a layer's own content is not its background (its shape was marked above;
-            // a popup state's content is its popups alone, not the layer's own
-            // commits, which for a 24 fps bar rebuilt the open flyout every frame)
-            if (isOwn(state.get()))
-                continue;
-
-            // a layer on a higher level is drawn over this glass, not behind it (a
-            // pet sprite animating on the overlay level resampled the bar 24 times
-            // a second); same level: order unknown here, so it still counts
-            if (committingLayer && !state->isPopups() && committingLayer->m_layer > layer->m_layer)
+            if (!layer || !layer->mapped())
                 continue;
 
             if (!state->liveResampleEnabled())
@@ -267,21 +255,16 @@ namespace {
                 // be marked dirty.
                 sampleBox.expand(GlassRenderer::SAMPLE_PADDING_PX / monScale);
             } else {
-                const auto box = state->logicalBox();
-                if (!box)
-                    continue;
-                sampleBox = *box;
-                // (the glass box and the few px its rim reaches: the whole 60 px
-                // padding let a terminal scrolling below the bar resample it 24
-                // times a second, though nothing there is behind the bar)
-                sampleBox.expand(12.0);
+                sampleBox = CBox{layer->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT),
+                                  layer->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT)};
+                sampleBox.expand(GlassRenderer::SAMPLE_PADDING_PX / monScale);
             }
 
             if (!sampleBox.overlaps(damagedBox))
                 continue;
 
             // a layer's own content is not its background
-            if (surfaceInTree(resource, layer->wlSurface() ? layer->wlSurface()->resource() : nullptr) || state->ownsSurface(resource))
+            if (surfaceInTree(resource, layer->wlSurface() ? layer->wlSurface()->resource() : nullptr))
                 continue;
 
             state->markBackgroundDirty();
@@ -289,13 +272,7 @@ namespace {
 
         // Single global switch: unlike layers, windows have no per-namespace
         // live-resample override to fall back on.
-        // Only what is drawn underneath a window's glass, over its glass box, can
-        // change what the glass shows. Layers on the top and overlay levels (the
-        // bar, its animations) are drawn after every window; a tiled neighbour sits
-        // beside it. Both resampled every glass window next to them, each time
-        // redrawing the whole window (an animated overlay alone: 24 a second).
-        const bool committedAbove = committingLayer && committingLayer->m_layer >= 2;
-        if (windowsWantLive && !committedAbove) {
+        if (windowsWantLive) {
             for (const auto& decorationRef : g_pGlobalState->decorations) {
                 auto* decoration = decorationRef.get();
                 if (!decoration)
@@ -308,21 +285,11 @@ namespace {
                 if (!window || window == committingWindow)
                     continue;
 
-                if (committingWindow && !Frost::drawnUnder(committingWindow, window))
+                const auto paddedBox = WindowGeometry::computePaddedGlobalBox(window, GlassRenderer::SAMPLE_PADDING_PX);
+                if (!paddedBox || !paddedBox->overlaps(damagedBox))
                     continue;
-                // (the glass box plus the few px its rim bends in and its blur spreads)
-                const auto paddedBox = WindowGeometry::computePaddedGlobalBox(window, 12.0f);
-                if (!paddedBox)
-                    continue;
-                if (paddedBox->overlaps(damagedBox)) {
-                    decoration->markBackgroundDirty();
-                    continue;
-                }
-                // beside it, where its rim's reflections come from: that strip of the
-                // sample and the rim facing it, not the whole pane
-                const auto reachBox = WindowGeometry::computePaddedGlobalBox(window, GlassRenderer::SAMPLE_PADDING_PX);
-                if (reachBox && reachBox->overlaps(damagedBox))
-                    decoration->markEdgeDirty(damagedBox);
+
+                decoration->markBackgroundDirty();
             }
         }
     }
@@ -346,6 +313,7 @@ namespace {
             try {
                 if (const auto surface = key.lock()) {
                     damageSelfSamplingWindow(surface);
+                    invalidateContourOnOwnCommit(surface);
                     onSurfaceCommit(surface);
                 }
             } catch (const std::exception& e) {
@@ -374,6 +342,60 @@ namespace {
 
         watchSurface(view->resource());
     }
+
+    void flushDeferredResamples() {
+        try {
+            if (!g_pGlobalState)
+                return;
+
+            const auto now = std::chrono::steady_clock::now();
+            for (const auto& decoration : g_pGlobalState->decorations) {
+                if (auto* glassDecoration = decoration.get())
+                    glassDecoration->flushDeferredResample(now);
+            }
+            for (const auto& [layer, state] : g_pGlobalState->layerSurfaces) {
+                if (state)
+                    state->flushDeferredResample(now);
+            }
+        } catch (const std::exception& e) {
+            reportListenerException(e.what());
+        } catch (...) {
+            reportListenerException("unknown exception");
+        }
+    }
+
+    // Removed from Hyprland's timer list, not just dropped: the list keeps its
+    // own reference, and the callback must not outlive the plugin.
+    void cancelDeferredResamples() {
+        auto& timer = g_pGlobalState->deferredResampleTimer;
+        if (!timer)
+            return;
+
+        timer->cancel();
+        if (g_pEventLoopManager)
+            g_pEventLoopManager->removeTimer(timer);
+        timer.reset();
+    }
+}
+
+void BackgroundDamageObserver::deferResample(std::chrono::steady_clock::time_point deadline) {
+    // a disarmed observer has nobody owing a mark, and PLUGIN_EXIT disarms it first
+    if (!g_pGlobalState || !g_pEventLoopManager || !isEnabled())
+        return;
+
+    const auto delay = std::max(deadline - std::chrono::steady_clock::now(), std::chrono::steady_clock::duration::zero());
+    auto&      timer = g_pGlobalState->deferredResampleTimer;
+    if (!timer) {
+        timer = makeShared<CEventLoopTimer>(delay, [](SP<CEventLoopTimer>, void*) { flushDeferredResamples(); }, nullptr);
+        g_pEventLoopManager->addTimer(timer);
+        return;
+    }
+
+    // armed for an earlier deadline: that firing re-arms for this one
+    if (timer->armed() && timer->leftUs() <= std::chrono::duration_cast<std::chrono::microseconds>(delay).count())
+        return;
+
+    timer->updateTimeout(delay);
 }
 
 void BackgroundDamageObserver::refreshEnabled() {
@@ -396,6 +418,7 @@ void BackgroundDamageObserver::setEnabled(bool enabled) {
     if (!enabled) {
         g_pGlobalState->observerListeners.clear();
         g_pGlobalState->watchedSurfaces.clear();
+        cancelDeferredResamples();
         return;
     }
 

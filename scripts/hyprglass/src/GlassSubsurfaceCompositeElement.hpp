@@ -16,9 +16,8 @@ class CGlassSubsurfaceCompositeElement : public IPassElement {
         std::shared_ptr<CGlassSubsurfaceState> state;
         CBox                                   itemLogicalBox; // same box CGlassSubsurfacePassElement::boundingBox() pads, so the
                                                                 // two elements are discarded together (see boundingBox() below)
-        CBox                                   rawBox;
-        CBox                                   transformBox;
-        CRegion                                transformedRegion; // ext-background-effect-v1 region, in transformBox's pixel space
+        CBox                                   pixelBox;
+        CRegion                                transformedRegion; // ext-background-effect-v1 region, in pixelBox's pixel space
         PHLMONITORREF                          monitor;
         float                                  alpha = 1.0f;
     };
@@ -26,10 +25,10 @@ class CGlassSubsurfaceCompositeElement : public IPassElement {
     explicit CGlassSubsurfaceCompositeElement(SData data);
     ~CGlassSubsurfaceCompositeElement() override = default;
 
-    std::vector<UP<IPassElement>> draw() override;
-    [[nodiscard]] bool                needsLiveBlur() override;
-    [[nodiscard]] bool                needsPrecomputeBlur() override;
-    [[nodiscard]] std::optional<CBox> boundingBox() override;
+    std::vector<UP<IPassElement>> draw(Render::CRenderContext& ctx) override;
+    [[nodiscard]] bool                needsLiveBlur(Render::CRenderContext&) override;
+    [[nodiscard]] bool                needsPrecomputeBlur(Render::CRenderContext&) override;
+    [[nodiscard]] std::optional<CBox> boundingBox(Render::CRenderContext& ctx) override;
 
     [[nodiscard]] const char*      passName() override { return "CGlassSubsurfaceCompositeElement"; }
     [[nodiscard]] ePassElementType type() override { return EK_CUSTOM; }

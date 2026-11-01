@@ -16,28 +16,28 @@ std::string CShaderManager::loadShaderSource(const char* fileName) {
     throw std::runtime_error(message);
 }
 
-bool CShaderManager::compileGlassShader() {
-    compileSerial++; // (a new program, maybe under a reused name: its uniforms start unset)
-    if (!glassShader->createProgram(
+bool CShaderManager::compileGlassProgram(SGlassProgram& glass, GlassFeatureMask features) {
+    if (!glass.shader->createProgram(
             g_pHyprOpenGL->m_shaders->TEXVERTSRC,
-            loadShaderSource("glass.frag"),
-            true
-        )) {
-        HyprlandAPI::addNotification(PHANDLE,
-            std::format("[{}] Failed to compile glass shader", PLUGIN_NAME),
-            CHyprColor{1.0, 0.2, 0.2, 1.0}, 5000);
+            glassVariantSource(loadShaderSource("liquidglass.frag"), features),
+            true,
+            // A variant failure falls back to the default program; our notification is enough.
+            features != GLASS_FEATURE_NONE
+        ))
         return false;
-    }
 
-    const auto program = glassShader->program();
+    const auto program       = glass.shader->program();
+    auto&      glassUniforms = glass.uniforms;
 
     glassUniforms.refractionStrength  = glGetUniformLocation(program, "refractionStrength");
+    glassUniforms.noiseStrength       = glGetUniformLocation(program, "noiseStrength");
     glassUniforms.chromaticAberration = glGetUniformLocation(program, "chromaticAberration");
     glassUniforms.fresnelStrength     = glGetUniformLocation(program, "fresnelStrength");
     glassUniforms.specularStrength    = glGetUniformLocation(program, "specularStrength");
     glassUniforms.glassOpacity        = glGetUniformLocation(program, "glassOpacity");
     glassUniforms.edgeThickness       = glGetUniformLocation(program, "edgeThickness");
     glassUniforms.invBezelWidthPx     = glGetUniformLocation(program, "invBezelWidthPx");
+    glassUniforms.uvPadding           = glGetUniformLocation(program, "uvPadding");
     glassUniforms.tintColor           = glGetUniformLocation(program, "tintColor");
     glassUniforms.tintAlpha           = glGetUniformLocation(program, "tintAlpha");
     glassUniforms.lensDistortion      = glGetUniformLocation(program, "lensDistortion");
@@ -68,72 +68,30 @@ bool CShaderManager::compileGlassShader() {
     glassUniforms.maskUVOffset        = glGetUniformLocation(program, "maskUVOffset");
     glassUniforms.maskUVScale         = glGetUniformLocation(program, "maskUVScale");
     glassUniforms.maskAlphaThreshold  = glGetUniformLocation(program, "maskAlphaThreshold");
+    glassUniforms.maskCoverage        = glGetUniformLocation(program, "maskCoverage");
     glassUniforms.maskMode            = glGetUniformLocation(program, "maskMode");
     glassUniforms.regionRectCount     = glGetUniformLocation(program, "regionRectCount");
     glassUniforms.regionRects         = glGetUniformLocation(program, "regionRects[0]");
     if (glassUniforms.regionRects == -1)
         glassUniforms.regionRects = glGetUniformLocation(program, "regionRects");
+    glassUniforms.sampleUVOffset      = glGetUniformLocation(program, "sampleUVOffset");
+    glassUniforms.sampleUVScale       = glGetUniformLocation(program, "sampleUVScale");
     glassUniforms.glassBoxOffsetPx    = glGetUniformLocation(program, "glassBoxOffsetPx");
     glassUniforms.glassBoxSizePx      = glGetUniformLocation(program, "glassBoxSizePx");
-    glassUniforms.thicknessPx         = glGetUniformLocation(program, "thicknessPx");
-    glassUniforms.abbe                = glGetUniformLocation(program, "abbe");
-    glassUniforms.bezelPx             = glGetUniformLocation(program, "bezelPx");
-    glassUniforms.materialize         = glGetUniformLocation(program, "materializeU");
-    glassUniforms.sdfSource           = glGetUniformLocation(program, "sdfSource");
-    glassUniforms.sdfTex              = glGetUniformLocation(program, "sdfTex");
-    glassUniforms.styleTex            = glGetUniformLocation(program, "styleTex");
-    glassUniforms.presenceTex         = glGetUniformLocation(program, "presenceTex");
-    glassUniforms.livePresence        = glGetUniformLocation(program, "livePresence");
-    glassUniforms.presenceRef         = glGetUniformLocation(program, "presenceRef");
-    glassUniforms.ghost               = glGetUniformLocation(program, "ghost");
-    glassUniforms.frostTex            = glGetUniformLocation(program, "frostTex");
-    glassUniforms.frost               = glGetUniformLocation(program, "frost");
-    glassUniforms.gleam               = glGetUniformLocation(program, "gleam");
-    glassUniforms.gleamPulse          = glGetUniformLocation(program, "gleamPulse");
-    glassUniforms.gleamShape          = glGetUniformLocation(program, "gleamShape");
-    glassUniforms.heldTex             = glGetUniformLocation(program, "heldTex");
-    glassUniforms.adaptiveStyle       = glGetUniformLocation(program, "adaptiveStyle");
-    glassUniforms.shadowOpacity       = glGetUniformLocation(program, "shadowOpacity");
-    glassUniforms.shadowRangePx       = glGetUniformLocation(program, "shadowRangePx");
-    glassUniforms.shadowOffsetPx      = glGetUniformLocation(program, "shadowOffsetPx");
-    glassUniforms.screenToUv          = glGetUniformLocation(program, "screenToUv");
-    glassUniforms.fillKey             = glGetUniformLocation(program, "fillKey");
-    glassUniforms.fillKeyTop          = glGetUniformLocation(program, "fillKeyTop");
-    glassUniforms.textBacking         = glGetUniformLocation(program, "textBacking");
-    glassUniforms.openAnim            = glGetUniformLocation(program, "openAnim");
-    glassUniforms.morphRect           = glGetUniformLocation(program, "morphRect");
-    glassUniforms.morphCard           = glGetUniformLocation(program, "morphCard");
-    glassUniforms.foldRect            = glGetUniformLocation(program, "foldRect");
-    glassUniforms.outFade             = glGetUniformLocation(program, "outFade");
-    glassUniforms.depth               = glGetUniformLocation(program, "depth");
-    glassUniforms.darkGlass           = glGetUniformLocation(program, "darkGlass");
-    glassUniforms.cornerMiter         = glGetUniformLocation(program, "cornerMiter");
-    glassUniforms.lightUi             = glGetUniformLocation(program, "lightUi");
-    glassUniforms.lightGlass          = glGetUniformLocation(program, "lightGlass");
-    glassUniforms.paneRect            = glGetUniformLocation(program, "paneRect");
-    glassUniforms.foldInfo            = glGetUniformLocation(program, "foldInfo");
-    glassUniforms.morphSource         = glGetUniformLocation(program, "morphSource");
-    glassUniforms.morphShape          = glGetUniformLocation(program, "morphShape");
-    glassUniforms.contentXform        = glGetUniformLocation(program, "contentXform");
-    glassUniforms.contentFx           = glGetUniformLocation(program, "contentFx");
-    glassUniforms.morphWaist          = glGetUniformLocation(program, "morphWaist");
-    glassUniforms.morphWaist2         = glGetUniformLocation(program, "morphWaist2");
-    glassUniforms.morphWaistBar       = glGetUniformLocation(program, "morphWaistBar");
-    glassUniforms.morphBarLens        = glGetUniformLocation(program, "morphBarLens");
-    glassUniforms.barGrade1           = glGetUniformLocation(program, "barGrade1");
-    glassUniforms.morphHand           = glGetUniformLocation(program, "morphHand");
-    glassUniforms.barTint             = glGetUniformLocation(program, "barTint");
-    glassUniforms.barStyle            = glGetUniformLocation(program, "barStyle");
-    glassUniforms.contentBox          = glGetUniformLocation(program, "contentBox");
-    glassUniforms.sdfRect             = glGetUniformLocation(program, "sdfRect");
-    glassUniforms.sampleXform         = glGetUniformLocation(program, "sampleXform");
-    glassUniforms.nRGB                = glGetUniformLocation(program, "nRGB");
-    glassUniforms.fresnelF0           = glGetUniformLocation(program, "fresnelF0");
-    glassUniforms.lightUv             = glGetUniformLocation(program, "lightUv");
-    glassUniforms.bevelLightUv        = glGetUniformLocation(program, "bevelLightUv");
-    glassUniforms.pressGlow           = glGetUniformLocation(program, "pressGlow");
-    glassUniforms.pressReachPx        = glGetUniformLocation(program, "pressReachPx");
-    glassUniforms.pressBulge          = glGetUniformLocation(program, "pressBulge");
+    glassUniforms.glassUVScale        = glGetUniformLocation(program, "glassUVScale");
+    glassUniforms.glassUVOffset       = glGetUniformLocation(program, "glassUVOffset");
+    glassUniforms.lensHeightPx          = glGetUniformLocation(program, "lensHeightPx");
+    glassUniforms.lensReflection        = glGetUniformLocation(program, "lensReflection");
+    glassUniforms.lensReflectionReachPx = glGetUniformLocation(program, "lensReflectionReachPx");
+    glassUniforms.focusLight            = glGetUniformLocation(program, "focusLight");
+    glassUniforms.focusLightColor       = glGetUniformLocation(program, "focusLightColor");
+    glassUniforms.focusLightColorAlpha  = glGetUniformLocation(program, "focusLightColorAlpha");
+    glassUniforms.frostTex              = glGetUniformLocation(program, "frostTex");
+    glassUniforms.frostAmount           = glGetUniformLocation(program, "frostAmount");
+    glassUniforms.contourTex            = glGetUniformLocation(program, "contourTex");
+    glassUniforms.contourUVScale        = glGetUniformLocation(program, "contourUVScale");
+    glassUniforms.contourReferencePx    = glGetUniformLocation(program, "contourReferencePx");
+    glassUniforms.contourReachPx        = glGetUniformLocation(program, "contourReachPx");
 
     return true;
 }
@@ -145,7 +103,7 @@ bool CShaderManager::compileBlurShader() {
             true
         )) {
         HyprlandAPI::addNotification(PHANDLE,
-            std::format("[{}] Failed to compile blur shader", PLUGIN_NAME),
+            std::format("[{}] Failed to compile blur shader, glass is off until the plugin is reloaded", PLUGIN_NAME),
             CHyprColor{1.0, 0.2, 0.2, 1.0}, 5000);
         return false;
     }
@@ -158,57 +116,123 @@ bool CShaderManager::compileBlurShader() {
     return true;
 }
 
-bool CShaderManager::compileShapeFieldShaders() {
-    auto build = [](SShapeFieldProgram& prog, const char* file, const char* a, const char* b, const char* c, const char* d) {
-        if (!prog.shader->createProgram(g_pHyprOpenGL->m_shaders->TEXVERTSRC, loadShaderSource(file), true)) {
-            HyprlandAPI::addNotification(PHANDLE, std::format("[{}] Failed to compile {}", PLUGIN_NAME, file),
-                CHyprColor{1.0, 0.2, 0.2, 1.0}, 5000);
-            return false;
-        }
-        const auto program = prog.shader->program();
-        prog.a = a ? glGetUniformLocation(program, a) : -1;
-        prog.b = b ? glGetUniformLocation(program, b) : -1;
-        prog.c = c ? glGetUniformLocation(program, c) : -1;
-        prog.d = d ? glGetUniformLocation(program, d) : -1;
-        return true;
-    };
-    return build(fieldSeed, "fieldseed.frag", "maskUVOffset", "maskUVScale", "threshold", "usePeak") &&
-           build(fieldStep, "fieldstep.frag", "stepPx", nullptr, nullptr, nullptr) &&
-           build(fieldResolve, "fieldresolve.frag", "maxDist", "maskUVOffset", "maskUVScale", "maskTex") &&
-           build(fieldBlur, "fieldblur.frag", "stepPx", "sigma", "finish", nullptr) &&
-           build(fieldBox, "fieldbox.frag", "maskUVOffset", "maskUVScale", "threshold", "cells") &&
-           build(barStyle, "barstyle.frag", "padding", "halfWindow", "across", nullptr) &&
-           build(presence, "presence.frag", "range", nullptr, nullptr, nullptr) &&
-           build(hold, "hold.frag", "maskUVOffset", "maskUVScale", "presenceRef", "presenceTex") &&
-           build(copy, "copy.frag", nullptr, nullptr, nullptr, nullptr);
+bool CShaderManager::compileContourPrograms() {
+    const auto& vertex = g_pHyprOpenGL->m_shaders->TEXVERTSRC;
+
+    // dynamic: a program the driver rejects comes back false instead of aborting the compositor
+    if (!m_contour.seed->createProgram(vertex, loadShaderSource("contourseed.frag"), true, true) ||
+        !m_contour.edt->createProgram(vertex, loadShaderSource("contouredt.frag"), true, true) ||
+        !m_contour.smooth->createProgram(vertex, loadShaderSource("contoursmooth.frag"), true, true) ||
+        !m_contour.pack->createProgram(vertex, loadShaderSource("contourfield.frag"), true, true))
+        return false;
+
+    auto locate = [](const SP<CShader>& shader, const char* name) { return glGetUniformLocation(shader->program(), name); };
+
+    auto& seed         = m_contour.seedUniforms;
+    seed.tex           = locate(m_contour.seed, "tex");
+    seed.boxOffsetPx   = locate(m_contour.seed, "boxOffsetPx");
+    seed.boxSizePx     = locate(m_contour.seed, "boxSizePx");
+    seed.sourceSizePx  = locate(m_contour.seed, "sourceSizePx");
+    seed.divisor       = locate(m_contour.seed, "divisor");
+    seed.threshold     = locate(m_contour.seed, "threshold");
+
+    auto& edt          = m_contour.edtUniforms;
+    edt.tex            = locate(m_contour.edt, "tex");
+    edt.fieldSize      = locate(m_contour.edt, "fieldSize");
+    edt.direction      = locate(m_contour.edt, "direction");
+    edt.reachTexels    = locate(m_contour.edt, "reachTexels");
+    edt.resolveSigned  = locate(m_contour.edt, "resolveSigned");
+    edt.texelPx        = locate(m_contour.edt, "texelPx");
+    edt.reachPx        = locate(m_contour.edt, "reachPx");
+
+    auto& smooth             = m_contour.smoothUniforms;
+    smooth.tex               = locate(m_contour.smooth, "tex");
+    smooth.fieldSize         = locate(m_contour.smooth, "fieldSize");
+    smooth.direction         = locate(m_contour.smooth, "direction");
+    smooth.radius            = locate(m_contour.smooth, "radius");
+    smooth.negHalfInvSigmaSq = locate(m_contour.smooth, "negHalfInvSigmaSq");
+
+    auto& pack     = m_contour.packUniforms;
+    pack.tex       = locate(m_contour.pack, "tex");
+    pack.fieldSize = locate(m_contour.pack, "fieldSize");
+    pack.texelPx   = locate(m_contour.pack, "texelPx");
+
+    return true;
+}
+
+const SContourPrograms* CShaderManager::contourPrograms() {
+    if (m_contourCompiled)
+        return &m_contour;
+    if (m_contourFailed)
+        return nullptr;
+
+    if (compileContourPrograms()) {
+        m_contourCompiled = true;
+        return &m_contour;
+    }
+
+    m_contourFailed = true;
+    m_contour.seed->destroy();
+    m_contour.edt->destroy();
+    m_contour.smooth->destroy();
+    m_contour.pack->destroy();
+    HyprlandAPI::addNotification(PHANDLE,
+        std::format("[{}] The contour shaders failed to compile, layers fall back to mask_mode = alpha", PLUGIN_NAME),
+        CHyprColor{1.0, 0.6, 0.2, 1.0}, 8000);
+    return nullptr;
 }
 
 void CShaderManager::initializeIfNeeded() {
-    // (a failed compile is not tried again every frame: on an older GPU each attempt
-    // took long enough, with a notification each time, to freeze the desktop. The
-    // glass stays off, everything draws as it would without it, until a reload.)
     if (m_initialized || m_compileFailed)
         return;
-    if (m_renderer.empty())
-        if (const auto* r = reinterpret_cast<const char*>(glGetString(GL_RENDERER)))
-            m_renderer = r;
 
-    m_initialized   = compileGlassShader() && compileBlurShader() && compileShapeFieldShaders();
+    if (!compileGlassProgram(m_defaultGlass, GLASS_FEATURE_NONE)) {
+        HyprlandAPI::addNotification(PHANDLE,
+            std::format("[{}] Failed to compile glass shader, glass is off until the plugin is reloaded", PLUGIN_NAME),
+            CHyprColor{1.0, 0.2, 0.2, 1.0}, 5000);
+        m_compileFailed = true;
+        return;
+    }
+
+    m_initialized   = compileBlurShader();
     m_compileFailed = !m_initialized;
 }
 
+SGlassProgram& CShaderManager::glassProgram(GlassFeatureMask features) {
+    features &= GLASS_FEATURE_ALL;
+    if (features == GLASS_FEATURE_NONE)
+        return m_defaultGlass;
+
+    auto [variant, inserted] = m_glassVariants.try_emplace(features);
+    if (inserted)
+        variant->second.features = features;
+    if (inserted && !compileGlassProgram(variant->second, features)) {
+        variant->second.failed = true;
+        HyprlandAPI::addNotification(PHANDLE,
+            std::format("[{}] An optional glass effect failed to compile (features {:#x}), glass is drawn without it",
+                        PLUGIN_NAME, features),
+            CHyprColor{1.0, 0.6, 0.2, 1.0}, 8000);
+    }
+
+    return variant->second.failed ? m_defaultGlass : variant->second;
+}
+
 void CShaderManager::destroy() noexcept {
-    glassShader->destroy();
+    m_defaultGlass.shader->destroy();
+    m_defaultGlass.uniforms = {};
+    for (auto& [features, variant] : m_glassVariants)
+        variant.shader->destroy();
+    m_glassVariants.clear();
     blurShader->destroy();
-    fieldSeed.shader->destroy();
-    fieldStep.shader->destroy();
-    fieldResolve.shader->destroy();
-    fieldBlur.shader->destroy();
-    fieldBox.shader->destroy();
-    barStyle.shader->destroy();
-    presence.shader->destroy();
-    hold.shader->destroy();
-    copy.shader->destroy();
+    if (m_contourCompiled) {
+        m_contour.seed->destroy();
+        m_contour.edt->destroy();
+        m_contour.smooth->destroy();
+        m_contour.pack->destroy();
+    }
+    m_contour         = {};
+    m_contourCompiled = false;
+    m_contourFailed   = false;
     m_initialized   = false;
     m_compileFailed = false;
 }

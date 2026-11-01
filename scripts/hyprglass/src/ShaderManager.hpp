@@ -1,17 +1,22 @@
 #pragma once
 
+#include "ShaderVariants.hpp"
+
 #include <GLES3/gl32.h>
 #include <hyprland/src/render/Shader.hpp>
 #include <string>
+#include <unordered_map>
 
 struct SGlassUniforms {
     GLint refractionStrength = -1;
+    GLint noiseStrength = -1;
     GLint chromaticAberration = -1;
     GLint fresnelStrength = -1;
     GLint specularStrength = -1;
     GLint glassOpacity = -1;
     GLint edgeThickness = -1;
     GLint invBezelWidthPx = -1;
+    GLint uvPadding = -1;
     GLint tintColor = -1;
     GLint tintAlpha = -1;
     GLint lensDistortion = -1;
@@ -44,81 +49,39 @@ struct SGlassUniforms {
     GLint maskUVOffset = -1;
     GLint maskUVScale = -1;
     GLint maskAlphaThreshold = -1;
+    GLint maskCoverage = -1;
     GLint maskMode = -1;
     GLint regionRectCount = -1;
     GLint regionRects = -1;
+    GLint sampleUVOffset = -1;
+    GLint sampleUVScale = -1;
 
-    // Subsurface items and shape-box layers: glass-box sub-rect the SDF is
-    // measured against, in box-local pixels (see Shaders.hpp).
+    // The glass shape's sub-rect of the drawn box (smaller only for subsurface
+    // items), in box-local pixels, and its UV mapping (see Shaders.hpp).
     GLint glassBoxOffsetPx = -1;
     GLint glassBoxSizePx = -1;
+    GLint glassUVScale = -1;
+    GLint glassUVOffset = -1;
 
-    // Physical optics, contour and shape-box layers, per-draw constants (see Shaders.hpp)
-    GLint thicknessPx = -1;
-    GLint abbe = -1;
-    GLint bezelPx = -1;
-    GLint materialize = -1;
-    GLint sdfSource = -1;
-    GLint sdfTex = -1;
-    GLint styleTex = -1;
-    GLint presenceTex = -1;
-    GLint livePresence = -1;
-    GLint presenceRef = -1;
-    GLint ghost = -1;
-    GLint frostTex = -1;
-    GLint frost = -1;
-    GLint gleam = -1;
-    GLint gleamPulse = -1;
-    GLint gleamShape = -1;
-    GLint heldTex = -1;
-    GLint adaptiveStyle = -1;
-    GLint shadowOpacity = -1;
-    GLint shadowRangePx = -1;
-    GLint shadowOffsetPx = -1;
-    GLint screenToUv = -1;
-    GLint fillKey = -1;
-    GLint fillKeyTop = -1;
-    GLint textBacking = -1;
-    GLint openAnim = -1;
-    GLint morphRect = -1;
-    GLint morphCard = -1;
-    GLint foldRect = -1;
-    GLint outFade = -1;
-    GLint depth = -1;
-    GLint darkGlass = -1;
-    GLint cornerMiter = -1;
-    GLint lightUi = -1;
-    GLint lightGlass = -1;
-    GLint paneRect = -1;
-    GLint foldInfo = -1;
-    GLint morphSource = -1;
-    GLint morphShape = -1;
-    GLint contentXform = -1;
-    GLint contentFx = -1;
-    GLint morphWaist = -1;
-    GLint morphWaist2 = -1;
-    GLint morphWaistBar = -1;
-    GLint morphBarLens = -1;
-    GLint barGrade1 = -1;
-    GLint morphHand = -1;
-    GLint barTint = -1;
-    GLint barStyle = -1;
-    GLint contentBox = -1;
-    GLint sdfRect = -1;
-    GLint sampleXform = -1;
-    GLint nRGB = -1;
-    GLint fresnelF0 = -1;
-    GLint lightUv = -1;
-    GLint bevelLightUv = -1;
-    GLint pressGlow = -1;
-    GLint pressReachPx = -1;
-    GLint pressBulge = -1;
-};
+    // GLASS_FEATURE_LENS_EDGE variant only; -1 (uploads ignored) in every other program.
+    GLint lensHeightPx = -1;
+    GLint lensReflection = -1;
+    GLint lensReflectionReachPx = -1;
 
-// Jump-flood distance field passes (ShapeField.cpp)
-struct SShapeFieldProgram {
-    SP<CShader> shader = makeShared<CShader>();
-    GLint       a = -1, b = -1, c = -1, d = -1;   // pass-specific uniforms
+    // GLASS_FEATURE_FOCUS_LIGHT variant only.
+    GLint focusLight = -1;
+    GLint focusLightColor = -1;
+    GLint focusLightColorAlpha = -1;
+
+    // GLASS_FEATURE_FROST variant only.
+    GLint frostTex    = -1;
+    GLint frostAmount = -1;
+
+    // GLASS_FEATURE_CONTOUR variant only.
+    GLint contourTex         = -1;
+    GLint contourUVScale     = -1;
+    GLint contourReferencePx = -1;
+    GLint contourReachPx     = -1;
 };
 
 struct SBlurUniforms {
@@ -126,33 +89,72 @@ struct SBlurUniforms {
     GLint radius    = -1;
 };
 
+// The programs that trace a layer's outline into a distance field (see Contour.hpp), and
+// where each reads its settings. Compiled together, the first time a layer asks for a field.
+struct SContourPrograms {
+    SP<CShader> seed   = makeShared<CShader>();
+    SP<CShader> edt    = makeShared<CShader>();
+    SP<CShader> smooth = makeShared<CShader>();
+    SP<CShader> pack   = makeShared<CShader>();
+
+    struct {
+        GLint tex = -1, boxOffsetPx = -1, boxSizePx = -1, sourceSizePx = -1, divisor = -1, threshold = -1;
+    } seedUniforms;
+    struct {
+        GLint tex = -1, fieldSize = -1, direction = -1, reachTexels = -1, resolveSigned = -1, texelPx = -1, reachPx = -1;
+    } edtUniforms;
+    struct {
+        GLint tex = -1, fieldSize = -1, direction = -1, radius = -1, negHalfInvSigmaSq = -1;
+    } smoothUniforms;
+    struct {
+        GLint tex = -1, fieldSize = -1, texelPx = -1;
+    } packUniforms;
+};
+
+// One compiled variant of the glass program, with the uniform locations of that program.
+struct SGlassProgram {
+    SP<CShader>    shader = makeShared<CShader>();
+    SGlassUniforms uniforms;
+    bool           failed = false; // variants only; m_compileFailed covers the default program
+    // What this program really draws: none for the default program, a variant's own set once it compiled.
+    GlassFeatureMask features = GLASS_FEATURE_NONE;
+};
+
 class CShaderManager {
   public:
     [[nodiscard]] bool isInitialized() const noexcept { return m_initialized; }
-    // The last compile attempt failed; it is retried at the next glass draw.
+    // The default glass program or the blur program failed to compile. Not retried
+    // before the plugin is reloaded: every attempt would stall the frame and notify again.
     [[nodiscard]] bool compileFailed() const noexcept { return m_compileFailed; }
-    // the GPU's name, read with the first compile (the GL context is current then)
-    [[nodiscard]] const std::string& renderer() const noexcept { return m_renderer; }
 
     void initializeIfNeeded();
     void destroy() noexcept;
 
-    SP<CShader>    glassShader = makeShared<CShader>();
-    uint64_t       compileSerial = 0;   // bumped by every glass program build
-    SGlassUniforms glassUniforms;
+    // The glass program for a draw using `features`, compiled on its first use. A
+    // variant that fails to compile is reported once, never retried, and the default
+    // program draws in its place. Only call once isInitialized().
+    [[nodiscard]] SGlassProgram& glassProgram(GlassFeatureMask features);
+
+    // The contour field programs, compiled on first use. Null when they failed to compile:
+    // reported once, not retried before the plugin is reloaded.
+    [[nodiscard]] const SContourPrograms* contourPrograms();
 
     SP<CShader>    blurShader = makeShared<CShader>();
     SBlurUniforms  blurUniforms;
 
-    SShapeFieldProgram fieldSeed, fieldStep, fieldResolve, fieldBlur, fieldBox, barStyle, presence, hold, copy;
-
   private:
     bool m_initialized = false;
     bool m_compileFailed = false;
-    std::string m_renderer;
+
+    SGlassProgram                                       m_defaultGlass;
+    std::unordered_map<GlassFeatureMask, SGlassProgram> m_glassVariants;
+
+    SContourPrograms m_contour;
+    bool             m_contourCompiled = false;
+    bool             m_contourFailed   = false;
 
     [[nodiscard]] static std::string loadShaderSource(const char* fileName);
-    [[nodiscard]] bool compileGlassShader();
+    [[nodiscard]] static bool compileGlassProgram(SGlassProgram& program, GlassFeatureMask features);
     [[nodiscard]] bool compileBlurShader();
-    [[nodiscard]] bool compileShapeFieldShaders();
+    [[nodiscard]] bool compileContourPrograms();
 };
