@@ -187,7 +187,7 @@ pub fn toggle_mini(cx: &mut App) {
     if !on {
         let _ = std::fs::create_dir_all(format!("{}/.cache/fiaboo-shell/viz", home()));
         let _ = std::fs::write(off_flag(), "");
-        return; // the controller sees the new run, closes the line and stops the capture
+        return; // the controller sees the new run, fades the line out, closes it and stops the capture
     }
     let _ = std::fs::remove_file(off_flag());
     start_player_watch();
@@ -225,7 +225,8 @@ pub fn toggle_mini(cx: &mut App) {
                     let _ = h.update(cx, |_, window, _| window.remove_window());
                 }
             }
-            if !current {
+            // switched off: keep looping until the line has faded and the branch above closed it
+            if !current && !visible {
                 break;
             }
             let wait = if visible || playing { 1000 / FPS } else { 250 };
