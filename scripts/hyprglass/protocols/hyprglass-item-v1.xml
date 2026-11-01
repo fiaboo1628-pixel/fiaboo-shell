@@ -27,7 +27,7 @@
   <interface name="hyprglass_item_manager_v1" version="1">
     <description summary="manager to associate glass item hints with surfaces">
       This is a Hyprland-hyprglass-specific extension. It lets a client hint
-      how the hyprglass compositor plugin should render the glass
+      how the hyprglass compositor plugin should render the Liquid Glass
       effect it already applies to any surface that also carries an
       ext-background-effect-v1 blur region: which named preset to use, and
       what rounded-rect shape to clip the effect to.
@@ -94,7 +94,7 @@
 
   <interface name="hyprglass_item_v1" version="1">
     <description summary="glass rendering hints for one surface">
-      Carries optional per-surface hints for the hyprglass glass
+      Carries optional per-surface hints for the hyprglass Liquid Glass
       effect: which preset to use, and what rounded-rect shape to clip the
       effect to. The two hints are independent: either can be set without
       the other. None of these requests raises an error for an

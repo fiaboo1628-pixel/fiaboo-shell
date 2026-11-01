@@ -1,10 +1,11 @@
 #pragma once
 
+#include "Contour.hpp"
 #include "GlassLayerSurface.hpp"
 #include "PluginConfig.hpp"
 #include "ShaderManager.hpp"
 
-#include <array>
+#include <hyprland/src/managers/eventLoop/EventLoopManager.hpp>
 #include <hyprland/src/plugins/PluginAPI.hpp>
 #include <hyprland/src/protocols/core/Compositor.hpp>
 #include <hyprland/src/render/Framebuffer.hpp>
@@ -12,8 +13,8 @@
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/SharedDefs.hpp>
 #include <hyprutils/signal/Listener.hpp>
-#include <chrono>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_set>
@@ -33,17 +34,11 @@ struct SGlobalState {
     CShaderManager                    shaderManager;
     SPluginConfig                     config;
 
-    // User-defined presets (populated from config keyword, swapped in on configReloaded)
+    // User-defined presets (populated by hyprglass.preset() calls, swapped in on config.reloaded)
     std::unordered_map<std::string, SCustomPreset> customPresets;
 
     // Shared blur temp framebuffer (reused across all decorations since they render sequentially)
-    // blur ping-pong buffers, one per size (GlassRenderer::blurBackground)
-    struct SBlurTemp {
-        SP<Render::IFramebuffer> fb;
-        uint64_t                 used = 0;
-    };
-    std::array<SBlurTemp, 6> blurTemps;
-    uint64_t                 blurTempClock = 0;
+    SP<Render::IFramebuffer> blurTempFramebuffer;
 
     // Per-monitor temp FBO for subsurface item glass, shared serially by every
     // glassed item on that monitor in a frame — a per-item copy would be one
@@ -60,9 +55,6 @@ struct SGlobalState {
     // Layer surface glass state (one per tracked layer, keyed by raw pointer).
     // shared_ptr so CGlassLayerPassElement can hold a copy that survives map erasure mid-frame.
     std::unordered_map<Desktop::View::CLayerSurface*, std::shared_ptr<CGlassLayerSurface>> layerSurfaces;
-    // Glass under a layer's popups (bar flyouts, menus), one per layer, drawn in
-    // Hyprland's separate popup pass and shaped by the popups' own contour.
-    std::unordered_map<Desktop::View::CLayerSurface*, std::shared_ptr<CGlassLayerSurface>> layerPopupSurfaces;
 
     // Subsurface item glass state, one per glassed wl_subsurface, keyed by a
     // weak ref so a destroyed surface's entry is simply unreachable rather
@@ -72,96 +64,37 @@ struct SGlobalState {
     // watchedSurfaces below. Pruned lazily wherever it's walked (see main.cpp).
     std::unordered_map<WP<CWLSurfaceResource>, std::shared_ptr<CGlassSubsurfaceState>> subsurfaceGlass;
 
-    // Parsed namespace whitelist (empty = match all when layers enabled)
+    // hg.layer() whitelist (empty or containing LAYER_NAMESPACE_WILDCARD = match all when layers enabled)
     std::unordered_set<std::string> layerNamespaceFilter;
-    // Parsed namespace blacklist (always excluded, takes priority over whitelist)
+    // hg.layer(..., { exclude = true }) blacklist (always excluded, takes priority over whitelist)
     std::unordered_set<std::string> layerNamespaceExclude;
     // Per-namespace preset overrides (namespace → preset name)
     std::unordered_map<std::string, std::string> layerNamespacePresets;
-    std::unordered_map<std::string, std::string> layerNamespacePopupPresets; // popup_preset: the layer's popups' own glass
-    std::unordered_map<std::string, float>       layerNamespacePopupShadow;  // popup_shadow: their drop shadow
-    std::unordered_map<std::string, float>       layerNamespacePopupRadius;  // popup_radius: glass as an exact rounded box of each popup
-    // Per-namespace mask alpha threshold (namespace → threshold, default 0.001)
+    // Per-namespace mask alpha threshold (namespace → threshold, overrides layers.mask_threshold)
     std::unordered_map<std::string, float> layerNamespaceMaskThresholds;
     // Per-namespace live resample override (namespace → enabled)
     std::unordered_map<std::string, bool> layerNamespaceLiveResample;
     // Per-namespace mask mode override (namespace → mode)
     std::unordered_map<std::string, ELayerMaskMode> layerNamespaceMaskModes;
-    // Per-namespace glass shape inside the layer box: inset (logical px, top
-    // right bottom left) and corner radius (-1 = capsule). Glass covers the
-    // whole shape whatever the surface draws, e.g. a floating capsule bar.
+    // Per-namespace mask_feather override (namespace → feather)
+    std::unordered_map<std::string, float> layerNamespaceMaskFeathers;
+    // Per-namespace fixed glass shape (namespace → shape); absent = the whole layer box
     std::unordered_map<std::string, SLayerShape> layerNamespaceShapes;
-    // Namespaces whose popups get glass too
-    std::unordered_set<std::string> layerNamespacePopups;
-    // Namespaces drawn as contour cards (seen so): the engine owns their closes, so
-    // Hyprland's fade-out snapshot of them is left empty
-    std::unordered_set<std::string> contourCardNamespaces;
-    // Namespaces whose glass flips light/dark with its backdrop, glyphs included
-    std::unordered_set<std::string> layerNamespaceAdaptive;
-    // Per-namespace drop shadow opacity under the glass
-    std::unordered_map<std::string, float> layerNamespaceShadow;
-    std::unordered_set<std::string>        layerNamespaceNoHeldClose; // held_close = false
-    std::unordered_set<std::string>        layerNamespaceFillKeyTop;  // fill_key_top = true: a thin line in the key colour along the bottom edge is drawn along the top instead
-    // Per-namespace fill colour to see through: rgb 0..1 and the alpha it keeps
-    std::unordered_map<std::string, std::array<float, 4>> layerNamespaceFillKey;
-    // popup_fill_key: the same, for the layer's popups (the bar's tooltips)
-    std::unordered_map<std::string, std::array<float, 4>> layerNamespacePopupFillKey;
+
+    // Contour (layers.mask_mode = "contour"): the render targets every layer's field build
+    // shares, and whether the GPU can do it at all. Once the GPU or the shaders turn out not
+    // to be up to it, every layer draws as with mask_mode = "alpha" until the plugin is reloaded.
+    Contour::SScratch   contourScratch;
+    std::optional<bool> contourGpuSupported;
+    bool                contourUnavailable = false;
 
     // Per-monitor generation counter, incremented when the scene behind layers
     // changes on that monitor. Layer surfaces compare to their cached value to
     // skip redundant blur work. Per-monitor avoids cross-monitor feedback loops
     // where re-sampling on an idle monitor captures its own stale glass output.
-    // Keyed by MONITORID rather than CMonitor* so the code builds on both
-    // Hyprland <= 0.55.x (global CMonitor) and git (Monitor::CMonitor), and a
-    // stale entry can never alias a reallocated monitor object.
+    // Keyed by MONITORID rather than CMonitor* so a stale entry can never alias a
+    // reallocated monitor object.
     std::unordered_map<MONITORID, uint64_t> sceneGeneration;
-
-    // Press glow (glass lights up from within where it is pressed,
-    // the glow spreading through it). The last pointer press, global logical.
-    struct SPressGlow {
-        Vector2D                              pos;
-        std::chrono::steady_clock::time_point at;
-        bool                                  live = false;
-        float                                 hold = -1.0f; // test: freeze the glow at this age
-    } pressGlow;
-    static constexpr float PRESS_GLOW_SECONDS = 0.6f;
-    static constexpr float PRESS_GLOW_REACH   = 340.0f; // logical px
-
-    // 0..1 seconds-normalized age of a live press glow, or -1
-    // When the user last changed what a card shows from the keyboard or the wheel
-    // (typing into a search, scrolling a list): its content may shrink or thin out
-    // for a moment then, which is not the card closing
-    std::chrono::steady_clock::time_point contentInputAt{};
-    // The pointer moving with no button down: what changes then is hover (a tooltip
-    // coming and going, a row lighting up), a card's layout, never its close (a close
-    // by pointer is a press: on the bar, or outside the card)
-    std::chrono::steady_clock::time_point pointerMoveAt{}, pointerPressAt{};
-    bool hoverRecent() const {
-        const auto now = std::chrono::steady_clock::now();
-        return pointerMoveAt.time_since_epoch().count() > 0 && now - pointerMoveAt < std::chrono::milliseconds(300) &&
-            !(pointerPressAt.time_since_epoch().count() > 0 && now - pointerPressAt < std::chrono::milliseconds(600));
-    }
-    bool contentInputRecent() const {
-        return contentInputAt.time_since_epoch().count() > 0 && std::chrono::steady_clock::now() - contentInputAt < std::chrono::milliseconds(450);
-    }
-
-    float pressGlowAge() const {
-        if (!pressGlow.live)
-            return -1.0f;
-        if (pressGlow.hold >= 0.0f)
-            return pressGlow.hold;
-        const float t = std::chrono::duration<float>(std::chrono::steady_clock::now() - pressGlow.at).count() / PRESS_GLOW_SECONDS;
-        return t < 1.0f ? t : -1.0f;
-    }
-
-    // bumped by every config change (a reload, or a hl.plugin.hyprglass call): what
-    // was computed from the old settings is stale (windows' kept glass)
-    uint64_t configSerial = 0;
-
-    // Dark glass and Light glass as drawn now, easing to their settings
-    // (GlassRenderer::stepTone; -1: not drawn yet)
-    float                                 darkShown = -1.0f, lightShown = -1.0f;
-    std::chrono::steady_clock::time_point toneAt{};
 
     uint64_t getSceneGeneration(const PHLMONITOR& mon) const {
         if (!mon)
@@ -174,10 +107,11 @@ struct SGlobalState {
             sceneGeneration[mon->m_id]++;
     }
 
-    // Render-order fingerprint: a per-monitor running hash folded from every
-    // glass-eligible window's identity/geometry/alpha in z-order, compared frame
-    // to frame to catch stacking/membership changes (e.g. a window closing behind
-    // a cached glass window) that no other event bumps scene generation for.
+    // Render-order fingerprint: a per-monitor running hash folded from the
+    // monitor's fade-outs and every glass-eligible window's identity/geometry/alpha
+    // in z-order, compared frame to frame to catch stacking/membership changes
+    // (e.g. a window closing behind a cached glass surface) that no other event
+    // bumps scene generation for.
     struct SRenderFingerprint {
         size_t runningHash = 0;
         size_t lastHash    = 0;
@@ -212,6 +146,9 @@ struct SGlobalState {
         Render::CRenderPass                  sink;
         UP<Hyprutils::Utils::CScopeGuard>    guard;
         std::vector<Desktop::View::CWindow*> dropped; // identity only, never dereferenced
+        // currentPass() at RENDER_PRE_WINDOW, before Hyprland redirects a transformed
+        // window into its own pass: window glass goes here (see queueGlassPass)
+        Render::CRenderPass*                 windowPass    = nullptr;
         bool                                 sawFullscreen = false;
 
         // one workspace pass
@@ -226,18 +163,41 @@ struct SGlobalState {
         void reset() {
             resetEpoch();
             dropped.clear();
+            windowPass = nullptr;
         }
     } dedupe;
 
+    // Pending re-enable of Hyprland shadows after a config reload (see main.cpp)
+    UP<SEventLoopDoLaterLock> shadowFixLock;
+    // One timer for every resample the live_resample_fps limit deferred (see
+    // BackgroundDamageObserver). Hyprland's timer list holds its own reference,
+    // so it must be removed from it, not just dropped, before the plugin unloads.
+    SP<CEventLoopTimer> deferredResampleTimer;
+    // X-ray: per-monitor copy of the frame as it stood before any window was
+    // drawn, kept by CGlassSnapshotElement (see GlassSnapshotElement.hpp).
+    struct SBackgroundSnapshot {
+        SP<Render::IFramebuffer> framebuffer;
+        // Framebuffer pixels that still hold this monitor's current background:
+        // cut by each frame's damage at RENDER_BEGIN, refilled by each copy.
+        CRegion valid;
+        // Counted per monitor, so frames rendered on another monitor never age
+        // this one's snapshot.
+        uint64_t monitorFrames    = 0;
+        uint64_t lastRequestFrame = 0;
+        uint64_t queuedFrame      = 0;
+    };
+    std::unordered_map<MONITORID, SBackgroundSnapshot> backgroundSnapshots;
+
     // renderLayer hook
     CFunctionHook* renderLayerHook = nullptr;
-    CFunctionHook* renderFadeoutsHook = nullptr; // a layer's close, drawn after it unmapped
-    CFunctionHook* captureOutputHook  = nullptr; // a one-shot screen capture (a screenshot's freeze): closes end first
 
     // Render::CRenderPass::add hook (subsurface item glass)
     CFunctionHook* renderPassAddHook             = nullptr;
     bool           renderPassAddSymbolFound      = false; // for the failure notification text
     bool           subsurfaceHookFailureNotified = false;
+
+    // `versionCheck` in `hyprctl hyprglass status`: match, unknown or skipped
+    std::string_view versionCheck = "unknown";
 };
 
 using Render::GL::g_pHyprOpenGL;
@@ -248,8 +208,11 @@ inline std::unique_ptr<SGlobalState> g_pGlobalState;
 // Decoration registered for this window, or nullptr. Borrowed, never owned.
 CGlassDecoration* glassDecorationFor(const PHLWINDOW& window);
 
+// Turns Hyprland shadows back on if window glass is in use and they are off.
+void scheduleShadowsForWindowGlass();
+
 inline constexpr std::string_view PLUGIN_NAME        = "hyprglass";
-inline constexpr std::string_view PLUGIN_DESCRIPTION = "Physically based glass for Hyprland";
+inline constexpr std::string_view PLUGIN_DESCRIPTION = "Apple-style Liquid Glass effect";
 inline constexpr std::string_view PLUGIN_AUTHOR      = "Hyprnux";
 #ifndef HYPRGLASS_VERSION
 #define HYPRGLASS_VERSION "dev"
