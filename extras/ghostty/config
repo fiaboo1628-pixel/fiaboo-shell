@@ -1,0 +1,39 @@
+# Ghostty (main terminal since 2026-11-01, replacing kitty): the same look as the kitty setup.
+# Lives at ~/.config/ghostty/config. Colours come from current-theme.conf, rendered by `theme`
+# from ghostty.conf.tpl; only the black body is set here.
+#
+# config-file includes are loaded after this file (Ghostty: "configuration files do not take
+# effect until after the entire configuration is loaded"), so the theme file must never set
+# `background`: whatever it set would win over the black below.
+config-file = ?current-theme.conf
+
+font-family = JetBrainsMono Nerd Font
+font-style = SemiBold
+font-size = 12
+window-padding-x = 18
+window-padding-y = 14
+window-decoration = none
+gtk-titlebar = false
+
+# 85 % black body over Hyprland's own blur. Hyprland 0.57 only blurs Ghostty when
+# background-blur is on (measured 2026-11-01); the blur itself still comes from the layer/window
+# rule in ~/.config/hypr/custom.lua, not from Ghostty.
+background-opacity = 0.85
+background = #000000
+background-blur = true
+
+# kitty-style cursor trail (cursor_trail 1, cursor_trail_decay 0.1 0.5), see shaders/README.
+# `true` animates only the focused surface; the shader itself returns early when unfocused.
+custom-shader = ~/.config/ghostty/shaders/cursor-trail.glsl
+custom-shader-animation = true
+cursor-style = block
+cursor-style-blink = false
+# keep the block cursor at the prompt (shell integration would switch it to a bar)
+shell-integration-features = no-cursor
+
+# Ghostty ignores a --class without a dot (measured 2026-11-01), so Hyprland rules match on
+# fiaboo.dropterm and fiaboo.tui-float-*; those classes are passed on the command line, not here.
+
+# Splits (Ghostty 1.4 has no per-pane frames or titles, see README): one divider colour for all
+# splits comes from the theme file; the unfocused dim is off by default. Uncomment to dim them:
+# unfocused-split-opacity = 0.7
