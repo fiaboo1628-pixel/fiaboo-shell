@@ -50,7 +50,9 @@ pub(crate) fn wp_make_thumbs(list: Vec<PathBuf>) {
     }
     for src in list {
         let t = wp_thumb(&src);
-        if !t.exists() {
+        // also a replaced source: a thumb older than its wallpaper is stale
+        let mtime = |f: &std::path::Path| fs::metadata(f).and_then(|m| m.modified()).ok();
+        if mtime(&t) < mtime(&src) {
             // the picker shows a thumbnail once it exists: only a finished file may take its name
             let tmp = t.with_extension("tmp.jpg");
             let ok = Command::new("magick")
@@ -165,7 +167,15 @@ impl WpPicker {
             }
         })
         .detach();
+        cx.on_release(|p, cx| {
+            // GPUI would keep every decoded thumb forever, and a regenerated one keeps its name
+            for path in &p.list {
+                gpui::ImageSource::from(wp_thumb(path)).remove_asset(cx);
+            }
+        })
+        .detach();
         let scroll = gpui::ScrollHandle::new();
+        scroll.scroll_to_item(sel);
         WpPicker { pal: palette(), focus, list, current, sel, scroll, last_input: std::time::Instant::now(), thumbs_pending: true, query: String::new() }
     }
 }
@@ -251,6 +261,8 @@ impl Render for WpPicker {
             .flex()
             .items_center()
             .justify_center()
+            .on_mouse_move(cx.listener(|this, _: &gpui::MouseMoveEvent, _, _| this.last_input = std::time::Instant::now()))
+            .on_scroll_wheel(cx.listener(|this, _: &gpui::ScrollWheelEvent, _, _| this.last_input = std::time::Instant::now()))
             .on_mouse_down(MouseButton::Left, |_, window, cx| close_wp(window, cx))
             .on_mouse_down(MouseButton::Right, |_, window, cx| close_wp(window, cx))
             .child(

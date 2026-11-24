@@ -144,13 +144,20 @@ impl TaskView {
             }
         })
         .detach();
-        // exclusive keyboard focus: close after 90 s without a key press, like the other panels
+        // exclusive keyboard focus: close after 90 s without a key press or mouse use, like the other panels
         cx.spawn_in(window, async move |this, cx| loop {
             cx.background_executor().timer(Duration::from_secs(1)).await;
             let idle = this.update(cx, |t, _| t.last_input.elapsed() > Duration::from_secs(90)).unwrap_or(true);
             if idle {
                 let _ = this.update_in(cx, |_, window, cx| close_taskview(window, cx));
                 break;
+            }
+        })
+        .detach();
+        // every open has fresh file names, so GPUI's asset cache would otherwise keep each decoded thumbnail forever
+        cx.on_release(|t, cx| {
+            for w in &t.wins {
+                gpui::ImageSource::from(w.thumb.clone()).remove_asset(cx);
             }
         })
         .detach();
@@ -294,6 +301,8 @@ impl Render for TaskView {
             .justify_center()
             .bg(rgba((p.bg << 8) | 0xB0))
             .text_color(rgb(p.fg))
+            .on_mouse_move(cx.listener(|this, _: &gpui::MouseMoveEvent, _, _| this.last_input = std::time::Instant::now()))
+            .on_scroll_wheel(cx.listener(|this, _: &gpui::ScrollWheelEvent, _, _| this.last_input = std::time::Instant::now()))
             .on_mouse_down(MouseButton::Left, |_, window, cx| close_taskview(window, cx))
             .on_mouse_down(MouseButton::Right, |_, window, cx| close_taskview(window, cx))
             .child(
