@@ -709,13 +709,13 @@ fn parse_im(name: &str) -> Option<bool> {
 }
 
 /// `pactl -f json list source-outputs`: a live (uncorked) stream that is neither the music
-/// line's `parec` nor this process.
+/// line's `parec` nor this process. parec runs as binary `pacat`, so match its client name.
 fn mic_in_use(json: &str, own_pid: u32) -> bool {
     let v: serde_json::Value = serde_json::from_str(json).unwrap_or_default();
     v.as_array().into_iter().flatten().any(|o| {
         let prop = |k: &str| o["properties"][k].as_str().unwrap_or("");
         !o["corked"].as_bool().unwrap_or(false)
-            && prop("application.process.binary") != "parec"
+            && prop("application.name") != "fiaboo-musicline"
             && prop("application.process.id") != own_pid.to_string()
     })
 }
@@ -1642,7 +1642,7 @@ mod tests {
     fn mic_ignores_our_own_parec() {
         let ours = r#"[
             {"index":71,"driver":"PipeWire","owner_module":4294967295,"client":70,"source":58,"corked":false,
-             "properties":{"application.name":"parec","application.process.id":"4242","application.process.binary":"parec","media.name":"record"}},
+             "properties":{"application.name":"fiaboo-musicline","application.process.id":"4242","application.process.binary":"pacat","media.name":"record"}},
             {"index":80,"driver":"PipeWire","owner_module":4294967295,"client":79,"source":58,"corked":false,
              "properties":{"application.name":"fiaboo-shell","application.process.id":"1000","application.process.binary":"fiaboo-shell"}}
         ]"#;

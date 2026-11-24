@@ -60,7 +60,7 @@ fn capture_start() {
         return;
     }
     let child = Command::new("parec")
-        .args(["-d", "@DEFAULT_MONITOR@", "--format=s16le", "--rate=44100", "--channels=1", "--latency-msec=30"])
+        .args(["--client-name=fiaboo-musicline", "-d", "@DEFAULT_MONITOR@", "--format=s16le", "--rate=44100", "--channels=1", "--latency-msec=30"])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn();
