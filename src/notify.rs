@@ -73,6 +73,17 @@ pub fn popups() -> Vec<Notif> {
     LIST.lock().unwrap().iter().filter(|n| n.popup_until.is_some_and(|t| t > now)).take(3).cloned().collect()
 }
 
+/// A panel covers the popups: keep each one up until at least 3 s after it can show again.
+pub fn hold_popups() {
+    hold(&mut LIST.lock().unwrap(), Instant::now() + Duration::from_secs(3));
+}
+
+fn hold(list: &mut [Notif], until: Instant) {
+    for t in list.iter_mut().filter_map(|n| n.popup_until.as_mut()) {
+        *t = (*t).max(until);
+    }
+}
+
 /// Hide popups whose time ran out (they stay in the center).
 pub fn expire_popups() {
     let now = Instant::now();
@@ -110,20 +121,47 @@ pub fn hide_popup(id: u32) {
     changed();
 }
 
-/// Remove a notification and tell the sending app (reason 2 = dismissed by the user).
 pub fn dismiss(id: u32) {
-    LIST.lock().unwrap().retain(|n| n.id != id);
+    dismiss_many(&[id]);
+}
+
+/// Remove notifications and tell the sending apps (reason 2 = dismissed by the user): one save,
+/// and a NotificationClosed only for ids that were still there.
+pub fn dismiss_many(ids: &[u32]) {
+    let gone = remove_ids(&mut LIST.lock().unwrap(), ids);
+    if gone.is_empty() {
+        return;
+    }
     changed();
     save();
-    emit(|e| async move { Server::notification_closed(&e, id, 2).await });
+    for id in gone {
+        emit(|e| async move { Server::notification_closed(&e, id, 2).await });
+    }
+}
+
+fn remove_ids(list: &mut Vec<Notif>, ids: &[u32]) -> Vec<u32> {
+    let mut gone = vec![];
+    list.retain(|n| !ids.contains(&n.id) || {
+        gone.push(n.id);
+        false
+    });
+    gone
 }
 
 /// Click on a notification: run its default action (if any), then dismiss it.
 pub fn activate(id: u32) {
     let has_default = LIST.lock().unwrap().iter().any(|n| n.id == id && n.actions.iter().any(|(k, _)| k == "default"));
     if has_default {
-        emit(|e| async move { Server::action_invoked(&e, id, "default").await });
+        invoke(id, "default");
+    } else {
+        dismiss(id);
     }
+}
+
+/// Run one of the notification's actions (the app does the work), then dismiss it.
+pub fn invoke(id: u32, key: &str) {
+    let key = key.to_string();
+    emit(|e| async move { Server::action_invoked(&e, id, &key).await });
     dismiss(id);
 }
 
@@ -148,16 +186,32 @@ pub fn short_time(t: &str, today: &str) -> String {
 pub fn strip_markup(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut in_tag = false;
+    let mut tag = String::new(); // given back if it never closes (`if a<b then c`)
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
         match c {
-            '<' if !in_tag && chars.peek().is_some_and(|n| n.is_ascii_alphabetic() || *n == '/') => in_tag = true,
+            '<' if !in_tag && chars.peek().is_some_and(|n| n.is_ascii_alphabetic() || *n == '/') => {
+                in_tag = true;
+                tag.clear();
+                tag.push(c);
+            }
             '>' if in_tag => in_tag = false,
             _ if !in_tag => out.push(c),
-            _ => {}
+            _ => tag.push(c),
         }
     }
+    if in_tag {
+        out.push_str(&tag);
+    }
     out.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&amp;", "&")
+}
+
+/// At most `n` chars (on a char boundary): apps can send megabytes, the card shows two lines.
+fn truncate(mut s: String, n: usize) -> String {
+    if let Some((i, _)) = s.char_indices().nth(n) {
+        s.truncate(i);
+    }
+    s
 }
 
 struct Server;
@@ -207,10 +261,10 @@ impl Server {
         let n = Notif {
             id,
             app: app_name,
-            summary: strip_markup(&summary),
-            body: strip_markup(&body),
+            summary: truncate(summary, 200), // spec: plain text, never markup
+            body: truncate(strip_markup(&body), 2000),
             icon,
-            actions: actions.chunks(2).filter(|c| c.len() == 2).map(|c| (c[0].clone(), c[1].clone())).collect(),
+            actions: actions.chunks(2).filter(|c| c.len() == 2).take(8).map(|c| (c[0].clone(), c[1].clone())).collect(),
             critical,
             time: chrono_now(),
             popup_until,
@@ -266,16 +320,12 @@ fn chrono_now() -> String {
         .unwrap_or_default()
 }
 
-fn home() -> String {
-    std::env::var("HOME").unwrap_or_default()
-}
-
 fn store_path() -> String {
-    format!("{}/.local/state/fiaboo-notifs.json", home())
+    format!("{}/.local/state/fiaboo-notifs.json", crate::home())
 }
 
-fn cache_dir() -> PathBuf {
-    PathBuf::from(format!("{}/.cache/fiaboo-shell", home()))
+pub(crate) fn cache_dir() -> PathBuf {
+    PathBuf::from(format!("{}/.cache/fiaboo-shell", crate::home()))
 }
 
 /// Keep the list across shell restarts (actions are dropped: the sender may be gone).
@@ -360,7 +410,7 @@ fn pixel_hint(hints: &HashMap<String, OwnedValue>, keys: &[&str]) -> Option<Stri
 
 fn to_rgba(w: i32, h: i32, stride: i32, alpha: bool, bits: i32, ch: i32, data: &[u8]) -> Option<Vec<u8>> {
     let (w, h, stride, ch) = (usize::try_from(w).ok()?, usize::try_from(h).ok()?, usize::try_from(stride).ok()?, usize::try_from(ch).ok()?);
-    if w == 0 || h == 0 || w > 4096 || h > 4096 || bits != 8 || ch != if alpha { 4 } else { 3 } || stride < w * ch {
+    if w == 0 || h == 0 || w > 512 || h > 512 || bits != 8 || ch != if alpha { 4 } else { 3 } || stride < w * ch {
         return None;
     }
     if data.len() < stride * (h - 1) + w * ch {
@@ -423,6 +473,35 @@ mod tests {
         assert_eq!(strip_markup("plain"), "plain");
         assert_eq!(strip_markup("1 < 2 and 3 > 2"), "1 < 2 and 3 > 2", "a bare '<' is not a tag");
         assert_eq!(strip_markup("<a href=\"x\">link</a> <br/>end"), "link end");
+        assert_eq!(strip_markup("if a<b then c"), "if a<b then c", "an unclosed tag is text");
+        assert_eq!(strip_markup("<b>x</b> y<z"), "x y<z");
+    }
+
+    fn notif(id: u32, popup_until: Option<Instant>) -> Notif {
+        Notif { id, app: String::new(), summary: String::new(), body: String::new(), icon: String::new(), actions: vec![], critical: false, time: String::new(), popup_until }
+    }
+
+    #[test]
+    fn only_removed_ids_are_reported() {
+        let mut list = vec![notif(1, None), notif(2, None), notif(3, None)];
+        assert_eq!(remove_ids(&mut list, &[3, 1, 9]), vec![1, 3]);
+        assert_eq!(list.iter().map(|n| n.id).collect::<Vec<_>>(), vec![2]);
+        assert!(remove_ids(&mut list, &[1]).is_empty(), "a second dismiss closes nothing");
+    }
+
+    #[test]
+    fn held_popups_outlive_the_panel() {
+        let now = Instant::now();
+        let (soon, late) = (now + Duration::from_secs(3), now + Duration::from_secs(60));
+        let mut list = vec![notif(1, Some(now)), notif(2, Some(late)), notif(3, None)];
+        hold(&mut list, soon);
+        assert_eq!(list.iter().map(|n| n.popup_until).collect::<Vec<_>>(), vec![Some(soon), Some(late), None]);
+    }
+
+    #[test]
+    fn text_is_truncated_on_char_boundary() {
+        assert_eq!(truncate("héllo".into(), 2), "hé");
+        assert_eq!(truncate("hi".into(), 200), "hi");
     }
 
     #[test]

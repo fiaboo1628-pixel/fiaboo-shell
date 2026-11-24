@@ -1025,9 +1025,10 @@ impl Bar {
                         changed = true;
                     }
                     hide_osd_if_due(cx);
-                    notify::expire_popups();
-                    let g = notify::generation();
                     let panels = panel_open(cx);
+                    // hidden behind a panel, a toast must not run out unseen
+                    if panels { notify::hold_popups() } else { notify::expire_popups() }
+                    let g = notify::generation();
                     PANELS_OPEN.store(panels, std::sync::atomic::Ordering::Relaxed);
                     if g != bar.notif_gen || panels != bar.panels_open {
                         bar.notif_gen = g;

@@ -6,6 +6,16 @@ use crate::*;
 const NC_ROWS: usize = 4; // cards shown before the center scrolls
 pub(crate) const CARD_H: f32 = 108.; // app + summary + 2 body lines (~80px) + padding; 100 clipped the 2nd body line
 
+/// Action buttons ("Reply", "Open"…; "default" is the card click itself).
+fn buttons(n: &notify::Notif) -> impl Iterator<Item = &(String, String)> {
+    n.actions.iter().filter(|(k, _)| k != "default")
+}
+
+/// A card with action buttons is one 32px button row (+ gap) taller.
+pub(crate) fn card_h(n: &notify::Notif) -> f32 {
+    CARD_H + if buttons(n).next().is_some() { 36. } else { 0. }
+}
+
 /// A card; in the center (`center` set) dismissals go through its 5 s undo instead of the store.
 pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, center: Option<gpui::Entity<NotifCenter>>, focused: bool, id: usize, today: &str) -> gpui::AnyElement {
     let (nid, nid2, nid3) = (n.id, n.id, n.id);
@@ -16,7 +26,7 @@ pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, center: Option<gpui::En
         .id(("notif", id))
         .cursor_pointer()
         .w_full()
-        .h(px(CARD_H))
+        .h(px(card_h(n)))
         .flex_none()
         .flex()
         .gap_3()
@@ -77,7 +87,32 @@ pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, center: Option<gpui::En
                         .text_size(px(14.))
                         .child(n.summary.clone()),
                 )
-                .child(div().max_h(px(34.)).line_height(px(17.)).overflow_hidden().text_size(px(12.)).text_color(rgb(p.fg)).child(n.body.clone())),
+                .child(div().max_h(px(34.)).line_height(px(17.)).overflow_hidden().text_size(px(12.)).text_color(rgb(p.fg)).child(n.body.clone()))
+                .when(buttons(n).next().is_some(), |d| {
+                    d.child(div().mt_1().flex().gap_1().children(buttons(n).enumerate().map(|(j, (key, label))| {
+                        let key = key.clone();
+                        div()
+                            .id(("notif-act", j))
+                            .cursor_pointer()
+                            .flex_1()
+                            .min_w(px(0.))
+                            .h(px(32.))
+                            .px_2()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded_md()
+                            .text_size(px(12.))
+                            .bg(rgba((p.accent << 8) | A_SURFACE))
+                            .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)))
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .on_click(move |_, _, cx| {
+                                cx.stop_propagation();
+                                notify::invoke(nid, &key);
+                            })
+                            .child(div().overflow_hidden().whitespace_nowrap().text_ellipsis().child(label.clone()))
+                    })))
+                }),
         )
         .child(
             div()
@@ -103,7 +138,7 @@ pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, center: Option<gpui::En
         .into_any_element()
 }
 
-pub(crate) struct NotifPopupState(pub(crate) Option<(gpui::WindowHandle<NotifPopup>, usize)>);
+pub(crate) struct NotifPopupState(pub(crate) Option<(gpui::WindowHandle<NotifPopup>, f32)>); // (window, its height)
 impl Global for NotifPopupState {}
 
 pub(crate) struct NotifPopup {
@@ -116,6 +151,7 @@ impl Render for NotifPopup {
         let p = self.pal.clone();
         let today = today_dm();
         div()
+            .image_cache(gpui::retain_all("notif-popup-images")) // freed with the window; plain img() stays in GPUI's global cache forever
             .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .flex()
@@ -148,18 +184,17 @@ pub(crate) fn sync_notif_popups(cx: &mut App) {
     // popups would cover the open panel, or end up in a screenshot; they come back when it closes
     let list = if panel_open(cx) { Vec::new() } else { notify::popups() };
     let cur = cx.try_global::<NotifPopupState>().and_then(|s| s.0);
-    if let Some((h, n)) = cur {
-        if n == list.len() && h.update(cx, |v, _, cx| { v.list = list.clone(); cx.notify(); }).is_ok() {
+    let h = list.iter().map(|n| card_h(n) + 8.).sum::<f32>();
+    if let Some((win, cur_h)) = cur {
+        if cur_h == h && win.update(cx, |v, _, cx| { v.list = list.clone(); cx.notify(); }).is_ok() {
             return;
         }
-        let _ = h.update(cx, |_, window, _| window.remove_window());
+        let _ = win.update(cx, |_, window, _| window.remove_window());
         cx.set_global(NotifPopupState(None));
     }
     if list.is_empty() {
         return;
     }
-    let n = list.len();
-    let h = n as f32 * (CARD_H + 8.);
     let opened = cx.open_window(
         WindowOptions {
             titlebar: None,
@@ -178,8 +213,8 @@ pub(crate) fn sync_notif_popups(cx: &mut App) {
         },
         move |_, cx| cx.new(|_| NotifPopup { pal: palette(), list }),
     );
-    if let Ok(h) = opened {
-        cx.set_global(NotifPopupState(Some((h, n))));
+    if let Ok(win) = opened {
+        cx.set_global(NotifPopupState(Some((win, h))));
     }
 }
 
@@ -258,10 +293,10 @@ impl NotifCenter {
 
     fn commit_pending(&mut self) {
         if let Some((ids, _)) = self.pending.take() {
-            for id in ids {
-                self.hidden.remove(&id);
-                notify::dismiss(id);
+            for id in &ids {
+                self.hidden.remove(id);
             }
+            notify::dismiss_many(&ids);
         }
     }
 
@@ -328,6 +363,7 @@ impl Render for NotifCenter {
                 .child(label)
         };
         div()
+            .image_cache(gpui::retain_all("notif-center-images")) // freed with the window; plain img() stays in GPUI's global cache forever
             .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .track_focus(&self.focus)
@@ -412,7 +448,7 @@ impl Render for NotifCenter {
                         div()
                             .id("nc-list")
                             // whole cards: max_h on the panel left a fifth card cut by the border
-                            .h(px(list.len().clamp(1, NC_ROWS) as f32 * (CARD_H + 8.) - 8.))
+                            .h(px(list.iter().take(NC_ROWS).map(|n| card_h(n) + 8.).sum::<f32>().max(CARD_H + 8.) - 8.))
                             .overflow_y_scroll()
                             .flex()
                             .flex_col()
