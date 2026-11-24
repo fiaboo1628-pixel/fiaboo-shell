@@ -276,7 +276,13 @@ pub struct Line {
 }
 
 impl Render for Line {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        // same guard as the bar: after a monitor re-plug the strip can come back screen-tall and
+        // swallow clicks over every window
+        let b = window.bounds().size;
+        if b.height != px(STRIP) {
+            window.resize(size(b.width, px(STRIP)));
+        }
         // the theme's second accent in the middle, its main accent towards the sides, then
         // nothing: the ends melt into the bar; a faint glow spills down from the middle
         let (mid, side) = (self.pal.accent2, self.pal.accent);
