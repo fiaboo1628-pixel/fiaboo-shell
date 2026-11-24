@@ -80,6 +80,7 @@ bind("CTRL + ALT + M", sh("kitty --class=fiaboo.tui-float-btop btop"))
 bind("Print", sh("fiaboo-shell shot"))
 bind("CTRL + Print", sh("fiaboo-shell shot"))
 bind("ALT + Print", sh("fiaboo-shell shot"))
+bind("SHIFT + Print", sh("fiaboo-record"))
 
 -- the OSD follows `pactl subscribe`, so plain wpctl/playerctl show it
 bind("XF86AudioRaiseVolume", sh("wpctl set-volume -l 1 @DEFAULT_SINK@ 3%+"), { locked = true, repeating = true })
