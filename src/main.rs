@@ -190,7 +190,8 @@ fn palette_from(text: &str, mut p: Palette) -> Palette {
 #[derive(Clone)]
 struct Desktop {
     name: String,
-    stem: String, // lowercase .desktop file stem (also what gtk-launch wants)
+    stem: String, // lowercase .desktop file stem, the id pins and matching use
+    file: String, // the same stem in its real case, what gtk-launch wants (com.system76.CosmicFiles)
     icon: String,
     wm_class: String, // lowercase StartupWMClass or ""
     settings: bool,   // Categories has Settings: a configuration tool, listed after the apps in Start
@@ -232,6 +233,7 @@ fn scan_desktops(dirs: &[String], desktop: &str) -> Vec<Desktop> {
             all.push(Desktop {
                 name: field("Name").unwrap_or_else(|| stem.to_string()),
                 stem: stem.to_lowercase(),
+                file: stem.to_string(),
                 icon,
                 wm_class: field("StartupWMClass").unwrap_or_default().to_lowercase(),
                 settings: field("Categories").is_some_and(|c| c.split(';').any(|c| c == "Settings")),
@@ -361,10 +363,20 @@ fn hidden_ws(ws: &str) -> bool {
 
 /// Pinned ids from the Start menu (~/.local/state/start-pinned.json), resolved to desktop entries.
 fn pinned_ids() -> Vec<String> {
-    fs::read_to_string(format!("{}/.local/state/start-pinned.json", home()))
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default()
+    read_pins(&pins_path()).unwrap_or_default()
+}
+
+fn pins_path() -> String {
+    format!("{}/.local/state/start-pinned.json", home())
+}
+
+/// None when the file is there but unreadable as a list, so nobody overwrites it.
+fn read_pins(path: &str) -> Option<Vec<String>> {
+    match fs::read_to_string(path) {
+        Ok(t) => serde_json::from_str(&t).ok(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(vec![]),
+        Err(_) => None,
+    }
 }
 
 fn pinned() -> Vec<(String, Desktop)> {
@@ -384,19 +396,30 @@ fn pinned() -> Vec<(String, Desktop)> {
 
 /// Right-click in Start: pin the app if not pinned, otherwise unpin it.
 fn toggle_pin(stem: &str) {
-    let path = format!("{}/.local/state/start-pinned.json", home());
+    let path = pins_path();
+    let Some(ids) = read_pins(&path) else {
+        eprintln!("fiaboo-shell: {path} is not a list of pins, leaving it alone");
+        return;
+    };
     // toggle in the raw list: pins whose .desktop is missing right now (uninstalled, renamed) must survive
     let mine: Vec<String> = pinned().into_iter().filter(|(_, d)| d.stem == stem).map(|(id, _)| id).collect();
-    let mut ids: Vec<String> = pinned_ids().into_iter().filter(|id| !mine.contains(&id.to_lowercase())).collect();
+    let mut ids: Vec<String> = ids.into_iter().filter(|id| !mine.contains(&id.to_lowercase())).collect();
     if mine.is_empty() {
         ids.push(stem.to_string());
     }
-    let _ = fs::write(path, serde_json::to_string(&ids).unwrap_or_default());
+    let tmp = format!("{path}.tmp");
+    if fs::write(&tmp, serde_json::to_string(&ids).unwrap_or_default()).is_err() || fs::rename(&tmp, &path).is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+}
+
+fn class_is(class: &str, id: &str, d: &Desktop) -> bool {
+    let lc = class.to_lowercase();
+    lc == d.stem || lc == id || (!d.wm_class.is_empty() && lc == d.wm_class)
 }
 
 fn class_matches(class: &str, id: &str, d: &Desktop) -> bool {
-    let lc = class.to_lowercase();
-    lc == d.stem || lc == id || (!d.wm_class.is_empty() && lc == d.wm_class) || lc.contains(id)
+    class_is(class, id, d) || class.to_lowercase().contains(id)
 }
 
 #[derive(Clone, Default)]
@@ -409,37 +432,24 @@ struct State {
 
 use wm::hypr_json as hyprctl_json;
 
-fn read_state() -> State {
-    let active = hyprctl_json("activewindow");
-    let active_addr = active["address"].as_str().unwrap_or("").to_string();
-    let active_ws = hyprctl_json("activeworkspace")["id"].as_i64().unwrap_or(1);
-
-    let mut occupied = vec![];
-    if let Some(list) = hyprctl_json("workspaces").as_array() {
-        for w in list {
-            if w["windows"].as_i64().unwrap_or(0) > 0 {
-                if let Some(id) = w["id"].as_i64().filter(|i| *i > 0) {
-                    occupied.push(id);
-                }
-            }
-        }
-    }
-    occupied.sort();
-
-    // one icon per window class, keep the most recently focused window of each class
-    let mut clients: Vec<serde_json::Value> =
-        hyprctl_json("clients").as_array().cloned().unwrap_or_default();
+/// Taskbar icons: pins first (each claims a window of its app), then other running apps;
+/// one icon per window class, keeping the most recently focused window of each class.
+fn dock_icons(mut clients: Vec<serde_json::Value>, pins: &[(String, Desktop)], active_addr: &str) -> Vec<AppIcon> {
     clients.sort_by_key(|c| c["focusHistoryID"].as_i64().unwrap_or(i64::MAX));
     let mut apps: Vec<AppIcon> = vec![];
-    let pins = pinned();
     let mut used_class: Vec<String> = vec![];
-    for (id, d) in &pins {
-        let win = clients.iter().find(|c| {
-            let class = c["class"].as_str().unwrap_or("");
-            !class.is_empty()
+    for (id, d) in pins {
+        let cls = |c: &serde_json::Value| c["class"].as_str().unwrap_or("").to_string();
+        let free = |c: &&serde_json::Value| {
+            !cls(c).is_empty()
                 && !hidden_ws(c["workspace"]["name"].as_str().unwrap_or(""))
-                && !used_class.iter().any(|u| u == class) // the loose contains() match could let two pins claim one app
-                && class_matches(class, id, d)
+                && !used_class.contains(&cls(c)) // the loose contains() match could let two pins claim one app
+        };
+        // exact first, and a loose match never takes another pin's own app ("code" inside code-insiders)
+        let win = clients.iter().filter(free).find(|c| class_is(&cls(c), id, d)).or_else(|| {
+            clients.iter().filter(free).find(|c| {
+                class_matches(&cls(c), id, d) && !pins.iter().any(|(i, o)| class_is(&cls(c), i, o))
+            })
         });
         let (class, address) = match win {
             Some(c) => (
@@ -483,6 +493,27 @@ fn read_state() -> State {
     }
     extra.sort_by(|a, b| a.class.cmp(&b.class));
     apps.extend(extra);
+    apps
+}
+
+fn read_state() -> State {
+    let active = hyprctl_json("activewindow");
+    let active_addr = active["address"].as_str().unwrap_or("").to_string();
+    let active_ws = hyprctl_json("activeworkspace")["id"].as_i64().unwrap_or(1);
+
+    let mut occupied = vec![];
+    if let Some(list) = hyprctl_json("workspaces").as_array() {
+        for w in list {
+            if w["windows"].as_i64().unwrap_or(0) > 0 {
+                if let Some(id) = w["id"].as_i64().filter(|i| *i > 0) {
+                    occupied.push(id);
+                }
+            }
+        }
+    }
+    occupied.sort();
+
+    let apps = dock_icons(hyprctl_json("clients").as_array().cloned().unwrap_or_default(), &pinned(), &active_addr);
 
     State {
         active_ws,
@@ -499,18 +530,11 @@ fn read_state() -> State {
 }
 
 fn launch_app(stem: &str) {
-    // Stems are stored lowercase, but gtk-launch needs the file's real case (com.system76.CosmicFiles).
-    let real = app_dirs()
-        .iter()
-        .filter_map(|d| fs::read_dir(d).ok())
-        .flatten()
-        .flatten()
-        .filter_map(|e| e.file_name().to_str()?.strip_suffix(".desktop").map(String::from))
-        .find(|s| s.to_lowercase() == stem);
-    // what Start calls it, for the failure toast; the stem is the file, not the app's name
-    let label = apps().0.iter().find(|d| d.stem == stem).map(|d| d.name.clone());
-    let file = real.unwrap_or_else(|| stem.to_string());
-    let label = label.unwrap_or_else(|| file.clone());
+    // the label is what Start calls it, for the failure toast; the stem is the file, not the app's name
+    let (file, label) = apps().0.iter().find(|d| d.stem == stem).map_or_else(
+        || (stem.to_string(), stem.to_string()),
+        |d| (d.file.clone(), d.name.clone()),
+    );
     // `setsid -f` was here with both streams on /dev/null. -f forks, so the status anything
     // could have waited on was the fork's and never gtk-launch's, and the reason went
     // nowhere: clicking an entry that cannot start did nothing at all, twice, silently.
@@ -710,6 +734,7 @@ fn parse_im(name: &str) -> Option<bool> {
 
 /// `pactl -f json list source-outputs`: a live (uncorked) stream that is neither the music
 /// line's `parec` nor this process. parec runs as binary `pacat`, so match its client name.
+/// wf-recorder (fiaboo-record) records the sink monitor, not a mic.
 fn mic_in_use(json: &str, own_pid: u32) -> bool {
     let v: serde_json::Value = serde_json::from_str(json).unwrap_or_default();
     v.as_array().into_iter().flatten().any(|o| {
@@ -717,6 +742,7 @@ fn mic_in_use(json: &str, own_pid: u32) -> bool {
         !o["corked"].as_bool().unwrap_or(false)
             && prop("application.name") != "fiaboo-musicline"
             && prop("application.process.id") != own_pid.to_string()
+            && prop("application.process.binary") != "wf-recorder"
     })
 }
 
@@ -1190,7 +1216,7 @@ impl Render for Bar {
                                 let active = st.active_ws;
                                 move |ev, _, _| {
                                     let n = scroll_steps(&ev.delta) as i64;
-                                    let to = (active + n).clamp(1, 5);
+                                    let to = (active + n).clamp(1, active.max(5)); // past the dots (ws 7): never jump back to 5
                                     if n != 0 && to != active {
                                         wm::focus_workspace(to);
                                     }
@@ -1464,7 +1490,7 @@ fn start_ipc() {
     // A live shell already answers here: removing its socket would leave it deaf to every keybind.
     if std::os::unix::net::UnixStream::connect(&path).is_ok() {
         eprintln!("fiaboo-shell is already running");
-        std::process::exit(1);
+        std::process::exit(3); // fiaboo-session: not a start failure, stop supervising
     }
     let _ = fs::remove_file(&path);
     let Ok(listener) = std::os::unix::net::UnixListener::bind(&path) else { return };
@@ -1526,7 +1552,7 @@ fn main() {
 }
 
 fn open_bar(cx: &mut App) {
-    cx.open_window(
+    if let Err(e) = cx.open_window(
         WindowOptions {
             titlebar: None,
             window_bounds: Some(WindowBounds::Windowed(Bounds {
@@ -1547,8 +1573,9 @@ fn open_bar(cx: &mut App) {
             ..Default::default()
         },
         |_, cx| cx.new(Bar::new),
-    )
-    .unwrap();
+    ) {
+        eprintln!("fiaboo-shell: taskbar did not open: {e:#}"); // e.g. the monitor vanished again mid re-plug
+    }
 }
 
 #[cfg(test)]
@@ -1606,12 +1633,64 @@ mod tests {
     }
     #[test]
     fn pins_match_their_windows() {
-        let d = Desktop { name: "Files".into(), stem: "org.gnome.nautilus".into(), icon: "nautilus".into(), wm_class: "nautilus".into(), settings: false };
+        let d = Desktop { name: "Files".into(), stem: "org.gnome.nautilus".into(), file: "org.gnome.Nautilus".into(), icon: "nautilus".into(), wm_class: "nautilus".into(), settings: false };
         assert!(class_matches("org.gnome.Nautilus", "org.gnome.nautilus", &d), "the stem, any case");
         assert!(class_matches("nautilus", "org.gnome.nautilus", &d), "StartupWMClass");
         assert!(class_matches("Nautilus-Window", "nautilus", &d), "a pin id inside the class");
         assert!(!class_matches("firefox", "org.gnome.nautilus", &d));
         assert!(hidden_ws("special:scratch") && !hidden_ws("special:minimized") && !hidden_ws("3"));
+    }
+
+    #[test]
+    fn pins_claim_their_own_windows() {
+        let d = |stem: &str, wm: &str| (stem.to_string(), Desktop { name: stem.into(), stem: stem.into(), file: stem.into(), icon: stem.into(), wm_class: wm.into(), settings: false });
+        let pins = [d("code", "code"), d("code-insiders", "code - insiders"), d("org.gnome.nautilus", "")];
+        let w = |class: &str, addr: &str, focus: i64, ws: &str| serde_json::json!({"class": class, "address": addr, "focusHistoryID": focus, "workspace": {"name": ws}});
+        let clients = vec![
+            w("Code", "0xa", 2, "1"),
+            w("code-insiders", "0xb", 0, "1"), // focused last, and "code" is inside its class
+            w("Code", "0xa2", 1, "2"),
+            w("kitty", "0xk", 3, "1"),
+            w("firefox", "0xf", 4, "special:scratch"),
+            w("fiaboo-shell", "0xs", 5, "1"),
+            w("Alacritty", "0xz", 6, "special:minimized"),
+        ];
+        let got: Vec<_> = dock_icons(clients, &pins, "0xb")
+            .into_iter()
+            .map(|a| (a.class, a.address, a.running, a.active, a.launch))
+            .collect();
+        let row = |c: &str, a: &str, r, act, l: Option<&str>| (c.to_string(), a.to_string(), r, act, l.map(String::from));
+        assert_eq!(got, [
+            row("Code", "0xa2", true, false, Some("code")), // the most recently focused Code window
+            row("code-insiders", "0xb", true, true, Some("code-insiders")),
+            row("org.gnome.nautilus", "", false, false, Some("org.gnome.nautilus")),
+            row("Alacritty", "0xz", true, false, None), // minimized stays on the taskbar, sorted by class
+            row("kitty", "0xk", true, false, None),
+        ]);
+        let only_insiders = dock_icons(vec![w("code-insiders", "0xb", 0, "1")], &pins, "");
+        assert_eq!(only_insiders.iter().map(|a| a.running).collect::<Vec<_>>(), [false, true, false], "the code pin leaves it alone");
+    }
+
+    #[test]
+    fn scroll_adds_up_touchpad_pixels() {
+        use gpui::ScrollDelta::{Lines, Pixels};
+        let px_ = |y: f32| Pixels(point(px(0.), px(y)));
+        assert_eq!(scroll_steps(&Lines(point(0., 1.))), -1, "a wheel notch up");
+        assert_eq!(scroll_steps(&Lines(point(1., 0.))), 0, "horizontal tilt");
+        assert_eq!([15., 15., 15.].map(|y| scroll_steps(&px_(y))), [0, 0, -1], "45 px: one step, 5 px carried");
+        assert_eq!(scroll_steps(&px_(-50.)), 1, "carry 5 - 50 = -45: one step down");
+    }
+
+    #[test]
+    fn unreadable_pins_are_not_overwritten() {
+        let f = std::env::temp_dir().join(format!("fiaboo-pins-{}", std::process::id()));
+        let path = f.to_string_lossy().into_owned();
+        assert_eq!(read_pins(&path), Some(vec![]), "no file yet");
+        fs::write(&f, "[\"firefox\"").unwrap();
+        assert_eq!(read_pins(&path), None, "cut-off file");
+        fs::write(&f, "[\"firefox\"]").unwrap();
+        assert_eq!(read_pins(&path), Some(vec!["firefox".to_string()]));
+        fs::remove_file(&f).unwrap();
     }
 
     #[test]
@@ -1649,6 +1728,7 @@ mod tests {
         assert!(!mic_in_use(ours, 1000));
         let discord = ours.replacen("[", r#"[{"index":90,"corked":false,"properties":{"application.process.id":"5555","application.process.binary":"Discord"}},"#, 1);
         assert!(mic_in_use(&discord, 1000));
+        assert!(!mic_in_use(&ours.replace("fiaboo-musicline", "wf-recorder").replace("pacat", "wf-recorder"), 1000), "screen recording");
         assert!(!mic_in_use(&discord.replace(r#""corked":false,"properties":{"application.process.id":"5555""#, r#""corked":true,"properties":{"application.process.id":"5555""#), 1000), "paused stream");
         assert!(!mic_in_use("[]", 1000) && !mic_in_use("", 1000) && !mic_in_use("Unknown option", 1000));
     }

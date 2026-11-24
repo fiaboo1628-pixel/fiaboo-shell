@@ -19,15 +19,9 @@ hl.on("hyprland.start", function ()
     -- Start polkit daemon
     hl.exec_cmd("/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1")
 
-    -- Load GTK settings
-    hl.exec_cmd("~/.config/hypr/scripts/gtk.sh")
-
     -- Start hypridle
     hl.exec_cmd("hypridle")
 
     -- Load cliphist history
     hl.exec_cmd("wl-paste --watch cliphist store")
-
-    -- Start autostart cleanup
-    hl.exec_cmd("~/.config/hypr/scripts/cleanup.sh")
 end)
