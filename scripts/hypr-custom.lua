@@ -59,7 +59,6 @@ end
 local sh = function(cmd) return hl.dsp.exec_cmd(cmd) end
 -- a second hl.bind on a key adds a bind (both would fire), so free the stock one first
 local function bind(key, action, opts) hl.unbind(key); hl.bind(key, action, opts) end
-bind("SUPER + Space", sh("fiaboo-shell start"))
 bind("SUPER + SHIFT + S", sh("fiaboo-record"))
 bind("SUPER + W", sh("kitty"))
 bind("SUPER + Return", sh("kitty herdr"))
@@ -70,13 +69,11 @@ bind("SUPER + CTRL + N", sh("fiaboo-shell notifications"))
 bind("SUPER + D", sh("fiaboo-shell start"))
 bind("SUPER + E", sh("thunar"))
 bind("SUPER + B", sh("chromium"))
-bind("SUPER + Y", sh("fiaboo-shell wallpaper"))
 bind("SUPER + SHIFT + W", sh("fiaboo-shell wallpaper"))
 bind("SUPER + TAB", sh("fiaboo-shell taskview"))
 bind("SUPER + SHIFT + C", sh("hyprpicker -a"))
 bind("SUPER + ALT + L", sh("loginctl lock-session"))
 bind("CTRL + ALT + Delete", sh("kitty --class=fiaboo.tui-float-btop btop"))
-bind("CTRL + ALT + M", sh("kitty --class=fiaboo.tui-float-btop btop"))
 bind("SUPER + S", sh("fiaboo-shell shot"))
 
 -- the OSD follows `pactl subscribe`, so plain wpctl/playerctl show it
