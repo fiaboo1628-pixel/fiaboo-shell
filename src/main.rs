@@ -1051,9 +1051,10 @@ impl Bar {
                         changed = true;
                     }
                     hide_osd_if_due(cx);
-                    notify::expire_popups();
-                    let g = notify::generation();
                     let panels = panel_open(cx);
+                    // hidden behind a panel, a toast must not run out unseen
+                    if panels { notify::hold_popups() } else { notify::expire_popups() }
+                    let g = notify::generation();
                     PANELS_OPEN.store(panels, std::sync::atomic::Ordering::Relaxed);
                     if g != bar.notif_gen || panels != bar.panels_open {
                         bar.notif_gen = g;
@@ -1076,6 +1077,16 @@ impl Bar {
                         changed = true;
                     }
                     if tray_now != bar.tray {
+                        // the bar never closes: icons that left the tray must leave GPUI's asset cache by hand
+                        for old in bar.tray.iter().filter_map(|t| t.icon.clone()) {
+                            if !tray_now.iter().any(|t| t.icon.as_ref() == Some(&old)) {
+                                let res = gpui::Resource::from(old);
+                                if let Some(Ok(image)) = cx.fetch_asset::<gpui::ImgResourceLoader>(&res) {
+                                    cx.drop_image(image, None);
+                                }
+                                cx.remove_asset::<gpui::ImgResourceLoader>(&res);
+                            }
+                        }
                         bar.tray = tray_now;
                         changed = true;
                     }

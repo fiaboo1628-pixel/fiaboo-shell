@@ -98,16 +98,20 @@ impl Render for TrayMenu {
             if e.separator {
                 return div().h(px(9.)).flex().items_center().child(div().w_full().h(px(1.)).bg(rgba((p.dim << 8) | A_ACTIVE))).into_any_element();
             }
-            let (item, id, enabled) = (self.item.clone(), e.id, e.enabled);
+            // a submenu parent is a header over its (indented) entries, not a button
+            let (item, id, enabled) = (self.item.clone(), e.id, e.enabled && !e.submenu);
             div()
                 .id(("tm", i))
                 .h(px(34.))
                 .flex()
                 .items_center()
+                .gap_2()
                 .px_3()
+                .pl(px(12. + 16. * e.depth as f32))
                 .rounded_lg()
-                .text_color(if e.enabled { rgb(p.fg) } else { rgba((p.dim << 8) | 0x90) })
-                .when(e.enabled, |d| d.cursor_pointer().hover(|s| s.bg(rgba((p.accent << 8) | A_HOVER))))
+                .text_color(if enabled { rgb(p.fg) } else { rgba((p.dim << 8) | 0x90) })
+                .when(e.submenu, |d| d.text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(rgb(p.dim)))
+                .when(enabled, |d| d.cursor_pointer().hover(|s| s.bg(rgba((p.accent << 8) | A_HOVER))))
                 .on_click(move |_, window, cx| {
                     if enabled {
                         let it = item.clone();
@@ -116,6 +120,7 @@ impl Render for TrayMenu {
                         window.remove_window();
                     }
                 })
+                .when_some(e.check, |d, on| d.child(div().w(px(16.)).flex_none().child(if on { "\u{f012c}" } else { "" })))
                 .child(e.label.clone())
                 .into_any_element()
         });
