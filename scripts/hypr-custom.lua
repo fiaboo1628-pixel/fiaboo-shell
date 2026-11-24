@@ -100,4 +100,4 @@ for _, key in ipairs({
 	hl.unbind(key)
 end
 
-hl.window_rule({ match = { class = "^(fiaboo\\.tui-float-.*)$" }, float = true, size = "1100 700", center = true })
+hl.window_rule({ match = { class = "^(fiaboo\\.(tui-float-.*|updates))$" }, float = true, size = "1100 700", center = true })
