@@ -1051,6 +1051,16 @@ impl Bar {
                         changed = true;
                     }
                     if tray_now != bar.tray {
+                        // the bar never closes: icons that left the tray must leave GPUI's asset cache by hand
+                        for old in bar.tray.iter().filter_map(|t| t.icon.clone()) {
+                            if !tray_now.iter().any(|t| t.icon.as_ref() == Some(&old)) {
+                                let res = gpui::Resource::from(old);
+                                if let Some(Ok(image)) = cx.fetch_asset::<gpui::ImgResourceLoader>(&res) {
+                                    cx.drop_image(image, None);
+                                }
+                                cx.remove_asset::<gpui::ImgResourceLoader>(&res);
+                            }
+                        }
                         bar.tray = tray_now;
                         changed = true;
                     }

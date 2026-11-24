@@ -38,6 +38,9 @@ pub struct MenuEntry {
     pub label: String,
     pub enabled: bool,
     pub separator: bool,
+    pub depth: usize,          // 0 = top level; a submenu's entries follow it one deeper
+    pub submenu: bool,         // a parent: a header, its entries are listed under it
+    pub check: Option<bool>,   // checkbox/radio entries: on?
 }
 
 static CONN: OnceLock<Connection> = OnceLock::new();
@@ -49,7 +52,8 @@ pub fn items() -> Vec<TrayItem> {
 
 fn conn() -> Option<&'static Connection> {
     if CONN.get().is_none() {
-        let c = Connection::session().ok()?;
+        // a hung tray app must not block the poll thread (or a menu) forever
+        let c = zbus::blocking::connection::Builder::session().ok()?.method_timeout(Duration::from_secs(2)).build().ok()?;
         let _ = CONN.set(c);
     }
     CONN.get()
@@ -242,7 +246,8 @@ fn poll(conn: &Connection) -> zbus::Result<Vec<TrayItem>> {
             continue;
         }
         let Ok(p) = proxy(conn, &dest, &path, ITEM_IFACE) else { continue };
-        let status: String = p.get_property("Status").unwrap_or_default();
+        // Status is mandatory: without it this is no live item (it would draw as an empty dot)
+        let Ok(status) = p.get_property::<String>("Status") else { continue };
         if status == "Passive" {
             continue;
         }
@@ -262,10 +267,6 @@ fn poll(conn: &Connection) -> zbus::Result<Vec<TrayItem>> {
 }
 
 // ---------- icons ----------
-fn home() -> String {
-    std::env::var("HOME").unwrap_or_default()
-}
-
 fn find_in_themes(name: &str) -> Option<PathBuf> {
     static CACHE: OnceLock<Mutex<HashMap<String, Option<PathBuf>>>> = OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
@@ -325,7 +326,7 @@ fn icon_of(p: &Proxy, key: &str) -> Option<PathBuf> {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     key.hash(&mut hasher);
     data.hash(&mut hasher);
-    let dir = PathBuf::from(format!("{}/.cache/fiaboo-shell", home()));
+    let dir = crate::notify::cache_dir();
     fs::create_dir_all(&dir).ok()?;
     let file = dir.join(format!("tray-{:x}.png", hasher.finish()));
     if !file.exists() {
@@ -341,7 +342,7 @@ fn icon_of(p: &Proxy, key: &str) -> Option<PathBuf> {
 
 /// Pixmap icons get a new file per distinct image (badge counters, animations): keep only the current ones.
 fn drop_unused_icons(items: &[TrayItem]) {
-    let Ok(rd) = fs::read_dir(format!("{}/.cache/fiaboo-shell", home())) else { return };
+    let Ok(rd) = fs::read_dir(crate::notify::cache_dir()) else { return };
     for e in rd.flatten() {
         let p = e.path();
         let ours = p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("tray-") && n.ends_with(".png"));
@@ -376,13 +377,15 @@ fn unwrap_variant<'a>(v: &'a Value<'a>) -> &'a Value<'a> {
     }
 }
 
-fn parse_entry(v: &Value) -> Option<MenuEntry> {
-    let Value::Structure(st) = unwrap_variant(v) else { return None };
+/// One layout node (id, props, children) and, flattened after it, its visible children.
+fn parse_entry(v: &Value, depth: usize, out: &mut Vec<MenuEntry>) {
+    let Value::Structure(st) = unwrap_variant(v) else { return };
     let f = st.fields();
-    let Value::I32(id) = unwrap_variant(f.first()?) else { return None };
-    let Value::Dict(props) = unwrap_variant(f.get(1)?) else { return None };
+    let Some(Value::I32(id)) = f.first().map(unwrap_variant) else { return };
+    let Some(Value::Dict(props)) = f.get(1).map(unwrap_variant) else { return };
     let mut label = String::new();
-    let (mut enabled, mut visible, mut separator) = (true, true, false);
+    let (mut enabled, mut visible, mut separator, mut submenu) = (true, true, false, false);
+    let (mut toggle, mut state) = (false, 0);
     for (k, val) in props.iter() {
         let Value::Str(key) = unwrap_variant(k) else { continue };
         match (key.as_str(), unwrap_variant(val)) {
@@ -390,25 +393,38 @@ fn parse_entry(v: &Value) -> Option<MenuEntry> {
             ("enabled", Value::Bool(b)) => enabled = *b,
             ("visible", Value::Bool(b)) => visible = *b,
             ("type", Value::Str(s)) => separator = s.as_str() == "separator",
+            ("children-display", Value::Str(s)) => submenu = s.as_str() == "submenu",
+            ("toggle-type", Value::Str(s)) => toggle = !s.is_empty(),
+            ("toggle-state", Value::I32(n)) => state = *n,
             _ => {}
         }
     }
     if !visible {
-        return None;
+        return;
     }
     // dbusmenu mnemonics: "_File" -> "File", "__" -> "_"
     let label = label.replace("__", "\u{0}").replace('_', "").replace('\u{0}', "_");
-    Some(MenuEntry { id: *id, label, enabled, separator })
+    out.push(MenuEntry { id: *id, label, enabled, separator, depth, submenu, check: toggle.then_some(state == 1) });
+    if let Some(Value::Array(kids)) = f.get(2).map(unwrap_variant) {
+        for k in kids.iter() {
+            parse_entry(k, depth + 1, out);
+        }
+    }
 }
 
 pub fn fetch_menu(item: &TrayItem) -> Vec<MenuEntry> {
     let (Some(conn), Some(menu)) = (conn(), item.menu.as_deref()) else { return vec![] };
     let Ok(p) = proxy(conn, &item.dest, menu, "com.canonical.dbusmenu") else { return vec![] };
     let _ = p.call_method("AboutToShow", &(0i32,));
+    // shortcut: depth -1 gets submenus apps fill up front; ones filled lazily on AboutToShow(id) show empty
     let reply: zbus::Result<(u32, (i32, HashMap<String, OwnedValue>, Vec<OwnedValue>))> =
-        p.call("GetLayout", &(0i32, 1i32, Vec::<String>::new()));
+        p.call("GetLayout", &(0i32, -1i32, Vec::<String>::new()));
     let Ok((_, (_, _, children))) = reply else { return vec![] };
-    children.iter().filter_map(|c| parse_entry(c)).collect()
+    let mut out = vec![];
+    for c in &children {
+        parse_entry(c, 0, &mut out);
+    }
+    out
 }
 
 pub fn menu_click(item: &TrayItem, id: i32) {
@@ -421,6 +437,23 @@ pub fn menu_click(item: &TrayItem, id: i32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn menu_layout_is_flattened() {
+        let node = |id: i32, props: Vec<(&str, Value<'static>)>, kids: Vec<Value<'static>>| {
+            let props: HashMap<String, Value> = props.into_iter().map(|(k, v)| (k.to_string(), Value::Value(Box::new(v)))).collect();
+            Value::Value(Box::new(Value::from((id, props, kids))))
+        };
+        let tree = node(1, vec![("label", "_Sub".into()), ("children-display", "submenu".into())], vec![
+            node(2, vec![("label", "On".into()), ("toggle-type", "checkmark".into()), ("toggle-state", 1i32.into())], vec![]),
+            node(3, vec![("label", "Gone".into()), ("visible", false.into())], vec![]),
+            node(4, vec![("type", "separator".into())], vec![]),
+        ]);
+        let mut out = vec![];
+        parse_entry(&tree, 0, &mut out);
+        let got: Vec<_> = out.iter().map(|e| (e.id, e.label.as_str(), e.depth, e.submenu, e.check, e.separator)).collect();
+        assert_eq!(got, vec![(1, "Sub", 0, true, None, false), (2, "On", 1, false, Some(true), false), (4, "", 1, false, None, true)]);
+    }
 
     /// Run with a private bus: `dbus-run-session -- cargo test`
     #[test]
