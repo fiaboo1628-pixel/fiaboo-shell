@@ -88,3 +88,8 @@ bind("XF86AudioNext", sh("playerctl next"), { locked = true })
 
 
 hl.window_rule({ match = { class = "^(fiaboo\\.(tui-float-.*|updates))$" }, float = true, size = "1100 700", center = true })
+
+-- drop-down terminal: its own special workspace, kitty starts on first toggle and stays alive
+hl.workspace_rule({ workspace = "special:dropterm", on_created_empty = "kitty --class=fiaboo.dropterm", animation = "slidevert" })
+hl.window_rule({ match = { class = "^(fiaboo\\.dropterm)$" }, float = true, size = "monitor_w*0.6 monitor_h*0.45", move = "monitor_w*0.2 8" })
+bind("F12", hl.dsp.workspace.toggle_special("dropterm"))
