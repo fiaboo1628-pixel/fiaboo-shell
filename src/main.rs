@@ -580,6 +580,7 @@ struct Sys {
     muted: bool,
     dnd: bool,
     night: bool,
+    awake: bool, // the Keep awake idle inhibitor runs
     gamma: i32, // hyprsunset gamma %, the software brightness (the monitor has no DDC/CI); 100 = off
     media: Option<Media>,
 }
@@ -629,6 +630,7 @@ fn read_sys() -> Sys {
         vol,
         muted,
         dnd: notify::dnd(),
+        awake: keep_awake(),
         night: sunset && sh("hyprctl hyprsunset temperature").parse::<f32>().is_ok_and(|t| t < 6500.),
         gamma: if sunset { sh("hyprctl hyprsunset gamma").parse::<f32>().map_or(100, |g| g.round() as i32) } else { 100 },
         media: parse_media(&sh("timeout 2 playerctl metadata --format '{{status}}\t{{artist}}\t{{title}}' 2>/dev/null")),

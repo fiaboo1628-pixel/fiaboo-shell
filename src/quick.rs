@@ -1,4 +1,4 @@
-//! Quick settings: Wi-Fi/Bluetooth/Night light/DND tiles, brightness, volume, media.
+//! Quick settings: Wi-Fi/Bluetooth/Night light/DND/Keep awake tiles, system monitor, brightness, volume, media.
 
 use crate::*;
 
@@ -51,6 +51,7 @@ pub(crate) struct Quick {
     last_input: std::time::Instant,
     focus_i: usize,          // keyboard focus among `actions()`
     drag_level: Option<(&'static str, i32)>, // (slider, level) last set while dragging over the segments
+    mon: (Option<u32>, Option<(u64, u64)>, Option<u32>), // CPU %, RAM (used, total) kB, CPU °C
 }
 
 /// (tile id, command) in tile order, skipping tiles that cannot act; what Tab/Enter walk.
@@ -62,6 +63,7 @@ fn actions(sys: &Sys) -> Vec<(&'static str, String)> {
     v.push(("q-bt", if sys.bt_on { "bluetoothctl power off".to_string() } else { "rfkill unblock bluetooth; bluetoothctl power on".to_string() }));
     v.push(("q-night", sunset_cmd(!sys.night, sys.gamma)));
     v.push(("q-dnd", "@dnd".to_string()));
+    v.push(("q-awake", "@awake".to_string()));
     v
 }
 
@@ -79,7 +81,78 @@ fn sunset_cmd(night: bool, gamma: i32) -> String {
 }
 
 fn run_action(cmd: &str) {
-    if cmd == "@dnd" { notify::toggle_dnd() } else { run_bg(cmd) }
+    match cmd {
+        "@dnd" => notify::toggle_dnd(),
+        "@awake" => toggle_keep_awake(),
+        _ => run_bg(cmd),
+    }
+}
+
+/// The Keep awake inhibitor; hypridle honours systemd idle inhibitors. Lives as long as the shell, not the panel.
+static KEEP_AWAKE: Mutex<Option<std::process::Child>> = Mutex::new(None);
+
+pub(crate) fn keep_awake() -> bool {
+    let mut child = KEEP_AWAKE.lock().unwrap();
+    if child.as_mut().is_some_and(|c| !matches!(c.try_wait(), Ok(None))) {
+        *child = None; // it died on its own (killed from outside)
+    }
+    child.is_some()
+}
+
+fn toggle_keep_awake() {
+    let mut child = KEEP_AWAKE.lock().unwrap();
+    match child.take() {
+        Some(mut c) => {
+            let _ = c.kill(); // systemd-inhibit takes its child down with it (FORK_DEATHSIG_SIGTERM)
+            let _ = c.wait();
+        }
+        // `cat` on a pipe only the shell holds, not `sleep infinity`: if the shell dies (pkill -9 on upgrade)
+        // cat sees EOF and the inhibitor goes with it instead of keeping the screen awake forever
+        None => {
+            *child = Command::new("systemd-inhibit")
+                .args(["--what=idle", "--who=fiaboo-shell", "--why=Keep awake", "cat"])
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::null())
+                .spawn()
+                .ok()
+        }
+    }
+}
+
+/// (busy, total) jiffies from the aggregate `cpu` line of /proc/stat.
+fn cpu_times(stat: &str) -> Option<(u64, u64)> {
+    let f: Vec<u64> = stat.lines().next()?.strip_prefix("cpu ")?.split_whitespace().filter_map(|v| v.parse().ok()).collect();
+    let total: u64 = f.iter().take(8).sum(); // guest and guest_nice are already counted in user and nice
+    Some((total - f.get(3)? - f.get(4).unwrap_or(&0), total)) // idle + iowait are not busy
+}
+
+/// CPU usage in % between two `cpu_times` samples; None if no time passed.
+fn cpu_percent(prev: (u64, u64), now: (u64, u64)) -> Option<u32> {
+    let (busy, total) = (now.0.saturating_sub(prev.0), now.1.saturating_sub(prev.1));
+    (total > 0).then(|| ((busy * 100 + total / 2) / total) as u32)
+}
+
+/// (used, total) kB from /proc/meminfo; used = MemTotal - MemAvailable, as `free` counts it.
+fn mem_used(meminfo: &str) -> Option<(u64, u64)> {
+    let kb = |key: &str| meminfo.lines().find_map(|l| l.strip_prefix(key)?.strip_prefix(':')?.split_whitespace().next()?.parse::<u64>().ok());
+    let (total, avail) = (kb("MemTotal")?, kb("MemAvailable")?);
+    Some((total.saturating_sub(avail), total))
+}
+
+/// Hottest CPU sensor in °C: the CPU's hwmon chip if there is one (others are GPU, NVMe, Wi-Fi), else any thermal zone.
+fn cpu_temp() -> Option<u32> {
+    fn ls(dir: impl AsRef<std::path::Path>) -> impl Iterator<Item = PathBuf> {
+        fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path())
+    }
+    let name = |p: &PathBuf| p.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    let hottest = |files: Vec<PathBuf>| {
+        files.iter().filter_map(|f| fs::read_to_string(f).ok()?.trim().parse::<i64>().ok()).max().filter(|&m| m > 0).map(|m| (m / 1000) as u32)
+    };
+    let chips = ls("/sys/class/hwmon")
+        .filter(|h| matches!(fs::read_to_string(h.join("name")).unwrap_or_default().trim(), "k10temp" | "coretemp" | "zenpower" | "cpu_thermal"))
+        .flat_map(|h| ls(h).filter(|f| { let n = name(f); n.starts_with("temp") && n.ends_with("_input") }))
+        .collect();
+    hottest(chips).or_else(|| hottest(ls("/sys/class/thermal").filter(|z| name(z).starts_with("thermal_zone")).map(|z| z.join("temp")).collect()))
 }
 
 impl Quick {
@@ -102,7 +175,27 @@ impl Quick {
             cx.background_executor().timer(Duration::from_millis(1200)).await;
         })
         .detach();
-        Quick { pal: palette(), sys: Sys::default(), focus, last_input: std::time::Instant::now(), focus_i: 0, drag_level: None }
+        // system monitor: only while the panel is open (the task ends with the window)
+        cx.spawn_in(window, async move |this, cx| {
+            let stat = || cpu_times(&fs::read_to_string("/proc/stat").unwrap_or_default());
+            let mut prev = stat();
+            let mut wait = 500; // a first CPU delta soon after opening, then every 2 s
+            loop {
+                cx.background_executor().timer(Duration::from_millis(wait)).await;
+                wait = 2000;
+                let (now, mem, temp) = cx
+                    .background_executor()
+                    .spawn(async move { (stat(), mem_used(&fs::read_to_string("/proc/meminfo").unwrap_or_default()), cpu_temp()) })
+                    .await;
+                let cpu = prev.zip(now).and_then(|(a, b)| cpu_percent(a, b));
+                prev = now;
+                if this.update(cx, |q, cx| { q.mon = (cpu, mem, temp); cx.notify() }).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+        Quick { pal: palette(), sys: Sys::default(), focus, last_input: std::time::Instant::now(), focus_i: 0, drag_level: None, mon: (None, None, None) }
     }
 }
 
@@ -118,7 +211,7 @@ impl Render for Quick {
         let tile = |id: &'static str, glyph: &'static str, title: &'static str, sub: String, on: Option<bool>, cmd: String, app: Option<&'static str>| {
             let avail = on.is_some();
             let on = on.unwrap_or(false);
-            let c = if matches!(id, "q-wifi" | "q-dnd") { p.accent } else { p.accent2 }; // checkerboard
+            let c = if matches!(id, "q-wifi" | "q-dnd" | "q-awake") { p.accent } else { p.accent2 }; // checkerboard
             div()
                 .id(id)
                 .when(avail, |d| d.cursor_pointer())
@@ -256,6 +349,36 @@ impl Render for Quick {
                 .child(media_btn("m-next", "\u{f04ad}", "next"))
         });
 
+        // resting card the size of a tile (the transparent border matches the tiles' focus ring)
+        let (cpu, mem, temp) = self.mon;
+        let gb = |kb: u64| kb as f32 / 1048576.;
+        let sysmon = div()
+            .flex_1()
+            .border_1()
+            .border_color(rgba(0x00000000))
+            .flex()
+            .items_center()
+            .gap_3()
+            .px_3()
+            .py_3()
+            .rounded_xl()
+            .bg(card_fill(p.accent2, false))
+            .shadow(card_shadow(&p, false))
+            .child(div().font_family(NF).font_weight(FontWeight::MEDIUM).text_size(px(22.)).child("\u{f061a}"))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .child(div().font_weight(FontWeight::SEMIBOLD).text_size(px(14.)).child(format!(
+                        "CPU {}{}",
+                        cpu.map_or("…".into(), |c| format!("{c}%")),
+                        temp.map_or(String::new(), |t| format!(" · {t}°C")),
+                    )))
+                    .child(div().text_size(px(12.)).text_color(rgb(p.dim)).child(
+                        mem.map_or("RAM …".into(), |(u, t)| format!("RAM {:.1}/{:.1} GB", gb(u), gb(t))),
+                    )),
+            );
+
         div()
             .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
@@ -358,6 +481,21 @@ impl Render for Quick {
             .child(
                 div()
                     .flex()
+                    .gap_2()
+                    .child(tile(
+                        "q-awake",
+                        "\u{f0176}",
+                        "Keep awake",
+                        if sys.awake { "On" } else { "Off" }.to_string(),
+                        Some(sys.awake),
+                        act("q-awake"),
+                        None,
+                    ))
+                    .child(sysmon),
+            )
+            .child(
+                div()
+                    .flex()
                     .items_center()
                     .gap_3()
                     .px_3()
@@ -405,5 +543,28 @@ impl Render for Quick {
                     .text_color(rgb(p.dim))
                     .child("Tab, Enter: toggle · Right-click: app · Esc: close"),
             ))
+    }
+}
+
+#[cfg(test)]
+mod sysmon_tests {
+    use super::*;
+
+    #[test]
+    fn cpu_usage_is_the_busy_share_of_the_stat_delta() {
+        let a = cpu_times("cpu  100 0 50 800 50 0 0 0 0 0\ncpu0 50 0 25 400 25 0 0 0 0 0\n").unwrap();
+        assert_eq!(a, (150, 1000));
+        // +60 user, +15 system, +20 idle, +5 iowait: 75 of 100 jiffies busy
+        let b = cpu_times("cpu  160 0 65 820 55 0 0 0 0 0\n").unwrap();
+        assert_eq!(cpu_percent(a, b), Some(75));
+        assert_eq!(cpu_percent(b, b), None);
+        assert_eq!(cpu_times("intr 1 2 3"), None);
+    }
+
+    #[test]
+    fn meminfo_used_is_total_minus_available() {
+        let m = "MemTotal:       14175188 kB\nMemFree:         5708804 kB\nMemAvailable:   11906320 kB\nBuffers:          123 kB\n";
+        assert_eq!(mem_used(m), Some((14175188 - 11906320, 14175188)));
+        assert_eq!(mem_used("MemTotal: 100 kB\n"), None);
     }
 }
