@@ -45,7 +45,7 @@ if hl.plugin.hyprliquid then
 	})
 	hl.window_rule({
 		name = "glass-terminals",
-		match = { class = "^(com\\.mitchellh\\.ghostty|fiaboo\\..*|kitty)$" },
+		match = { class = "^(fiaboo\\..*|kitty)$" },
 		no_blur = true,
 		["hyprliquid:effect"] = "liquid_glass",
 		["hyprliquid:highlight_style"] = 3,
@@ -62,8 +62,8 @@ local function bind(key, action, opts) hl.unbind(key); hl.bind(key, action, opts
 bind("SUPER + space", sh("fiaboo-shell start"))
 bind("SUPER + X", sh("fiaboo-shell start"))
 bind("SUPER + SHIFT + E", sh("fiaboo-shell start"))
-bind("SUPER + T", sh("ghostty"))
-bind("SUPER + Return", sh("ghostty"))
+bind("SUPER + T", sh("kitty"))
+bind("SUPER + Return", sh("kitty"))
 bind("SUPER + V", sh("fiaboo-shell clipboard"))
 bind("SUPER + comma", sh("fiaboo-shell settings"))
 bind("SUPER + A", sh("fiaboo-shell quick"))
@@ -75,8 +75,8 @@ bind("SUPER + TAB", sh("fiaboo-shell taskview"))
 bind("SUPER + O", sh("fiaboo-shell taskview"))
 bind("SUPER + SHIFT + C", sh("hyprpicker -a"))
 bind("SUPER + ALT + L", sh("loginctl lock-session"))
-bind("CTRL + ALT + Delete", sh("ghostty --class=fiaboo.tui-float-btop -e btop"))
-bind("CTRL + ALT + M", sh("ghostty --class=fiaboo.tui-float-btop -e btop"))
+bind("CTRL + ALT + Delete", sh("kitty --class=fiaboo.tui-float-btop btop"))
+bind("CTRL + ALT + M", sh("kitty --class=fiaboo.tui-float-btop btop"))
 bind("Print", sh("fiaboo-shell shot"))
 bind("CTRL + Print", sh("fiaboo-shell shot"))
 bind("ALT + Print", sh("fiaboo-shell shot"))

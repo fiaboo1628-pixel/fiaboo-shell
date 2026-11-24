@@ -147,7 +147,7 @@ struct Palette {
 /// Catppuccin Mocha unless a theme says otherwise; nothing follows the wallpaper.
 /// Secondary text is subtext1, not subtext0: it sits on a see-through 80 % fill.
 ///
-/// `theme` (~/.local/bin/theme) writes palette.conf from the same colours it gives Ghostty, btop
+/// `theme` (~/.local/bin/theme) writes palette.conf from the same colours it gives the terminal, btop
 /// and the window borders, so the whole desktop moves together. The values below
 /// are what that file holds for the catppuccin theme, and what every field falls back to:
 /// a missing file, or one line of it being unreadable, costs that one colour and nothing
@@ -745,12 +745,12 @@ fn start_indicators() {
     });
 }
 
-/// Run `sudo pacman -Syu` in a Ghostty window, then recount once it is closed.
+/// Run `sudo pacman -Syu` in a kitty window, then recount once it is closed.
 fn open_updates() {
     std::thread::spawn(|| {
         // own session and no pipes back to us: a shell restart must not take pacman down mid-transaction
         let ok = Command::new("setsid")
-            .args(["ghostty", "--class=fiaboo.updates", "--wait-after-command=true", "-e", "sudo", "pacman", "-Syu"])
+            .args(["kitty", "--class=fiaboo.updates", "--hold", "sudo", "pacman", "-Syu"])
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
