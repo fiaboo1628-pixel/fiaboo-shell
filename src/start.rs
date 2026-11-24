@@ -15,7 +15,8 @@ pub(crate) struct StartState(pub(crate) Option<AnyWindowHandle>);
 impl Global for StartState {}
 
 /// (button, confirmation question, command)
-pub(crate) const POWER: [(&str, &str, &str); 3] = [
+pub(crate) const POWER: [(&str, &str, &str); 4] = [
+    ("Sleep", "Sleep now?", "systemctl suspend"),
     ("Log out", "Log out now?", "hyprctl dispatch \"hl.dsp.exit()\""),
     ("Restart", "Restart now?", "systemctl reboot"),
     ("Shut down", "Shut down now?", "systemctl poweroff"),
