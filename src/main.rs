@@ -44,10 +44,10 @@ use gpui::{
 use gpui_platform::application;
 
 const BAR_HEIGHT: f32 = 48.0;
-/// Every surface (panels since 2026-10-28, the bar, toasts and OSD since the glass plugin was
-/// removed on 2026-11-01): 80 % over Hyprland's blur of the wallpaper, the same everywhere.
-/// (Opaque before the blur: at 95 % unblurred, window text showed through.)
-const PANEL_FILL: u32 = 0xCC;
+/// Every surface (panels, the bar, toasts, OSD): 60 % fill over the hyprliquid glass, which adds
+/// its own dark tint (rgba 0x11111b 35 %, scripts/hypr-custom.lua); together they keep text AA.
+/// Without the plugin the same fill sits on Hyprland's blur. (80 % hid the glass.)
+const PANEL_FILL: u32 = 0x99;
 // alpha steps for palette colours used as fills and borders (never for text)
 const A_SURFACE: u32 = 0x20; // resting tiles, chips
 const A_HOVER: u32 = 0x30;
@@ -903,6 +903,8 @@ impl Bar {
                         "settings" => toggle_settings(cx),
                         "calendar" => toggle_calendar(cx),
                         "viz" => viz::toggle_mini(cx),
+                        "quick" => toggle_quick(cx),
+                        "notifications" => toggle_notif_center(cx),
                         _ => {}
                     });
                 }
