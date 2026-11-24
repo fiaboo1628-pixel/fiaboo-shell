@@ -205,7 +205,7 @@ pub fn toggle_mini(cx: &mut App) {
             }
             motion.step(if playing { *LEVEL.lock().unwrap() } else { (-120., -120.) });
             let visible = motion.alpha > 0.01;
-            if visible || playing {
+            if visible {
                 if win.is_none() {
                     win = cx.update(open_line);
                 }
@@ -217,8 +217,8 @@ pub fn toggle_mini(cx: &mut App) {
                     });
                 }
             } else {
-                // nothing to show: no surface, no capture, and a slow idle tick
-                if !superseded {
+                // nothing to show: no surface; a silent player keeps the capture to notice the next sound
+                if !playing && !superseded {
                     capture_stop();
                 }
                 if let Some(h) = win.take() {
@@ -239,6 +239,12 @@ pub fn toggle_mini(cx: &mut App) {
 /// A full-width strip laid over the taskbar's top edge (layer surfaces of the same layer stack in
 /// creation order, so it sits above the bar). It covers only the bar's empty top 8 px, never a window.
 fn open_line(cx: &mut App) -> Option<WindowHandle<Line>> {
+    // on the bar's monitor; with no output given the compositor picks the focused one
+    let display_id = cx
+        .windows()
+        .into_iter()
+        .find_map(|w| w.downcast::<crate::Bar>())
+        .and_then(|bar| bar.update(cx, |_, window, cx| window.display(cx).map(|d| d.id())).ok().flatten());
     cx.open_window(
         WindowOptions {
             titlebar: None,
@@ -254,6 +260,7 @@ fn open_line(cx: &mut App) -> Option<WindowHandle<Line>> {
                 keyboard_interactivity: KeyboardInteractivity::None,
                 ..Default::default()
             }),
+            display_id,
             ..Default::default()
         },
         |_, cx| cx.new(|_| Line { pal: palette(), level: 0., kick: 0., alpha: 0. }),
