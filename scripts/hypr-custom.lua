@@ -1,5 +1,5 @@
 -- fiaboo-shell on Hyprland 0.57 (Lua). Installed as ~/.config/hypr/custom.lua and required at the
--- end of hyprland.lua, after dms/binds.lua, so the binds here replace the stock ones.
+-- end of hyprland.lua, after conf/binds.lua, so the binds here replace the stock ones.
 -- Glass: hyprliquid plugin (AUR `hyprliquid`); rebuild it after every Hyprland upgrade.
 
 -- the rest of the session (wallpaper, polkit, hypridle, cliphist) is in conf/autostart.lua
@@ -55,7 +55,7 @@ else
 	hl.layer_rule({ match = { namespace = "^fiaboo-.*" }, blur = true, ignore_alpha = 0.5 })
 end
 
--- === Binds (replace the DMS ones that called `dms ipc`) ===
+-- === Binds ===
 local sh = function(cmd) return hl.dsp.exec_cmd(cmd) end
 -- a second hl.bind on a key adds a bind (both would fire), so free the stock one first
 local function bind(key, action, opts) hl.unbind(key); hl.bind(key, action, opts) end
@@ -91,13 +91,5 @@ bind("XF86AudioPause", sh("playerctl play-pause"), { locked = true })
 bind("XF86AudioPrev", sh("playerctl previous"), { locked = true })
 bind("XF86AudioNext", sh("playerctl next"), { locked = true })
 
--- DMS-only features with no fiaboo counterpart (night light and keep awake live in quick settings)
-for _, key in ipairs({
-	"ALT + space", "SUPER + M", "SUPER + N", "SUPER + SHIFT + N", "SUPER + ALT + N", "SUPER + ALT + I",
-	"SUPER + SHIFT + Slash", "SUPER + ALT + R", "SUPER + P", "CTRL + XF86AudioRaiseVolume",
-	"CTRL + XF86AudioLowerVolume", "XF86MonBrightnessUp", "XF86MonBrightnessDown",
-}) do
-	hl.unbind(key)
-end
 
 hl.window_rule({ match = { class = "^(fiaboo\\.(tui-float-.*|updates))$" }, float = true, size = "1100 700", center = true })
