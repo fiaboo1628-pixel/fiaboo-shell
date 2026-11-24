@@ -24,17 +24,8 @@ pub(crate) fn shot_geometry() -> ((i32, i32, i32, i32), Vec<WinRect>) {
         .cloned()
         .unwrap_or_default();
     let g = |k: &str| mon[k].as_i64().unwrap_or(0) as i32;
-    let ws = mon["activeWorkspace"]["id"].as_i64().unwrap_or(1);
     let (mx, my) = (g("x"), g("y"));
-    let mut clients: Vec<serde_json::Value> = hyprctl_json("clients").as_array().cloned().unwrap_or_default();
-    clients.retain(|c| {
-        c["workspace"]["id"].as_i64() == Some(ws)
-            && c["mapped"].as_bool() != Some(false)
-            && c["hidden"].as_bool() != Some(true)
-            && !c["class"].as_str().unwrap_or("").starts_with("fiaboo")
-    });
-    clients.sort_by_key(|c| c["focusHistoryID"].as_i64().unwrap_or(i64::MAX));
-    let wins = clients
+    let wins = shot_clients(&mon, hyprctl_json("clients").as_array().cloned().unwrap_or_default())
         .iter()
         .map(|c| WinRect {
             x: c["at"][0].as_f64().unwrap_or(0.) as f32 - mx as f32,
@@ -49,6 +40,21 @@ pub(crate) fn shot_geometry() -> ((i32, i32, i32, i32), Vec<WinRect>) {
     let (w, h) = ((g("width") as f64 / scale).round() as i32, (g("height") as f64 / scale).round() as i32);
     let (w, h) = if mon["transform"].as_i64().unwrap_or(0) % 2 == 1 { (h, w) } else { (w, h) };
     ((mx, my, w, h), wins)
+}
+
+/// The clients shown on `mon` (its active workspace and its open special workspace), front-most
+/// first: special above regular, floating above tiled, then by focus.
+fn shot_clients(mon: &serde_json::Value, mut clients: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
+    let ws = mon["activeWorkspace"]["id"].as_i64().unwrap_or(1);
+    let special = mon["specialWorkspace"]["id"].as_i64().filter(|id| *id != 0);
+    clients.retain(|c| {
+        let id = c["workspace"]["id"].as_i64();
+        id.is_some() && (id == Some(ws) || id == special) && c["mapped"].as_bool() != Some(false) && c["hidden"].as_bool() != Some(true)
+    });
+    clients.sort_by_key(|c| {
+        (c["workspace"]["id"].as_i64() != special, c["floating"].as_bool() != Some(true), c["focusHistoryID"].as_i64().unwrap_or(i64::MAX))
+    });
+    clients
 }
 
 pub(crate) fn toggle_shot(cx: &mut App) {
@@ -93,7 +99,7 @@ pub(crate) fn take_shot(window: &mut Window, cx: &mut App, rect: Option<(i32, i3
         std::thread::sleep(Duration::from_millis(350));
         let dir = format!("{}/Pictures/shots", home());
         let _ = fs::create_dir_all(&dir);
-        let file = format!("{dir}/shot-{}.png", sh("date +%Y%m%d-%H%M%S"));
+        let file = format!("{dir}/shot-{}.png", sh("date +%Y%m%d-%H%M%S-%3N"));
         let geo = rect.map(|(x, y, w, h)| format!("-g '{x},{y} {w}x{h}'")).unwrap_or_default();
         let script = format!(
             "grim {geo} '{file}' && wl-copy < '{file}' && \
@@ -254,5 +260,31 @@ impl Render for ShotOverlay {
                         .child("Drag: region · Click: window · F / Enter: screen · Esc: cancel"),
                 ),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shot_keeps_the_visible_clients_front_most_first() {
+        let mon = serde_json::json!({ "activeWorkspace": { "id": 2 }, "specialWorkspace": { "id": -98 } });
+        let c = |t: &str, ws: i64, floating: bool, focus: i64| {
+            serde_json::json!({ "title": t, "workspace": { "id": ws }, "floating": floating, "focusHistoryID": focus, "mapped": true, "hidden": false })
+        };
+        let clients = vec![
+            c("tiled-focused", 2, false, 0),
+            c("float", 2, true, 3),
+            c("other-ws", 1, true, 1),
+            c("scratchpad", -98, false, 4),
+            c("other-special", -97, true, 2),
+            c("kitty-float", 2, true, 5),
+        ];
+        let titles: Vec<String> = shot_clients(&mon, clients).iter().map(|c| c["title"].as_str().unwrap().to_string()).collect();
+        assert_eq!(titles, ["scratchpad", "float", "kitty-float", "tiled-focused"]);
+        // no special workspace open: id 0 must not match anything
+        let mon = serde_json::json!({ "activeWorkspace": { "id": 2 }, "specialWorkspace": { "id": 0 } });
+        assert_eq!(shot_clients(&mon, vec![c("zero", 0, false, 0), c("a", 2, false, 1)]).len(), 1);
     }
 }
