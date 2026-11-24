@@ -115,7 +115,7 @@ pub(crate) fn read_about() -> Vec<(&'static str, String)> {
     ]
 }
 
-// ---------- bluetooth list (Settings and the quick settings › page) ----------
+// ---------- bluetooth list (Settings) ----------
 #[derive(Clone, Default)]
 pub(crate) struct BtInfo {
     pub(crate) on: bool,
@@ -196,14 +196,12 @@ impl BtUi {
     }
 }
 
-/// A panel that shows `bt_rows`.
-pub(crate) trait HasBt: 'static {
-    fn bt(&mut self) -> &mut BtUi;
-    fn touch(&mut self);
+pub(crate) fn bt_power_cmd(on: bool) -> &'static str {
+    if on { "rfkill unblock bluetooth; bluetoothctl power on" } else { "bluetoothctl power off" }
 }
 
 /// Power, paired devices (click: connect/disconnect), scan, found devices (click: pair + connect).
-pub(crate) fn bt_rows<T: HasBt>(ui: &BtUi, p: &Palette, cx: &mut Context<T>) -> Vec<gpui::AnyElement> {
+pub(crate) fn bt_rows(ui: &BtUi, p: &Palette, cx: &mut Context<SettingsPanel>) -> Vec<gpui::AnyElement> {
     let (accent, dim) = (p.accent, p.dim);
     let busy = ui.busy.as_ref().map(|b| b.0.clone());
     let failed = ui.failed.clone();
@@ -229,9 +227,9 @@ pub(crate) fn bt_rows<T: HasBt>(ui: &BtUi, p: &Palette, cx: &mut Context<T>) -> 
             .shadow(card_shadow(&p, false))
             .hover(|s| s.bg(card_fill(accent, true)).shadow(card_shadow(&p, true)))
             .on_click(cx.listener(move |this, _, _, cx| {
-                this.touch();
-                this.bt().failed = None;
-                this.bt().busy = Some((key.clone(), want, std::time::Instant::now()));
+                this.last_input = std::time::Instant::now();
+                this.bt.failed = None;
+                this.bt.busy = Some((key.clone(), want, std::time::Instant::now()));
                 run_bg(&cmd); // the next refresh shows the new state and clears busy
                 cx.notify();
             }))
@@ -240,7 +238,7 @@ pub(crate) fn bt_rows<T: HasBt>(ui: &BtUi, p: &Palette, cx: &mut Context<T>) -> 
             .into_any_element()
     };
     let info = &ui.info;
-    let power_cmd = if info.on { "bluetoothctl power off" } else { "rfkill unblock bluetooth; bluetoothctl power on" };
+    let power_cmd = bt_power_cmd(!info.on);
     let glyph = |on: bool| if on { "\u{f00af}" } else { "\u{f00b2}" };
     let mut rows = vec![row("bt-power".into(), "power".into(), (if info.on { "On" } else { "Off" }).into(), glyph(info.on), info.on, !info.on, power_cmd.into())];
     if !info.on {
@@ -263,9 +261,9 @@ pub(crate) fn bt_rows<T: HasBt>(ui: &BtUi, p: &Palette, cx: &mut Context<T>) -> 
             .shadow(card_shadow(&p, false))
             .hover(|s| s.bg(card_fill(p.accent2, true)).shadow(card_shadow(&p, true)))
             .on_click(cx.listener(move |this, _, _, cx| {
-                this.touch();
+                this.last_input = std::time::Instant::now();
                 if !scanning {
-                    this.bt().scan_until = Some(std::time::Instant::now() + Duration::from_secs(BT_SCAN_SECS));
+                    this.bt.scan_until = Some(std::time::Instant::now() + Duration::from_secs(BT_SCAN_SECS));
                     run_bg(&format!("bluetoothctl --timeout {BT_SCAN_SECS} scan on"));
                 }
                 cx.notify();
@@ -325,15 +323,6 @@ pub(crate) struct SettingsPanel {
     info: SettingsInfo,
     last_input: std::time::Instant,
     bt: BtUi,
-}
-
-impl HasBt for SettingsPanel {
-    fn bt(&mut self) -> &mut BtUi {
-        &mut self.bt
-    }
-    fn touch(&mut self) {
-        self.last_input = std::time::Instant::now();
-    }
 }
 
 impl SettingsPanel {

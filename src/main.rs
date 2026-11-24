@@ -625,7 +625,7 @@ fn read_sys() -> Sys {
         wifi_avail,
         // two more nmcli round trips every 8 s, pointless without an adapter
         wifi_on: wifi_avail && sh("nmcli -t -f WIFI g") == "enabled",
-        ssid: if wifi_avail { sh("nmcli -t -f active,ssid dev wifi list --rescan no | grep '^yes' | head -1 | cut -d: -f2-") } else { String::new() },
+        ssid: if wifi_avail { sh("nmcli -t -f active,ssid dev wifi list --rescan no").lines().map(nmcli_fields).find(|f| f[0] == "yes").and_then(|f| f.get(1).cloned()).unwrap_or_default() } else { String::new() },
         bt_on: read_bt().on,
         vol,
         muted,
