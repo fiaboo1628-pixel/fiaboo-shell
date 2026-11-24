@@ -14,24 +14,7 @@ pub(crate) fn toggle_quick(cx: &mut App) {
         }
     }
     let opened = cx.open_window(
-        WindowOptions {
-            titlebar: None,
-            window_bounds: Some(WindowBounds::Windowed(Bounds {
-                origin: point(px(0.), px(0.)),
-                size: size(px(0.), px(0.)),
-            })),
-            app_id: Some("fiaboo-quick".to_string()),
-            window_background: WindowBackgroundAppearance::Transparent,
-            kind: WindowKind::LayerShell(LayerShellOptions {
-                namespace: "fiaboo-quick".to_string(),
-                layer: Layer::Overlay,
-                anchor: Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
-                exclusive_zone: Some(px(-1.)),
-                keyboard_interactivity: KeyboardInteractivity::Exclusive,
-                ..Default::default()
-            }),
-            ..Default::default()
-        },
+        crate::overlay_options("fiaboo-quick"),
         |window, cx| cx.new(|cx| Quick::new(window, cx)),
     );
     if let Ok(h) = opened {

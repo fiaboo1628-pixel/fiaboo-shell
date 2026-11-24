@@ -42,24 +42,7 @@ pub(crate) fn open_tray_menu(cx: &mut App, item: tray::TrayItem) {
 
 pub(crate) fn show_tray_menu(cx: &mut App, item: tray::TrayItem, entries: Vec<tray::MenuEntry>) {
     let opened = cx.open_window(
-        WindowOptions {
-            titlebar: None,
-            window_bounds: Some(WindowBounds::Windowed(Bounds {
-                origin: point(px(0.), px(0.)),
-                size: size(px(0.), px(0.)),
-            })),
-            app_id: Some("fiaboo-traymenu".to_string()),
-            window_background: WindowBackgroundAppearance::Transparent,
-            kind: WindowKind::LayerShell(LayerShellOptions {
-                namespace: "fiaboo-traymenu".to_string(),
-                layer: Layer::Overlay,
-                anchor: Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
-                exclusive_zone: Some(px(-1.)),
-                keyboard_interactivity: KeyboardInteractivity::Exclusive,
-                ..Default::default()
-            }),
-            ..Default::default()
-        },
+        crate::overlay_options("fiaboo-traymenu"),
         |window, cx| cx.new(|cx| TrayMenu::new(window, cx, item, entries)),
     );
     if let Ok(h) = opened {
