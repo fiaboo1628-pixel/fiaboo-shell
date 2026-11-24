@@ -17,6 +17,8 @@ pub(crate) struct Clip {
 /// Text row height: roomier since 2026-10-27 (owner: rows "only just fit the text", 39 -> 44), so 10 rows keep the panel height.
 const CLIP_ROW: f32 = 44.;
 const CLIP_ROWS: f32 = 10.;
+/// Entries read from `cliphist list`; at this cap the history may hold more ("Clear all" wipes them all).
+const CLIP_MAX: usize = 80;
 
 /// API keys and tokens by their well-known prefixes (Anthropic/OpenAI sk-, GitHub ghp_/gho_, Slack xox?-, AWS AKIA).
 fn looks_secret(text: &str) -> bool {
@@ -41,12 +43,11 @@ mod secret_tests {
 }
 
 pub(crate) fn read_clips() -> Vec<Clip> {
-    let cache = format!("{}/.cache/fiaboo-shell", home());
+    let cache = notify::cache_dir();
     let _ = fs::create_dir_all(&cache);
     let mut images = 0;
     let clips = sh("cliphist list")
         .lines()
-        .take(80)
         .filter_map(|line| {
             let (id, rest) = line.split_once('\t')?;
             if id.is_empty() || !id.bytes().all(|b| b.is_ascii_digit()) {
@@ -55,7 +56,7 @@ pub(crate) fn read_clips() -> Vec<Clip> {
             let is_img = rest.starts_with("[[ binary data") && (rest.contains("png") || rest.contains("jpg") || rest.contains("jpeg"));
             let image = if is_img && images < 8 {
                 images += 1;
-                let path = PathBuf::from(format!("{cache}/clip-{id}.img"));
+                let path = cache.join(format!("clip-{id}.img"));
                 if !path.exists() {
                     // a failed decode must not leave an empty "image" that is reused forever
                     let tmp = path.with_extension("tmp");
@@ -82,6 +83,7 @@ pub(crate) fn read_clips() -> Vec<Clip> {
             };
             Some(Clip { id: id.to_string(), raw: line.to_string(), preview, image })
         })
+        .take(CLIP_MAX)
         .collect::<Vec<Clip>>();
     // decoded images of entries that were deleted, wiped or are no longer shown
     if let Ok(rd) = fs::read_dir(&cache) {
@@ -319,6 +321,7 @@ impl Render for ClipPanel {
                 })
         });
         div()
+            .image_cache(gpui::retain_all("clip-images")) // freed with the window; plain img() stays in GPUI's global cache forever
             .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .track_focus(&self.focus)
@@ -416,7 +419,7 @@ impl Render for ClipPanel {
                                         this.confirm_wipe = false;
                                         cx.notify();
                                     })),
-                                    small_btn("clip-wipe-yes", if n == 1 { "Delete 1 item".to_string() } else { format!("Delete {n} items") })
+                                    small_btn("clip-wipe-yes", if n >= CLIP_MAX { "Delete all".to_string() } else if n == 1 { "Delete 1 item".to_string() } else { format!("Delete {n} items") })
                                         .bg(rgba((p.err << 8) | 0xcc))
                                         .text_color(rgb(p.bg)) // on light error red: dark text (white was ~1.7:1)
                                         .on_click(cx.listener(|this, _, _, cx| {
@@ -445,7 +448,7 @@ impl Render for ClipPanel {
                             }),
                     )
                     // a deletion waits UNDO_SECS here before cliphist forgets it
-                    .when_some(self.pending.as_ref().map(|p| p.0.len()), |d, n| {
+                    .when_some(self.pending.as_ref().map(|p| (p.0.len(), p.1)), |d, (n, wipe)| {
                         d.child(
                             div()
                                 .flex()
@@ -453,7 +456,7 @@ impl Render for ClipPanel {
                                 .gap_2()
                                 .text_size(px(12.))
                                 .text_color(rgb(p.dim))
-                                .child(div().flex_1().child(if n == 1 { "Deleted 1 item".to_string() } else { format!("Deleted {n} items") }))
+                                .child(div().flex_1().child(if wipe && n >= CLIP_MAX { "Deleted all items".to_string() } else if n == 1 { "Deleted 1 item".to_string() } else { format!("Deleted {n} items") }))
                                 .child(small_btn("clip-undo", "Undo".into()).bg(rgba((p.accent << 8) | A_ACTIVE)).on_click(cx.listener(|this, _, _, cx| {
                                     this.undo();
                                     cx.notify();
