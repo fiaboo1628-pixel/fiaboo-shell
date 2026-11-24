@@ -657,6 +657,7 @@ struct Bar {
     notif_count: usize,
     rec_secs: Option<u64>, // screen recording running for this long (the flag file's age)
     panels_open: bool, // popups were hidden for an open panel
+    ind: Indicators,
 }
 
 /// The compositor event stream (Hyprland .socket2) flags the bar to refresh when windows/workspaces change,
@@ -689,6 +690,74 @@ fn start_volume_watch() {
             let _ = child.wait();
         }
         std::thread::sleep(Duration::from_secs(5)); // pipewire restarted: resubscribe
+    });
+}
+
+// ---------- bar indicators: input method, mic in use, pending updates ----------
+#[derive(Clone, Default, PartialEq)]
+struct Indicators {
+    vi: Option<bool>, // fcitx5 in Bamboo; None = fcitx5-remote failed, hidden
+    mic: bool,        // some app other than our own parec is recording
+    updates: usize,
+}
+static INDICATORS: Mutex<Indicators> = Mutex::new(Indicators { vi: None, mic: false, updates: 0 });
+
+/// `fcitx5-remote -n` output: the current input method name, empty when fcitx5 is not running.
+fn parse_im(name: &str) -> Option<bool> {
+    let name = name.trim();
+    (!name.is_empty()).then(|| name.starts_with("bamboo"))
+}
+
+/// `pactl -f json list source-outputs`: a live (uncorked) stream that is neither the music
+/// line's `parec` nor this process.
+fn mic_in_use(json: &str, own_pid: u32) -> bool {
+    let v: serde_json::Value = serde_json::from_str(json).unwrap_or_default();
+    v.as_array().into_iter().flatten().any(|o| {
+        let prop = |k: &str| o["properties"][k].as_str().unwrap_or("");
+        !o["corked"].as_bool().unwrap_or(false)
+            && prop("application.process.binary") != "parec"
+            && prop("application.process.id") != own_pid.to_string()
+    })
+}
+
+/// `checkupdates` prints one line per pending package; nothing when offline, failing or missing.
+fn count_updates(out: &str) -> usize {
+    out.lines().filter(|l| !l.trim().is_empty()).count()
+}
+
+fn check_updates() {
+    INDICATORS.lock().unwrap().updates = count_updates(&sh("checkupdates 2>/dev/null"));
+}
+
+/// Two cheap reads every 2 s (input method, mic), checkupdates every 30 min; the bar loop picks them up.
+fn start_indicators() {
+    std::thread::spawn(|| loop {
+        let vi = parse_im(&sh("fcitx5-remote -n 2>/dev/null"));
+        let mic = mic_in_use(&sh("pactl -f json list source-outputs 2>/dev/null"), std::process::id());
+        let mut ind = INDICATORS.lock().unwrap();
+        (ind.vi, ind.mic) = (vi, mic);
+        drop(ind);
+        std::thread::sleep(Duration::from_secs(2));
+    });
+    std::thread::spawn(|| loop {
+        check_updates();
+        std::thread::sleep(Duration::from_secs(30 * 60));
+    });
+}
+
+/// Run `sudo pacman -Syu` in a Ghostty window, then recount once it is closed.
+fn open_updates() {
+    std::thread::spawn(|| {
+        // own session and no pipes back to us: a shell restart must not take pacman down mid-transaction
+        let ok = Command::new("setsid")
+            .args(["ghostty", "--class=fiaboo.updates", "--wait-after-command=true", "-e", "sudo", "pacman", "-Syu"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        if ok.is_ok() {
+            check_updates();
+        }
     });
 }
 
@@ -975,6 +1044,11 @@ impl Bar {
                         bar.rec_secs = rec_secs; // once a second while recording: the timer ticks
                         changed = true;
                     }
+                    let ind = INDICATORS.lock().unwrap().clone();
+                    if ind != bar.ind {
+                        bar.ind = ind;
+                        changed = true;
+                    }
                     if tray_now != bar.tray {
                         bar.tray = tray_now;
                         changed = true;
@@ -990,7 +1064,7 @@ impl Bar {
             }
         })
         .detach();
-        Bar { pal: palette(), st: State::default(), sys: Sys::default(), tray: tray::items(), notif_gen: u64::MAX, notif_count: 0, rec_secs: None, panels_open: false }
+        Bar { pal: palette(), st: State::default(), sys: Sys::default(), tray: tray::items(), notif_gen: u64::MAX, notif_count: 0, rec_secs: None, panels_open: false, ind: Indicators::default() }
     }
 }
 
@@ -1227,6 +1301,39 @@ impl Render for Bar {
                         }), title)
                 })),
             )
+                    .when(self.ind.updates > 0, |d| {
+                        d.child(with_tip(
+                            div()
+                                .id("updates")
+                                .cursor_pointer()
+                                .px_2()
+                                .h(px(36.))
+                                .rounded_lg()
+                                .flex()
+                                .items_center()
+                                .gap_1()
+                                .font_family(NF).font_weight(FontWeight::MEDIUM)
+                                .text_size(px(16.))
+                                .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
+                                .on_click(|_, _, _| open_updates())
+                                .child("\u{f03d5}")
+                                .child(div().text_size(px(12.)).line_height(px(16.)).child(self.ind.updates.to_string())),
+                            "Updates · click to install",
+                        ))
+                    })
+                    .when(self.ind.mic, |d| {
+                        d.child(
+                            div()
+                                .size(px(36.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .font_family(NF).font_weight(FontWeight::MEDIUM)
+                                .text_size(px(16.))
+                                .text_color(rgb(p.accent))
+                                .child("\u{f036c}"),
+                        )
+                    })
                     .when_some(self.rec_secs, |d, secs| {
                         d.child(with_tip(
                             div()
@@ -1246,6 +1353,28 @@ impl Render for Bar {
                                 .child("\u{f044a}")
                                 .child(div().text_size(px(12.)).line_height(px(16.)).child(format!("{:02}:{:02}", secs / 60, secs % 60))),
                             "Recording · click to stop",
+                        ))
+                    })
+                    .when_some(self.ind.vi, |d, vi| {
+                        d.child(with_tip(
+                            div()
+                                .id("input-method")
+                                .cursor_pointer()
+                                .min_w(px(36.))
+                                .px_2()
+                                .h(px(36.))
+                                .rounded_lg()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_size(px(12.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
+                                .on_click(|_, _, _| {
+                                    std::thread::spawn(|| INDICATORS.lock().unwrap().vi = parse_im(&sh("fcitx5-remote -t; fcitx5-remote -n 2>/dev/null")));
+                                })
+                                .child(if vi { "VI" } else { "EN" }),
+                            "Input method · click to switch",
                         ))
                     })
                     .child({
@@ -1371,6 +1500,7 @@ fn main() {
     tray::start();
     start_hypr_events();
     start_volume_watch();
+    start_indicators();
     // Explicit: losing the bar (its only window) must not quit the app before on_window_closed reopens it.
     application().with_quit_mode(gpui::QuitMode::Explicit).run(|cx: &mut App| {
         open_bar(cx);
@@ -1499,5 +1629,33 @@ mod tests {
         assert_eq!(nmcli_fields("wlan0:wifi:connected:My\\:Net"), ["wlan0", "wifi", "connected", "My:Net"]);
         assert_eq!(nmcli_fields("p2p:wifi-p2p:disconnected:"), ["p2p", "wifi-p2p", "disconnected", ""]);
         assert_eq!(parse_media("Stopped\t\t"), None);
+    }
+
+    #[test]
+    fn input_method_label() {
+        assert_eq!(parse_im("bamboo\n"), Some(true));
+        assert_eq!(parse_im("keyboard-us\n"), Some(false));
+        assert_eq!(parse_im(""), None, "fcitx5 not running: hidden");
+    }
+
+    #[test]
+    fn mic_ignores_our_own_parec() {
+        let ours = r#"[
+            {"index":71,"driver":"PipeWire","owner_module":4294967295,"client":70,"source":58,"corked":false,
+             "properties":{"application.name":"parec","application.process.id":"4242","application.process.binary":"parec","media.name":"record"}},
+            {"index":80,"driver":"PipeWire","owner_module":4294967295,"client":79,"source":58,"corked":false,
+             "properties":{"application.name":"fiaboo-shell","application.process.id":"1000","application.process.binary":"fiaboo-shell"}}
+        ]"#;
+        assert!(!mic_in_use(ours, 1000));
+        let discord = ours.replacen("[", r#"[{"index":90,"corked":false,"properties":{"application.process.id":"5555","application.process.binary":"Discord"}},"#, 1);
+        assert!(mic_in_use(&discord, 1000));
+        assert!(!mic_in_use(&discord.replace(r#""corked":false,"properties":{"application.process.id":"5555""#, r#""corked":true,"properties":{"application.process.id":"5555""#), 1000), "paused stream");
+        assert!(!mic_in_use("[]", 1000) && !mic_in_use("", 1000) && !mic_in_use("Unknown option", 1000));
+    }
+
+    #[test]
+    fn update_count() {
+        assert_eq!(count_updates("linux 6.17.8.arch1-1 -> 6.17.9.arch1-1\nmesa 1:25.2.6-1 -> 1:25.2.7-1\n"), 2);
+        assert_eq!(count_updates(""), 0, "none, offline, or pacman-contrib missing");
     }
 }
