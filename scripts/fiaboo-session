@@ -8,11 +8,13 @@ BIN=${FIABOO_SHELL_BIN:-$HOME/.local/bin/fiaboo-shell}
 LOG=$HOME/.cache/fiaboo-shell.log
 
 while true; do
+    [ -S "$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket.sock" ] || exit 0  # Hyprland gone (logout): don't haunt the next session
     pkill -x swaync   # may have been D-Bus-activated while fiaboo-shell was down; the shell takes the name over
     start=$(date +%s); stamp=$(stat -c %Y "$BIN" 2>/dev/null)
     "$BIN" >>"$LOG" 2>&1
     rc=$?
     if [ $rc -eq 143 ] || [ $rc -eq 130 ]; then exit 0; fi          # stopped on purpose
+    if [ $rc -eq 3 ]; then exit 0; fi                                 # another fiaboo-shell already listens: leave it alone
     if [ $rc -eq 137 ]; then sleep 1; continue; fi                   # pkill -9 = deliberate restart (theme, upgrade), even in the first 30 s
     if [ "$(stat -c %Y "$BIN" 2>/dev/null)" != "$stamp" ]; then sleep 1; continue; fi  # binary upgraded: just restart
     if [ $(( $(date +%s) - start )) -lt 30 ]; then
