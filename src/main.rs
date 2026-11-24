@@ -55,6 +55,26 @@ const A_ACTIVE: u32 = 0x48; // selected / pressed; keeps fg >= 4.5:1 even on an 
 const A_STRONG: u32 = 0x70; // focus rings, the accent card corner
 const A_BORDER: u32 = 0x90; // panel borders: fg at this alpha stays >= 3:1 over the fill whatever is behind it
 
+/// Every panel: a full-screen transparent overlay layer that takes the keyboard; the panel
+/// draws its own shell inside it and closes on a click outside.
+pub(crate) fn overlay_options(namespace: &str) -> WindowOptions {
+    WindowOptions {
+        titlebar: None,
+        window_bounds: Some(WindowBounds::Windowed(Bounds { origin: point(px(0.), px(0.)), size: size(px(0.), px(0.)) })),
+        app_id: Some(namespace.to_string()),
+        window_background: WindowBackgroundAppearance::Transparent,
+        kind: WindowKind::LayerShell(LayerShellOptions {
+            namespace: namespace.to_string(),
+            layer: Layer::Overlay,
+            anchor: Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
+            exclusive_zone: Some(px(-1.)),
+            keyboard_interactivity: KeyboardInteractivity::Exclusive,
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
 /// A card tinted with `c`: brighter at the top-left, fading towards the bottom-right.
 fn card_fill(c: u32, strong: bool) -> gpui::Background {
     let (hi, lo) = if strong { (0x80, 0x38) } else { (0x40, 0x12) };
