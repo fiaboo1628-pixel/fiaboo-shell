@@ -6,7 +6,8 @@ if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
     kill -INT "$pid" # SIGINT lets wf-recorder finish the file; only ours, not another app's wf-recorder
     exit 0
 fi
-rm -f "$flag"
+# a recorder that died hard left its flag (the bar's timer): this press only clears it
+[ -e "$flag" ] && { rm -f "$flag"; exit 0; }
 pgrep -x slurp >/dev/null && exit 0 # a second press while still picking the region
 geo=$(slurp -o) || exit 0
 dir="$HOME/Videos/recordings"

@@ -13,13 +13,13 @@ flock -w 60 9 || exit 1 # bounded: a long-lived child that inherited fd 9 must n
 
 restore=
 case "${1:-}" in
-    --random) img=$(find "$dir" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) | shuf -n1) ;;
+    --random) img=$(find -L "$dir" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) | shuf -n1) ;;
     --restore) img=$(cat "$cache" 2>/dev/null); restore=1 ;;
-    *) img=${1:-} ;;
+    *) img=${1:-}; [ -f "$img" ] || { echo "fiaboo-wallpaper: no such image: $img" >&2; exit 1; } ;;
 esac
-[ -f "$img" ] || img=$(find "$dir" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) | sort | head -1)
+[ -f "$img" ] || img=$(find -L "$dir" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) | sort | head -1)
 [ -f "$img" ] || { echo "fiaboo-wallpaper: no image in $dir" >&2; exit 1; }
-img=$(realpath -- "$img") # --restore at login runs from another directory
+img=$(realpath -s -- "$img") # absolute (--restore at login runs from another directory), links kept so the picker matches it
 
 for _ in $(seq 30); do awww query >/dev/null 2>&1 && break; sleep 1; done
 if [ -n "$restore" ]; then
@@ -38,5 +38,5 @@ echo "$img" > "$cache"
 # a hand-kept file like the rest of ~/.config/hypr. (owner, 2026-10-26)
 
 # hyprlock shows these
-magick "$img" -resize 75% -blur 50x30 "$cache_dir/blurred.tmp.png" && mv "$cache_dir/blurred.tmp.png" "$cache_dir/blurred.png"
-magick "$img" -gravity Center -extent 1:1 "$cache_dir/square.tmp.png" && mv "$cache_dir/square.tmp.png" "$cache_dir/square.png"
+magick "$img[0]" -resize 75% -blur 50x30 "$cache_dir/blurred.tmp.png" && mv "$cache_dir/blurred.tmp.png" "$cache_dir/blurred.png"
+magick "$img[0]" -gravity Center -extent 1:1 "$cache_dir/square.tmp.png" && mv "$cache_dir/square.tmp.png" "$cache_dir/square.png"
