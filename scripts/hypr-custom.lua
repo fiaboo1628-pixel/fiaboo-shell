@@ -46,7 +46,7 @@ if hl.plugin.hyprliquid then
 	hl.window_rule({
 		name = "glass-terminals",
 		match = { class = "^(fiaboo\\..*|kitty)$" },
-		no_blur = true,
+		-- keep Hyprland blur under the glass: on a sharp wallpaper terminal text was hard to read
 		["hyprliquid:effect"] = "liquid_glass",
 		["hyprliquid:highlight_style"] = 3,
 	})
