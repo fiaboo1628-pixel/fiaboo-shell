@@ -1126,7 +1126,13 @@ impl Bar {
 }
 
 impl Render for Bar {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        // a bar reopened while its monitor was unplugged came back 1080 px tall and covered every
+        // window (transparent); GPUI echoes each configure back as the requested size, so ask again
+        let b = window.bounds().size;
+        if b.height != px(BAR_HEIGHT) {
+            window.resize(size(b.width, px(BAR_HEIGHT)));
+        }
         let p = self.pal.clone();
         let st = &self.st;
 
