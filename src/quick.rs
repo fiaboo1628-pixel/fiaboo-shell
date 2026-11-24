@@ -60,7 +60,7 @@ fn actions(sys: &Sys) -> Vec<(&'static str, String)> {
     if sys.wifi_avail {
         v.push(("q-wifi", format!("nmcli radio wifi {}", if sys.wifi_on { "off" } else { "on" })));
     }
-    v.push(("q-bt", if sys.bt_on { "bluetoothctl power off".to_string() } else { "rfkill unblock bluetooth; bluetoothctl power on".to_string() }));
+    v.push(("q-bt", bt_power_cmd(!sys.bt_on).to_string()));
     v.push(("q-night", sunset_cmd(!sys.night, sys.gamma)));
     v.push(("q-dnd", "@dnd".to_string()));
     v.push(("q-awake", "@awake".to_string()));
@@ -70,6 +70,7 @@ fn actions(sys: &Sys) -> Vec<(&'static str, String)> {
 /// One hyprsunset carries both night light (temperature) and brightness (gamma).
 /// The lock keeps a fast drag from starting two of them.
 fn sunset_cmd(night: bool, gamma: i32) -> String {
+    let gamma = gamma.max(20); // below 20 % gamma the screen is unreadable
     let t = if night { 5000 } else { 6500 };
     if !night && gamma >= 100 {
         return "pkill -x hyprsunset".into();
@@ -172,7 +173,7 @@ impl Quick {
                 let _ = this.update_in(cx, |_, window, cx| close_quick(window, cx));
                 break;
             }
-            cx.background_executor().timer(Duration::from_millis(1200)).await;
+            cx.background_executor().timer(Duration::from_secs(3)).await;
         })
         .detach();
         // system monitor: only while the panel is open (the task ends with the window)
@@ -195,7 +196,7 @@ impl Quick {
             }
         })
         .detach();
-        Quick { pal: palette(), sys: Sys::default(), focus, last_input: std::time::Instant::now(), focus_i: 0, drag_level: None, mon: (None, None, None) }
+        Quick { pal: palette(), sys: Sys { gamma: 100, ..Default::default() }, focus, last_input: std::time::Instant::now(), focus_i: 0, drag_level: None, mon: (None, None, None) }
     }
 }
 
@@ -298,9 +299,8 @@ impl Render for Quick {
         };
         let segments = slider(cx, "vol", if sys.muted { 0 } else { level }, |_, v| run_bg(&format!("wpctl set-volume @DEFAULT_AUDIO_SINK@ {v}%")));
         let bright = slider(cx, "bright", sys.gamma, |this, v| {
-            let g = v.max(20); // below 20 % gamma the screen is unreadable
-            run_bg(&sunset_cmd(this.sys.night, g));
-            this.sys.gamma = g; // show it now, the next poll confirms
+            run_bg(&sunset_cmd(this.sys.night, v));
+            this.sys.gamma = v.max(20); // sunset_cmd's floor; show it now, the next poll confirms
         });
 
         let media_btn = |id: &'static str, glyph: &'static str, cmd: &'static str| {
@@ -566,5 +566,11 @@ mod sysmon_tests {
         let m = "MemTotal:       14175188 kB\nMemFree:         5708804 kB\nMemAvailable:   11906320 kB\nBuffers:          123 kB\n";
         assert_eq!(mem_used(m), Some((14175188 - 11906320, 14175188)));
         assert_eq!(mem_used("MemTotal: 100 kB\n"), None);
+    }
+
+    #[test]
+    fn sunset_gamma_never_goes_below_the_floor() {
+        let c = sunset_cmd(true, 0);
+        assert!(c.contains("-g 20") && c.contains("gamma 20") && !c.contains("gamma 0;"), "{c}");
     }
 }

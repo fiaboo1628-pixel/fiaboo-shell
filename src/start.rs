@@ -99,21 +99,27 @@ impl StartMenu {
         all.sort_by_key(|e| (e.settings, e.name.to_lowercase()));
         all.dedup_by(|a, b| a.stem == b.stem);
         let pins = pinned().iter().map(|(_, d)| entry_of(d)).collect();
-        let mut wins: Vec<serde_json::Value> = hyprctl_json("clients").as_array().cloned().unwrap_or_default();
-        wins.retain(|c| {
-            let class = c["class"].as_str().unwrap_or("");
-            !class.is_empty() && class != "fiaboo-shell" && !hidden_ws(c["workspace"]["name"].as_str().unwrap_or(""))
-        });
-        wins.sort_by_key(|c| c["focusHistoryID"].as_i64().unwrap_or(i64::MAX));
-        // safety net: close after 90 s without a key press (the menu holds exclusive keyboard focus)
-        cx.spawn_in(window, async move |this, cx| loop {
-            cx.background_executor().timer(Duration::from_secs(1)).await;
-            let idle = this
-                .update(cx, |m, _| m.last_input.elapsed() > Duration::from_secs(90))
-                .unwrap_or(true);
-            if idle {
-                let _ = this.update_in(cx, |_, window, cx| close_start(window, cx));
-                break;
+        // open windows load off the UI thread; safety net: close after 90 s without a key press (the menu holds exclusive keyboard focus)
+        cx.spawn_in(window, async move |this, cx| {
+            let wins = cx.background_executor().spawn(async {
+                let mut wins: Vec<serde_json::Value> = hyprctl_json("clients").as_array().cloned().unwrap_or_default();
+                wins.retain(|c| {
+                    let class = c["class"].as_str().unwrap_or("");
+                    !class.is_empty() && class != "fiaboo-shell" && !hidden_ws(c["workspace"]["name"].as_str().unwrap_or(""))
+                });
+                wins.sort_by_key(|c| c["focusHistoryID"].as_i64().unwrap_or(i64::MAX));
+                wins
+            }).await;
+            let _ = this.update(cx, |m, cx| { m.wins = wins; cx.notify() });
+            loop {
+                cx.background_executor().timer(Duration::from_secs(1)).await;
+                let idle = this
+                    .update(cx, |m, _| m.last_input.elapsed() > Duration::from_secs(90))
+                    .unwrap_or(true);
+                if idle {
+                    let _ = this.update_in(cx, |_, window, cx| close_start(window, cx));
+                    break;
+                }
             }
         })
         .detach();
@@ -128,7 +134,7 @@ impl StartMenu {
             last_input: std::time::Instant::now(),
             power: false,
             confirm: None,
-            wins,
+            wins: vec![],
         }
     }
 
@@ -173,6 +179,9 @@ fn win_matches(title: &str, class: &str, q: &str) -> bool {
 /// The value of an arithmetic query (+ - * / % ^, parentheses, decimals), formatted; None when the query is not
 /// one, has no operator (a bare number is no sum), or divides by zero.
 fn calc(q: &str) -> Option<String> {
+    if q.len() > 256 {
+        return None; // the parser recurses per '(' and '-': bound the depth so a paste can't overflow the stack
+    }
     let s: Vec<u8> = q.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
     if !s.iter().any(|b| b"+-*/%^(".contains(b)) {
         return None;
@@ -266,6 +275,8 @@ mod tests {
         for q in ["", "42", "firefox", "1+", "(1+2", "1+2)", "1..2+1", "2**3", "1+a", "()"] {
             assert_eq!(calc(q), None, "{q}");
         }
+        assert_eq!(calc(&"(".repeat(100_000)), None);
+        assert_eq!(calc(&"-".repeat(100_000)), None);
     }
 
     #[test]

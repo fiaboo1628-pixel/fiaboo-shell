@@ -4,7 +4,7 @@ use crate::*;
 use gpui::{Animation, AnimationExt};
 
 // ---------- calendar + weather ----------
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub(crate) struct Day {
     label: String,
     code: i64,
@@ -12,7 +12,7 @@ pub(crate) struct Day {
     tmin: f64,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub(crate) struct Weather {
     city: String,
     temp: f64,
@@ -171,19 +171,22 @@ pub(crate) fn today_dm() -> String {
 }
 
 pub(crate) fn today_ymd() -> (i32, u32, u32) {
-    // notification cards ask on every render: fork `date` at most every 20 s
-    static LAST: Mutex<Option<(std::time::Instant, (i32, u32, u32))>> = Mutex::new(None);
-    let mut last = LAST.lock().unwrap();
-    if let Some((at, ymd)) = *last {
-        if at.elapsed() < Duration::from_secs(20) {
-            return ymd;
-        }
-    }
-    let t = sh("date +%Y-%m-%d");
-    let p: Vec<i32> = t.split('-').filter_map(|x| x.parse().ok()).collect();
-    let ymd = if p.len() == 3 { (p[0], p[1] as u32, p[2] as u32) } else { (2026, 1, 1) };
-    *last = Some((std::time::Instant::now(), ymd));
-    ymd
+    // shortcut: fixed UTC+7 (Asia/Ho_Chi_Minh, no DST, as lunar.rs assumes), read the zone if the machine ever moves
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
+    civil_from_days((secs + 7 * 3600).div_euclid(86400))
+}
+
+/// Days since 1970-01-01 -> (year, month, day), Howard Hinnant's civil_from_days.
+fn civil_from_days(z: i64) -> (i32, u32, u32) {
+    let z = z + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    ((yoe + era * 400 + i64::from(m <= 2)) as i32, m, d)
 }
 
 pub(crate) struct CalState(pub(crate) Option<AnyWindowHandle>);
@@ -254,9 +257,12 @@ impl CalendarPopup {
             }
             let idle = this
                 .update(cx, |c, cx| {
-                    c.weather = cached_weather();
-                    c.weather_failed = c.weather.is_none() && failed_at.is_some();
-                    cx.notify();
+                    let weather = cached_weather();
+                    let failed = weather.is_none() && failed_at.is_some();
+                    if weather != c.weather || failed != c.weather_failed {
+                        (c.weather, c.weather_failed) = (weather, failed);
+                        cx.notify();
+                    }
                     c.last_input.elapsed() > Duration::from_secs(90)
                 })
                 .unwrap_or(true);
@@ -431,8 +437,8 @@ impl Render for CalendarPopup {
                 let weekend = c >= 5;
                 // lunar date only where it matters -- the 1st (as d/m), the 15th, today -- not under
                 // every day: 42 extra numbers made the panel "nhiều chữ quá" (owner, 2026-10-27)
-                let lunar_txt = current.then(|| lunar::solar_to_lunar(day as i32, month as i32, year)).and_then(|(ld, lm, _)| {
-                    if ld == 1 { Some(format!("{ld}/{lm}")) } else if ld == 15 || is_today { Some(ld.to_string()) } else { None }
+                let lunar_txt = current.then(|| lunar::solar_to_lunar(day as i32, month as i32, year)).and_then(|(ld, lm, leap)| {
+                    if ld == 1 { Some(format!("{ld}/{lm}{}", if leap { "N" } else { "" })) } else if ld == 15 || is_today { Some(ld.to_string()) } else { None }
                 });
                 div().flex_1().h(px(52.)).flex().items_center().justify_center().child(
                     div()
@@ -576,5 +582,9 @@ mod tests {
         assert_eq!(weekday_short("2026-13-01"), "");
         assert_eq!(weekday_short("2026-00-10"), "");
         assert_eq!(weekday_short("garbage"), "");
+        assert_eq!(civil_from_days(0), (1970, 1, 1));
+        assert_eq!(civil_from_days(19782), (2024, 2, 29));
+        assert_eq!(civil_from_days(20781), (2026, 11, 24));
+        assert_eq!(civil_from_days(-1), (1969, 12, 31));
     }
 }

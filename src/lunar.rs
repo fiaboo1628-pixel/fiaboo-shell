@@ -125,5 +125,7 @@ mod tests {
         assert_eq!(solar_to_lunar(29, 1, 2025), (1, 1, false)); // Tết Ất Tỵ
         assert_eq!(solar_to_lunar(17, 2, 2026), (1, 1, false)); // Tết Bính Ngọ
         assert!(solar_to_lunar(3, 10, 2026).0 >= 1);
+        assert_eq!(solar_to_lunar(25, 6, 2025), (1, 6, false)); // 6th month of Ất Tỵ
+        assert_eq!(solar_to_lunar(25, 7, 2025), (1, 6, true)); // its leap 6th month
     }
 }
