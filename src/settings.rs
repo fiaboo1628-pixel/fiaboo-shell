@@ -246,7 +246,7 @@ pub(crate) fn bt_rows(ui: &BtUi, p: &Palette, focused: Option<&Stop>, cx: &mut C
         let label = if busy.as_deref() == Some(key.as_str()) {
             format!("{label} · working…")
         } else if failed.as_deref() == Some(key.as_str()) {
-            format!("{label} · failed, click to retry")
+            format!("{label} · couldn\u{2019}t connect · Retry")
         } else {
             label
         };
@@ -499,7 +499,7 @@ impl Render for SettingsPanel {
                             .items_center()
                             .gap_2()
                             .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).text_size(px(16.)).child("Settings"))
-                            .child(button("s-wp", "Change wallpaper", p.accent2, &p).border_color(ring(&Stop::Wallpaper)).on_click(|_, window, cx| {
+                            .child(button("s-wp", "Wallpaper\u{2026}", p.accent2, &p).border_color(ring(&Stop::Wallpaper)).on_click(|_, window, cx| {
                                 close_settings(window, cx);
                                 toggle_wp(cx);
                             })),
