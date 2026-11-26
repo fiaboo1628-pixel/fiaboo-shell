@@ -383,8 +383,7 @@ impl Render for Quick {
             .px_3()
             .py_3()
             .rounded_xl()
-            .bg(card_fill(p.accent2, false))
-            .shadow(card_shadow(&p, false))
+            .bg(card_fill(p.accent2, false)) // no shadow: read-only, it must not look like a toggle
             .child(div().font_family(NF).font_weight(FontWeight::MEDIUM).text_size(px(22.)).child("\u{f061a}"))
             .child(
                 div()
@@ -545,7 +544,7 @@ impl Render for Quick {
                     .shadow(card_shadow(&p, false))
                     .child(div().font_family(NF).font_weight(FontWeight::MEDIUM).text_size(px(22.)).child("\u{f00df}"))
                     .child(div().flex_1().flex().gap_0p5().children(bright))
-                    .child(div().w(px(40.)).text_size(px(12.)).text_color(rgb(p.dim)).child(format!("{}%", sys.gamma))),
+                    .child(div().w(px(40.)).flex().justify_end().text_size(px(12.)).text_color(rgb(p.dim)).child(format!("{}%", sys.gamma))),
             )
             .child(
                 div()
@@ -582,7 +581,7 @@ impl Render for Quick {
                             .child(g_vol),
                     )
                     .child(div().flex_1().flex().gap_0p5().children(segments))
-                    .child(div().w(px(40.)).text_size(px(12.)).text_color(rgb(p.dim)).child(
+                    .child(div().w(px(40.)).flex().justify_end().text_size(px(12.)).text_color(rgb(p.dim)).child(
                         if sys.muted { "Muted".to_string() } else { format!("{level}%") },
                     )),
             )
