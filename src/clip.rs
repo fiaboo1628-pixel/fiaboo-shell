@@ -406,27 +406,40 @@ impl Render for ClipPanel {
                                     .child(div().text_color(rgb(p.dim)).child("\u{f002}"))
                                     .child(div().child(SearchLine(self.field.clone()))),
                             )
-                            .children(if self.confirm_wipe {
-                                let n = self.clips.len();
-                                vec![
-                                    small_btn("clip-keep", "Cancel".into()).on_click(cx.listener(|this, _, _, cx| {
-                                        this.confirm_wipe = false;
-                                        cx.notify();
-                                    })),
-                                    button("clip-wipe-yes", if n >= CLIP_MAX { "Delete all".to_string() } else if n == 1 { "Delete 1 item".to_string() } else { format!("Delete {n} items") }, p.err, &p)
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            this.confirm_wipe = false;
-                                            let all = this.clips.clone();
-                                            this.defer_delete(all, true, cx);
-                                        })),
-                                ]
-                            } else {
-                                vec![small_btn("clip-wipe", "Clear all".into()).on_click(cx.listener(|this, _, _, cx| {
+                            // nothing to clear: no button (and none while the confirmation below asks)
+                            .when(!self.confirm_wipe && self.clips.iter().any(|c| !self.hidden.contains(&c.id)), |d| {
+                                d.child(small_btn("clip-wipe", "Clear all".into()).on_click(cx.listener(|this, _, _, cx| {
                                     this.confirm_wipe = true;
                                     cx.notify();
-                                }))]
+                                })))
                             }),
                     )
+                    // the confirmation names its scope in a sentence, like Start's power row
+                    .when(self.confirm_wipe, |d| {
+                        let n = self.clips.len();
+                        d.child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_3()
+                                .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).child(if n >= CLIP_MAX {
+                                    "Delete the whole clipboard history?".to_string()
+                                } else if n == 1 {
+                                    "Delete 1 item?".to_string()
+                                } else {
+                                    format!("Delete {n} items?")
+                                }))
+                                .child(small_btn("clip-keep", "Cancel".into()).on_click(cx.listener(|this, _, _, cx| {
+                                    this.confirm_wipe = false;
+                                    cx.notify();
+                                })))
+                                .child(button("clip-wipe-yes", "Delete", p.err, &p).on_click(cx.listener(|this, _, _, cx| {
+                                    this.confirm_wipe = false;
+                                    let all = this.clips.clone();
+                                    this.defer_delete(all, true, cx);
+                                }))),
+                        )
+                    })
                     .child(
                         div()
                             .id("clip-list")
