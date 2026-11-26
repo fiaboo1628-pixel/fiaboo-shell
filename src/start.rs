@@ -418,7 +418,9 @@ impl Render for StartMenu {
             div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(rgb(p.dim)).child(title)
         };
 
+        let pinned_stems: HashSet<String> = self.pins.iter().map(|e| e.stem.clone()).collect();
         let row = |hit: Hit, i: usize, first: bool| {
+            let is_pinned = matches!(&hit, Hit::App(e, _) if pinned_stems.contains(&e.stem));
             let (icon, name, why, pin_stem) = match &hit {
                 Hit::App(e, why) => (tile_icon(e, 26., &p), e.name.clone(), why.clone(), Some(e.stem.clone())),
                 Hit::Win { title, class, .. } => {
@@ -460,6 +462,8 @@ impl Render for StartMenu {
                         .child(div().line_height(px(18.)).overflow_hidden().whitespace_nowrap().text_ellipsis().child(name))
                         .when_some(why, |d, why| d.child(div().text_size(px(12.)).line_height(px(14.)).text_color(rgb(p.dim)).child(why))),
                 )
+                // pinned: the state right-click toggles, visible in the row
+                .when(is_pinned, |d| d.child(div().flex_none().font_family(NF).text_color(rgb(p.dim)).child("\u{f0403}")))
         };
 
         let body = if searching {
