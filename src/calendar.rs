@@ -481,10 +481,12 @@ impl Render for CalendarPopup {
                                 div()
                                     .id("c-today")
                                     .cursor_pointer()
-                                    .px_2()
-                                    .py_1()
-                                    .rounded_lg()
-                                    .text_size(px(12.))
+                                    .h(px(36.)) // the same frame as ‹ ›
+                                    .px_3()
+                                    .flex()
+                                    .items_center()
+                                    .rounded_md()
+                                    .text_size(px(14.))
                                     .hover(|s| s.bg(rgba((p.accent << 8) | A_HOVER)))
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.last_input = std::time::Instant::now();
@@ -515,6 +517,7 @@ impl Render for CalendarPopup {
                         this.month_offset += 1;
                         cx.notify();
                     }
+                    "home" | "t" => { this.month_offset = 0; cx.notify(); }
                     _ => {}
                 }
             }))
