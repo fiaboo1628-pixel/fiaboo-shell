@@ -391,33 +391,40 @@ impl Render for NotifCenter {
                             .items_center()
                             .gap_2()
                             .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).text_size(px(16.)).child("Notifications"))
-                            .child(pill("nc-dnd", if dnd { "\u{f009b} DND".into() } else { "\u{f009c} DND".into() }, dnd).on_click(
+                            // the state in words (a check), not only in the fill; Quick calls it the same
+                            .child(pill("nc-dnd", if dnd { "\u{f012c} Do not disturb".into() } else { "Do not disturb".into() }, dnd).on_click(
                                 cx.listener(|_, _, _, cx| {
                                     notify::toggle_dnd();
                                     cx.notify();
                                 }),
                             ))
-                            .children(if self.confirm_clear {
-                                let n = list.len();
-                                vec![
-                                    pill("nc-keep", "Cancel".into(), false).on_click(cx.listener(|this, _, _, cx| {
-                                        this.confirm_clear = false;
-                                        cx.notify();
-                                    })),
-                                    button("nc-clear-yes", if n == 1 { "Delete 1".to_string() } else { format!("Delete all {n}") }, p.err, &p)
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            let ids: Vec<u32> = notify::all().iter().map(|n| n.id).filter(|id| !this.hidden.contains(id)).collect();
-                                            this.confirm_clear = false;
-                                            this.defer_dismiss(ids, cx);
-                                        })),
-                                ]
-                            } else {
-                                vec![pill("nc-clear", "Clear all".into(), false).on_click(cx.listener(|this, _, _, cx| {
+                            // only with something to clear, and not while the row below asks
+                            .when(!self.confirm_clear && !list.is_empty(), |d| {
+                                d.child(pill("nc-clear", "Clear".into(), false).on_click(cx.listener(|this, _, _, cx| {
                                     this.confirm_clear = true;
                                     cx.notify();
-                                }))]
+                                })))
                             }),
                     )
+                    .when(self.confirm_clear && !list.is_empty(), |d| {
+                        let n = list.len();
+                        d.child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).child(if n == 1 { "Clear 1 notification?".to_string() } else { format!("Clear {n} notifications?") }))
+                                .child(pill("nc-keep", "Cancel".into(), false).on_click(cx.listener(|this, _, _, cx| {
+                                    this.confirm_clear = false;
+                                    cx.notify();
+                                })))
+                                .child(button("nc-clear-yes", "Clear", p.err, &p).on_click(cx.listener(|this, _, _, cx| {
+                                    let ids: Vec<u32> = notify::all().iter().map(|n| n.id).filter(|id| !this.hidden.contains(id)).collect();
+                                    this.confirm_clear = false;
+                                    this.defer_dismiss(ids, cx);
+                                }))),
+                        )
+                    })
                     .child(
                         div()
                             .id("nc-list")
@@ -441,19 +448,16 @@ impl Render for NotifCenter {
                                 .gap_2()
                                 .text_size(px(12.))
                                 .text_color(rgb(p.dim))
-                                .child(div().flex_1().child(if n == 1 { "Deleted 1 notification".to_string() } else { format!("Deleted {n} notifications") }))
+                                .child(div().flex_1().child(if n == 1 { "Cleared 1 notification".to_string() } else { format!("Cleared {n} notifications") }))
                                 .child(pill("nc-undo", "Undo".into(), true).on_click(cx.listener(|this, _, _, cx| {
                                     this.undo();
                                     cx.notify();
                                 }))),
                         )
                     })
-                    .child(
-                        div()
-                            .text_size(px(12.))
-                            .text_color(rgb(p.dim))
-                            .child("Enter: open · Del: dismiss · Esc: close"),
-                    ),
+                    .when(!list.is_empty(), |d| {
+                        d.child(div().text_size(px(12.)).text_color(rgb(p.dim)).child("Enter: open · Del: clear · Esc: close"))
+                    }),
             )
     }
 }
