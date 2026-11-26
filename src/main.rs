@@ -16,6 +16,7 @@ mod wallpaper;
 mod settings;
 mod start;
 mod taskview;
+mod search;
 use quick::*;
 use traymenu::*;
 use calendar::*;
@@ -26,6 +27,7 @@ use wallpaper::*;
 use settings::*;
 use start::*;
 use taskview::*;
+use search::*;
 
 use std::{
     collections::{HashMap, HashSet},

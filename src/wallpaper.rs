@@ -112,7 +112,8 @@ pub(crate) struct WpPicker {
     scroll: gpui::ScrollHandle,
     last_input: std::time::Instant,
     thumbs_pending: bool, // the generator was running at the last poll
-    query: String,        // typed filter on the file name
+    query: String,        // typed filter on the file name, mirrors `field`
+    field: gpui::Entity<SearchField>,
 }
 
 impl WpPicker {
@@ -162,7 +163,17 @@ impl WpPicker {
         .detach();
         let scroll = gpui::ScrollHandle::new();
         scroll.scroll_to_item(sel);
-        WpPicker { pal: palette(), focus, list, current, sel, scroll, last_input: std::time::Instant::now(), thumbs_pending: true, query: String::new() }
+        let field = cx.new(|_| SearchField::new(focus.clone(), "", palette().dim));
+        cx.observe(&field, |p, field, cx| {
+            p.last_input = std::time::Instant::now();
+            if p.query != field.read(cx).text {
+                p.query = field.read(cx).text.clone();
+                p.sel = 0;
+                cx.notify();
+            }
+        })
+        .detach();
+        WpPicker { pal: palette(), focus, list, current, sel, scroll, last_input: std::time::Instant::now(), thumbs_pending: true, query: String::new(), field }
     }
 }
 
@@ -228,20 +239,8 @@ impl Render for WpPicker {
                         }
                         close_wp(window, cx);
                     }
-                    "backspace" => {
-                        this.query.pop();
-                        this.sel = 0;
-                        cx.notify();
-                    }
-                    _ => {
-                        if !k.modifiers.control && !k.modifiers.alt && !k.modifiers.platform {
-                            if let Some(ch) = &k.key_char {
-                                this.query.push_str(ch);
-                                this.sel = 0;
-                                cx.notify();
-                            }
-                        }
-                    }
+                    "backspace" => this.field.update(cx, |f, cx| f.backspace(cx)),
+                    _ => {} // typed text arrives through `field`
                 }
             }))
             .flex()
@@ -307,10 +306,13 @@ impl Render for WpPicker {
                         div()
                             .text_size(px(12.))
                             .text_color(rgb(p.dim))
+                            .flex()
+                            .when(!self.query.is_empty(), |d| d.child("Filter: "))
+                            .child(SearchLine(self.field.clone())) // empty: zero wide, but the IME still needs it painted
                             .child(if self.query.is_empty() {
                                 format!("{} images · Type: filter · Enter: apply · Ctrl+R: shuffle · Esc: close", self.list.len())
                             } else {
-                                format!("Filter: {}\u{258f} · {} of {} · Backspace: edit · Enter: apply · Esc: close", self.query, shown.len(), self.list.len())
+                                format!(" · {} of {} · Backspace: edit · Enter: apply · Esc: close", shown.len(), self.list.len())
                             }),
                     ),
             )

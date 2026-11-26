@@ -61,7 +61,8 @@ pub(crate) fn toggle_start(cx: &mut App) {
 
 pub(crate) struct StartMenu {
     pal: Palette,
-    query: String,
+    query: String, // mirrors `field`
+    field: gpui::Entity<SearchField>,
     focus: FocusHandle,
     all: Vec<Entry>,
     pins: Vec<Entry>,
@@ -82,6 +83,16 @@ impl StartMenu {
         all.sort_by_key(|e| (e.settings, e.name.to_lowercase()));
         all.dedup_by(|a, b| a.stem == b.stem);
         let pins = pinned().iter().map(|(_, d)| entry_of(d)).collect();
+        let field = cx.new(|_| SearchField::new(focus.clone(), "Search apps and windows, or type a sum…", palette().dim));
+        cx.observe(&field, |m, field, cx| {
+            m.last_input = std::time::Instant::now();
+            if m.query != field.read(cx).text {
+                m.query = field.read(cx).text.clone();
+                m.sel = 0;
+                cx.notify();
+            }
+        })
+        .detach();
         // open windows load off the UI thread; safety net: close after 90 s without a key press (the menu holds exclusive keyboard focus)
         cx.spawn_in(window, async move |this, cx| {
             let wins = cx.background_executor().spawn(async {
@@ -109,6 +120,7 @@ impl StartMenu {
         StartMenu {
             pal: palette(),
             query: String::new(),
+            field,
             focus,
             all,
             pins,
@@ -326,11 +338,7 @@ impl Render for StartMenu {
             .text_size(px(16.))
             .gap_2()
             .child(div().text_color(rgb(p.dim)).child("\u{f002}"))
-            .child(if searching {
-                div().text_color(rgb(p.fg)).child(format!("{}\u{258f}", self.query))
-            } else {
-                div().text_color(rgb(p.dim)).child("Search apps and windows, or type a sum…")
-            });
+            .child(div().text_color(rgb(p.fg)).child(SearchLine(self.field.clone())));
 
         let section = |title: &'static str| {
             div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(rgb(p.dim)).child(title)
@@ -542,11 +550,7 @@ impl Render for StartMenu {
                 let k = &ev.keystroke;
                 match k.key.as_str() {
                     "escape" => close_start(window, cx),
-                    "backspace" => {
-                        this.query.pop();
-                        this.sel = 0;
-                        cx.notify();
-                    }
+                    "backspace" => this.field.update(cx, |f, cx| f.backspace(cx)),
                     "down" | "up" => {
                         // with no query the arrows walk the whole All apps list
                         let n = if this.query.is_empty() { this.all.len() } else { this.results().len() };
@@ -561,15 +565,7 @@ impl Render for StartMenu {
                             activate(hit, window, cx);
                         }
                     }
-                    _ => {
-                        if !k.modifiers.control && !k.modifiers.alt && !k.modifiers.platform {
-                            if let Some(ch) = &k.key_char {
-                                this.query.push_str(ch);
-                                this.sel = 0;
-                                cx.notify();
-                            }
-                        }
-                    }
+                    _ => {} // typed text arrives through `field`
                 }
             }))
             .flex()

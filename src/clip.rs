@@ -139,7 +139,8 @@ pub(crate) struct ClipPanel {
     pal: Palette,
     focus: FocusHandle,
     clips: Vec<Clip>,
-    query: String,
+    query: String, // mirrors `field`
+    field: gpui::Entity<SearchField>,
     sel: usize,
     last_input: std::time::Instant,
     confirm_wipe: bool, // "Clear all" asks once before deleting the whole history
@@ -229,11 +230,22 @@ impl ClipPanel {
             });
         })
         .detach();
+        let field = cx.new(|_| SearchField::new(focus.clone(), "Search clipboard history…", palette().dim));
+        cx.observe(&field, |c, field, cx| {
+            c.last_input = std::time::Instant::now();
+            if c.query != field.read(cx).text {
+                c.query = field.read(cx).text.clone();
+                c.sel = 0;
+                cx.notify();
+            }
+        })
+        .detach();
         ClipPanel {
             pal: palette(),
             focus,
             clips: Vec::new(),
             query: String::new(),
+            field,
             sel: 0,
             last_input: std::time::Instant::now(),
             confirm_wipe: false,
@@ -317,11 +329,7 @@ impl Render for ClipPanel {
                 let n = this.visible().len();
                 match k.key.as_str() {
                     "escape" => close_clip(window, cx),
-                    "backspace" => {
-                        this.query.pop();
-                        this.sel = 0;
-                        cx.notify();
-                    }
+                    "backspace" => this.field.update(cx, |f, cx| f.backspace(cx)),
                     "down" if n > 0 => {
                         this.sel = (this.sel + 1) % n;
                         cx.notify();
@@ -345,15 +353,7 @@ impl Render for ClipPanel {
                         this.undo();
                         cx.notify();
                     }
-                    _ => {
-                        if !k.modifiers.control && !k.modifiers.alt && !k.modifiers.platform {
-                            if let Some(ch) = &k.key_char {
-                                this.query.push_str(ch);
-                                this.sel = 0;
-                                cx.notify();
-                            }
-                        }
-                    }
+                    _ => {} // typed text arrives through `field`
                 }
             }))
             .flex()
@@ -392,11 +392,7 @@ impl Render for ClipPanel {
                                     .bg(card_fill(p.accent, false))
                                     .gap_2()
                                     .child(div().text_color(rgb(p.dim)).child("\u{f002}"))
-                                    .child(if self.query.is_empty() {
-                                        div().text_color(rgb(p.dim)).child("Search clipboard history…")
-                                    } else {
-                                        div().child(format!("{}\u{258f}", self.query))
-                                    }),
+                                    .child(div().child(SearchLine(self.field.clone()))),
                             )
                             .children(if self.confirm_wipe {
                                 let n = self.clips.len();
