@@ -208,11 +208,11 @@ impl Render for TaskView {
                 .shadow(card_shadow(&p, i == sel))
                 .border_1()
                 .border_color(rgba((p.fg << 8) | A_BORDER))
-                .when(i == sel, |d| d.border_2().border_color(rgb(p.accent)))
+                .when(i == sel || pending == Some(i), |d| d.border_2().p(px(11.)).border_color(rgb(p.accent))) // 1 px less padding: the content stays put
                 // armed to close: the border carries the warning, because the line below says so
                 // in fg. err at 14 px measured 3.4:1 over the old glass, under AA, and a border is
                 // not the only cue -- the text changes too.
-                .when(pending == Some(i), |d| d.border_2().border_color(rgb(p.err)))
+                .when(pending == Some(i), |d| d.border_color(rgb(p.err)))
                 .hover(|s| s.bg(card_fill(if i % 2 == 0 { p.accent } else { p.accent2 }, true)).shadow(card_shadow(&p, true)))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 // The ✕ lived in a header row that is gone, so right-click is the mouse path to
@@ -280,6 +280,11 @@ impl Render for TaskView {
                     "delete" | "backspace" if n > 0 => {
                         let i = this.sel;
                         this.request_close(i, window, cx);
+                    }
+                    "tab" if n > 0 && ev.keystroke.modifiers.shift => {
+                        this.sel = (this.sel + n - 1) % n;
+                        this.scroll.scroll_to_item(this.sel);
+                        cx.notify();
                     }
                     "right" | "down" | "tab" if n > 0 => {
                         this.sel = (this.sel + 1) % n;
