@@ -524,6 +524,15 @@ impl Render for StartMenu {
                 this.last_input = std::time::Instant::now();
                 let k = &ev.keystroke;
                 match k.key.as_str() {
+                    // Esc closes the topmost layer: the power confirmation, then the power row, then Start
+                    "escape" if this.confirm.is_some() => {
+                        this.confirm = None;
+                        cx.notify();
+                    }
+                    "escape" if this.power => {
+                        this.power = false;
+                        cx.notify();
+                    }
                     "escape" => close_start(window, cx),
                     "backspace" => this.field.update(cx, |f, cx| f.backspace(cx)),
                     "down" | "up" => {
