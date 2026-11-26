@@ -433,9 +433,11 @@ impl Render for CalendarPopup {
                         .rounded_full()
                         .text_size(px(14.))
                         .when(is_today, |d| d.bg(rgb(p.accent)).text_color(rgb(p.bg)).font_weight(FontWeight::SEMIBOLD))
+                        // out-of-month days: solid dim (an alpha fell under 4.5:1), told apart by size and weight
+                        .when(!current, |d| d.text_size(px(12.)).font_weight(FontWeight::NORMAL))
                         .when(!is_today, |d| {
                             d.text_color(if !current {
-                                rgba((p.dim << 8) | A_STRONG)
+                                rgb(p.dim)
                             } else if weekend {
                                 rgb(p.accent)
                             } else {

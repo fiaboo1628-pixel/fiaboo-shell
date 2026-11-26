@@ -92,7 +92,7 @@ impl Render for TrayMenu {
                 .px_3()
                 .pl(px(12. + 16. * e.depth as f32))
                 .rounded_lg()
-                .text_color(if enabled { rgb(p.fg) } else { rgba((p.dim << 8) | 0x90) })
+                .text_color(if enabled { rgb(p.fg) } else { rgb(p.dim) })
                 .when(e.submenu, |d| d.text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(rgb(p.dim)))
                 .when(enabled, |d| d.cursor_pointer().hover(|s| s.bg(rgba((p.accent << 8) | A_HOVER))))
                 .on_click(move |_, window, cx| {
