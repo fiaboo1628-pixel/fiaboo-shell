@@ -140,7 +140,7 @@ impl ShotOverlay {
 impl Render for ShotOverlay {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.pal.clone();
-        let dim = rgba(0x00000066);
+        let dim = rgba((p.bg << 8) | A_STRONG);
         // the rectangle that stays bright: the drag, otherwise the hovered window
         let drag = self.drag_rect().filter(|(_, _, w, h)| *w > 4. || *h > 4.);
         let hole = drag.or_else(|| self.hovered().map(|w| (w.x, w.y, w.w, w.h)));
