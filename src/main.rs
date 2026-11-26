@@ -728,14 +728,19 @@ static PANELS_OPEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBoo
 static OSD_PENDING: Mutex<Option<(f32, bool)>> = Mutex::new(None);
 
 /// Follow `pactl subscribe`: when the default sink's volume or mute state changes (media keys,
-/// quick settings, apps), queue an OSD. Event-driven, no polling.
+/// quick settings, apps), queue an OSD; when a recording stream changes, recheck the mic
+/// indicator. Event-driven, no polling.
 fn start_volume_watch() {
     use std::io::{BufRead, BufReader};
     std::thread::spawn(|| loop {
         let mut last = read_volume();
         if let Ok(mut child) = Command::new("pactl").arg("subscribe").stdout(std::process::Stdio::piped()).spawn() {
+            read_mic();
             if let Some(out) = child.stdout.take() {
                 for line in BufReader::new(out).lines().map_while(Result::ok) {
+                    if line.contains("on source-output #") {
+                        read_mic();
+                    }
                     if line.contains("on sink #") {
                         let v = read_volume();
                         if v != last {
@@ -780,6 +785,12 @@ fn mic_in_use(json: &str, own_pid: u32) -> bool {
     })
 }
 
+/// Run by the `pactl subscribe` loop when a recording stream comes, goes or (un)corks.
+fn read_mic() {
+    let mic = mic_in_use(&sh("pactl -f json list source-outputs 2>/dev/null"), std::process::id());
+    INDICATORS.lock().unwrap().mic = mic;
+}
+
 /// `checkupdates` prints one line per pending package; nothing when offline, failing or missing.
 fn count_updates(out: &str) -> usize {
     out.lines().filter(|l| !l.trim().is_empty()).count()
@@ -789,14 +800,12 @@ fn check_updates() {
     INDICATORS.lock().unwrap().updates = count_updates(&sh("checkupdates 2>/dev/null"));
 }
 
-/// Two cheap reads every 2 s (input method, mic), checkupdates every 30 min; the bar loop picks them up.
+/// The input method every 2 s, checkupdates every 30 min; the bar loop picks them up.
+/// The mic comes from `start_volume_watch`.
 fn start_indicators() {
     std::thread::spawn(|| loop {
         let vi = parse_im(&sh("fcitx5-remote -n 2>/dev/null"));
-        let mic = mic_in_use(&sh("pactl -f json list source-outputs 2>/dev/null"), std::process::id());
-        let mut ind = INDICATORS.lock().unwrap();
-        (ind.vi, ind.mic) = (vi, mic);
-        drop(ind);
+        INDICATORS.lock().unwrap().vi = vi;
         std::thread::sleep(Duration::from_secs(2));
     });
     std::thread::spawn(|| loop {
