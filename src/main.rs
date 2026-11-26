@@ -366,7 +366,7 @@ fn icon_for(class: &str) -> Option<PathBuf> {
 }
 
 // ---------- hyprland state ----------
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 struct AppIcon {
     class: String,          // window class, or pinned id when not running
     address: String,        // window to focus ("" when not running)
@@ -442,7 +442,7 @@ fn class_matches(class: &str, id: &str, d: &Desktop) -> bool {
     class_is(class, id, d) || class.to_lowercase().contains(id)
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 struct State {
     active_ws: i64,
     occupied: Vec<i64>,
@@ -628,7 +628,7 @@ fn focus_window(address: &str) {
 
 
 // ---------- system state (quick settings) ----------
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 struct Sys {
     wifi_avail: bool, // a Wi-Fi device NetworkManager can use; false = no radio or blocked (Settings says "Unavailable")
     wifi_on: bool,
@@ -1070,11 +1070,11 @@ impl Bar {
                 let rec_flag = format!("{}/fiaboo-recording", std::env::var("XDG_RUNTIME_DIR").unwrap_or_default());
                 let alive = this.update(cx, |bar, cx| {
                     let mut changed = false;
-                    if let Some(st) = st {
+                    if let Some(st) = st.filter(|st| *st != bar.st) {
                         bar.st = st;
                         changed = true;
                     }
-                    if let Some(sys) = sys {
+                    if let Some(sys) = sys.filter(|sys| *sys != bar.sys) {
                         bar.sys = sys;
                         changed = true;
                     }
