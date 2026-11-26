@@ -37,7 +37,8 @@ pub(crate) struct Quick {
     mon: (Option<u32>, Option<(u64, u64)>, Option<u32>), // CPU %, RAM (used, total) kB, CPU °C
 }
 
-/// (tile id, command) in tile order, skipping tiles that cannot act; what Tab/Enter walk.
+/// (id, command) in screen order, skipping tiles that cannot act; what Tab/Enter walk. The
+/// sliders ("@bright", "@vol") take Left/Right instead of Enter.
 fn actions(sys: &Sys) -> Vec<(&'static str, String)> {
     let mut v = vec![];
     if sys.wifi_avail {
@@ -47,6 +48,12 @@ fn actions(sys: &Sys) -> Vec<(&'static str, String)> {
     v.push(("q-night", sunset_cmd(!sys.night, sys.gamma)));
     v.push(("q-dnd", "@dnd".to_string()));
     v.push(("q-awake", "@awake".to_string()));
+    v.push(("q-bright", "@bright".to_string()));
+    v.push(("q-mute", "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle".to_string()));
+    v.push(("q-vol", "@vol".to_string()));
+    if sys.media.is_some() {
+        v.extend(["previous", "play-pause", "next"].into_iter().zip(["m-prev", "m-play", "m-next"]).map(|(c, id)| (id, format!("playerctl {c}"))));
+    }
     v
 }
 
@@ -68,6 +75,7 @@ fn run_action(cmd: &str) {
     match cmd {
         "@dnd" => notify::toggle_dnd(),
         "@awake" => toggle_keep_awake(),
+        "@bright" | "@vol" => {} // sliders: Left/Right
         _ => run_bg(cmd),
     }
 }
@@ -192,6 +200,7 @@ impl Render for Quick {
         // left click runs `cmd`; right click opens `app` (if any) to pick a network/device
         // `on`: None = the device is not there; the tile explains itself and does nothing
         let focused_id = self.focus_i.and_then(|i| actions(&sys).get(i).map(|a| a.0));
+        let ring = |id: &str| if focused_id == Some(id) { rgb(p.fg) } else { rgba(0x00000000) };
         let tile = |id: &'static str, glyph: &'static str, title: &'static str, sub: String, on: Option<bool>, cmd: String, app: Option<&'static str>| {
             let avail = on.is_some();
             let on = on.unwrap_or(false);
@@ -292,6 +301,8 @@ impl Render for Quick {
                 .id(id)
                 .cursor_pointer()
                 .size(px(40.))
+                .border_2()
+                .border_color(ring(id))
                 .flex()
                 .items_center()
                 .justify_center()
@@ -372,14 +383,31 @@ impl Render for Quick {
                 let acts = actions(&this.sys);
                 let n = acts.len();
                 let k = &ev.keystroke;
+                let on = this.focus_i.and_then(|i| acts.get(i)).map(|a| a.0);
                 match k.key.as_str() {
                     "escape" => close_quick(window, cx),
+                    // on a slider Left/Right set the level (5 % steps, like the segments); elsewhere they move
+                    "left" | "right" if matches!(on, Some("q-vol" | "q-bright")) => {
+                        let step = if k.key == "right" { 5 } else { -5 };
+                        if on == Some("q-vol") {
+                            let v = (((this.sys.vol * 100.).round() as i32) + step).clamp(0, 100);
+                            run_bg(&format!("wpctl set-volume @DEFAULT_AUDIO_SINK@ {v}%"));
+                            this.sys.vol = v as f32 / 100.; // show it now, the next poll confirms
+                        } else {
+                            let g = (this.sys.gamma + step).clamp(20, 100);
+                            run_bg(&sunset_cmd(this.sys.night, g));
+                            this.sys.gamma = g;
+                        }
+                    }
                     "tab" if k.modifiers.shift => this.focus_i = step_focus(this.focus_i, n, true),
                     "tab" | "right" | "down" => this.focus_i = step_focus(this.focus_i, n, false),
                     "left" | "up" => this.focus_i = step_focus(this.focus_i, n, true),
                     "enter" | "space" => {
-                        if let Some((_, cmd)) = this.focus_i.and_then(|i| acts.get(i)) {
+                        if let Some((id, cmd)) = this.focus_i.and_then(|i| acts.get(i)) {
                             run_action(cmd);
+                            if let (Some(m), &"m-play") = (this.sys.media.as_mut(), id) {
+                                m.playing = !m.playing; // as a click does: show it now, the next poll confirms
+                            }
                         }
                     }
                     _ => {}
@@ -484,6 +512,8 @@ impl Render for Quick {
                     .gap_3()
                     .px_3()
                     .py_2()
+                    .border_2()
+                    .border_color(ring("q-bright"))
                     .rounded_xl()
                     .bg(card_fill(p.accent2, false))
                     .shadow(card_shadow(&p, false))
@@ -498,6 +528,8 @@ impl Render for Quick {
                     .gap_3()
                     .px_3()
                     .py_2()
+                    .border_2()
+                    .border_color(ring("q-vol"))
                     .rounded_xl()
                     .bg(card_fill(p.accent, false))
                     .shadow(card_shadow(&p, false))
@@ -505,6 +537,15 @@ impl Render for Quick {
                         div()
                             .id("q-mute")
                             .cursor_pointer()
+                            .flex_none()
+                            .size(px(32.)) // a frame like the media buttons; the bare glyph had no hover and no hit area
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded_md()
+                            .border_2()
+                            .border_color(ring("q-mute"))
+                            .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)))
                             .font_family(NF).font_weight(FontWeight::MEDIUM)
                             .text_size(px(22.))
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -525,7 +566,7 @@ impl Render for Quick {
                     .pt_1()
                     .text_size(px(12.))
                     .text_color(rgb(p.dim))
-                    .child("Tab, Enter: toggle · Right-click: app · Esc: close"),
+                    .child("Tab, Enter: toggle · \u{2190}\u{2192}: level · Esc: close"),
             ))
     }
 }
