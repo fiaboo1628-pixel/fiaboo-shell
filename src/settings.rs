@@ -454,17 +454,12 @@ impl Render for SettingsPanel {
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                 this.last_input = std::time::Instant::now();
                 let k = &ev.keystroke;
-                let n = this.stops().len(); // never 0: the wallpaper button and Bluetooth power are always there
+                let n = this.stops().len();
                 let back = k.key == "up" || (k.key == "tab" && k.modifiers.shift);
                 match k.key.as_str() {
                     "escape" => close_settings(window, cx),
                     "tab" | "down" | "up" => {
-                        this.focus_i = Some(match this.focus_i {
-                            None if back => n - 1,
-                            None => 0,
-                            Some(i) if back => (i.min(n - 1) + n - 1) % n,
-                            Some(i) => (i + 1) % n,
-                        });
+                        this.focus_i = step_focus(this.focus_i, n, back);
                         cx.notify();
                     }
                     "enter" | "space" => {

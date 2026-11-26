@@ -32,7 +32,7 @@ pub(crate) struct Quick {
     sys: Sys,
     focus: FocusHandle,
     last_input: std::time::Instant,
-    focus_i: usize,          // keyboard focus among `actions()`
+    focus_i: Option<usize>,  // keyboard focus among `actions()`; None until the first Tab or arrow
     drag_level: Option<(&'static str, i32)>, // (slider, level) last set while dragging over the segments
     mon: (Option<u32>, Option<(u64, u64)>, Option<u32>), // CPU %, RAM (used, total) kB, CPU °C
 }
@@ -179,7 +179,7 @@ impl Quick {
             }
         })
         .detach();
-        Quick { pal: palette(), sys: Sys { gamma: 100, ..Default::default() }, focus, last_input: std::time::Instant::now(), focus_i: 0, drag_level: None, mon: (None, None, None) }
+        Quick { pal: palette(), sys: Sys { gamma: 100, ..Default::default() }, focus, last_input: std::time::Instant::now(), focus_i: None, drag_level: None, mon: (None, None, None) }
     }
 }
 
@@ -191,7 +191,7 @@ impl Render for Quick {
 
         // left click runs `cmd`; right click opens `app` (if any) to pick a network/device
         // `on`: None = the device is not there; the tile explains itself and does nothing
-        let focused_id = actions(&sys).get(self.focus_i).map(|a| a.0);
+        let focused_id = self.focus_i.and_then(|i| actions(&sys).get(i).map(|a| a.0));
         let tile = |id: &'static str, glyph: &'static str, title: &'static str, sub: String, on: Option<bool>, cmd: String, app: Option<&'static str>| {
             let avail = on.is_some();
             let on = on.unwrap_or(false);
@@ -200,9 +200,9 @@ impl Render for Quick {
                 .id(id)
                 .when(avail, |d| d.cursor_pointer())
                 .flex_1()
-                // keyboard focus: a 1 px accent ring (always a border so the tile keeps its size)
-                .border_1()
-                .border_color(if focused_id == Some(id) { rgb(p.accent) } else { rgba(0x00000000) })
+                // keyboard focus: a 2 px fg ring (always a border so the tile keeps its size)
+                .border_2()
+                .border_color(if focused_id == Some(id) { rgb(p.fg) } else { rgba(0x00000000) })
                 .flex()
                 .items_center()
                 .gap_3()
@@ -338,7 +338,7 @@ impl Render for Quick {
         let gb = |kb: u64| kb as f32 / 1048576.;
         let sysmon = div()
             .flex_1()
-            .border_1()
+            .border_2()
             .border_color(rgba(0x00000000))
             .flex()
             .items_center()
@@ -374,11 +374,11 @@ impl Render for Quick {
                 let k = &ev.keystroke;
                 match k.key.as_str() {
                     "escape" => close_quick(window, cx),
-                    "tab" if k.modifiers.shift => this.focus_i = (this.focus_i + n - 1) % n,
-                    "tab" | "right" | "down" => this.focus_i = (this.focus_i + 1) % n,
-                    "left" | "up" => this.focus_i = (this.focus_i + n - 1) % n,
+                    "tab" if k.modifiers.shift => this.focus_i = step_focus(this.focus_i, n, true),
+                    "tab" | "right" | "down" => this.focus_i = step_focus(this.focus_i, n, false),
+                    "left" | "up" => this.focus_i = step_focus(this.focus_i, n, true),
                     "enter" | "space" => {
-                        if let Some((_, cmd)) = acts.get(this.focus_i) {
+                        if let Some((_, cmd)) = this.focus_i.and_then(|i| acts.get(i)) {
                             run_action(cmd);
                         }
                     }

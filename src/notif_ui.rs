@@ -36,7 +36,8 @@ pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, center: Option<gpui::En
         .when(in_center, |d| d.bg(card_fill(if n.critical { p.err } else { p.accent }, false)).shadow(card_shadow(&p, false)))
         .border_1()
         .border_color(if n.critical { rgba((p.err << 8) | 0xcc) } else { rgba((p.fg << 8) | A_BORDER) })
-        .when(focused, |d| d.border_color(rgb(p.accent))) // keyboard focus ring
+        // keyboard focus ring: 2 px fg; one px less padding keeps the content still
+        .when(focused, |d| d.border_2().p(px(11.)).border_color(rgb(p.fg)))
         .hover(|s| if in_center { s.bg(card_fill(if n.critical { p.err } else { p.accent }, true)).shadow(card_shadow(&p, true)) } else { s.bg(rgba((p.accent << 8) | A_HOVER)) })
         .text_color(rgb(p.fg))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -248,7 +249,7 @@ pub(crate) struct NotifCenter {
     focus: FocusHandle,
     gen: u64,
     confirm_clear: bool, // "Clear all" asks once before deleting every notification
-    focus_i: usize,      // keyboard focus in the visible list
+    focus_i: Option<usize>, // keyboard focus in the visible list; None (ring hidden) until the first Tab or arrow
     hidden: std::collections::HashSet<u32>, // dismissed, still undoable
     pending: Option<(Vec<u32>, u64)>,       // (ids waiting for the store, token of the timer that commits them)
     undo_token: u64,
@@ -323,7 +324,7 @@ impl NotifCenter {
             }
         })
         .detach();
-        NotifCenter { pal: palette(), focus, gen: notify::generation(), confirm_clear: false, focus_i: 0, hidden: Default::default(), pending: None, undo_token: 0 }
+        NotifCenter { pal: palette(), focus, gen: notify::generation(), confirm_clear: false, focus_i: None, hidden: Default::default(), pending: None, undo_token: 0 }
     }
 }
 
@@ -334,7 +335,7 @@ impl Render for NotifCenter {
         let today = today_dm();
         let dnd = notify::dnd();
         let me = cx.entity();
-        let focus_i = self.focus_i.min(list.len().saturating_sub(1));
+        let focus_i = self.focus_i.map(|i| i.min(list.len().saturating_sub(1)));
         let pill = |id: &'static str, label: String, on: bool| button(id, label, p.accent2, &p).bg(card_fill(p.accent2, on));
         div()
             .image_cache(gpui::retain_all("notif-center-images")) // freed with the window; plain img() stays in GPUI's global cache forever
@@ -347,14 +348,15 @@ impl Render for NotifCenter {
                 let k = &ev.keystroke;
                 match k.key.as_str() {
                     "escape" => close_notif_center(window, cx),
-                    "tab" if k.modifiers.shift && n > 0 => this.focus_i = (this.focus_i.min(n - 1) + n - 1) % n,
-                    "tab" | "down" if n > 0 => this.focus_i = (this.focus_i + 1) % n,
-                    "up" if n > 0 => this.focus_i = (this.focus_i.min(n - 1) + n - 1) % n,
+                    "tab" if k.modifiers.shift => this.focus_i = step_focus(this.focus_i, n, true),
+                    "tab" | "down" => this.focus_i = step_focus(this.focus_i, n, false),
+                    "up" => this.focus_i = step_focus(this.focus_i, n, true),
+                    // with no ring yet these act on the first card, as before
                     "delete" | "backspace" if n > 0 => {
-                        let id = shown[this.focus_i.min(n - 1)];
+                        let id = shown[this.focus_i.unwrap_or(0).min(n - 1)];
                         this.defer_dismiss(vec![id], cx);
                     }
-                    "enter" if n > 0 => notify::activate(shown[this.focus_i.min(n - 1)]),
+                    "enter" if n > 0 => notify::activate(shown[this.focus_i.unwrap_or(0).min(n - 1)]),
                     "z" if k.modifiers.control => this.undo(),
                     _ => {}
                 }
@@ -425,7 +427,7 @@ impl Render for NotifCenter {
                             .flex()
                             .flex_col()
                             .gap_2()
-                            .children(list.iter().enumerate().map(|(i, n)| notif_card(n, &p, Some(me.clone()), i == focus_i, i, &today)))
+                            .children(list.iter().enumerate().map(|(i, n)| notif_card(n, &p, Some(me.clone()), focus_i == Some(i), i, &today)))
                             .when(list.is_empty(), |d| {
                                 d.child(div().py_6().flex().justify_center().text_color(rgb(p.dim)).child("No notifications"))
                             }),

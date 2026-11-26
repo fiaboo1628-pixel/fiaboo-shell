@@ -132,6 +132,20 @@ fn button(id: impl Into<gpui::ElementId>, label: impl Into<gpui::SharedString>, 
         .child(label.into())
 }
 
+/// Keyboard focus after one Tab/arrow press over `n` stops (None for n = 0). It starts at None, so
+/// the ring shows only once the keyboard is used, not when a panel is opened with the mouse.
+fn step_focus(cur: Option<usize>, n: usize, back: bool) -> Option<usize> {
+    if n == 0 {
+        return None;
+    }
+    Some(match cur {
+        None if back => n - 1,
+        None => 0,
+        Some(i) if back => (i.min(n - 1) + n - 1) % n,
+        Some(i) => (i.min(n - 1) + 1) % n,
+    })
+}
+
 fn home() -> String {
     std::env::var("HOME").unwrap_or_default()
 }
@@ -1682,6 +1696,16 @@ fn open_bar(cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn focus_starts_hidden_then_wraps() {
+        assert_eq!(step_focus(None, 0, false), None);
+        assert_eq!(step_focus(None, 3, false), Some(0));
+        assert_eq!(step_focus(None, 3, true), Some(2));
+        assert_eq!(step_focus(Some(2), 3, false), Some(0));
+        assert_eq!(step_focus(Some(0), 3, true), Some(2));
+        assert_eq!(step_focus(Some(7), 3, false), Some(0), "a list that shrank");
+    }
 
     #[test]
     fn launch_stderr_keeps_the_head_and_drains_the_rest() {
