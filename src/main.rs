@@ -1431,7 +1431,7 @@ impl Render for Bar {
                             let it = left.clone();
                             std::thread::spawn(move || tray::activate(&it));
                         })
-                        .on_mouse_down(MouseButton::Right, move |_, _, cx| open_tray_menu(cx, right.clone()))
+                        .on_mouse_down(MouseButton::Right, move |ev: &gpui::MouseDownEvent, _, cx| open_tray_menu(cx, right.clone(), ev.position.x.into()))
                         .child(match &it.icon {
                             Some(path) => img(path.clone()).size(px(18.)).object_fit(ObjectFit::Contain).into_any_element(),
                             None => div()
