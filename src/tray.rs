@@ -68,6 +68,13 @@ fn proxy<'a>(conn: &Connection, dest: &'a str, path: &'a str, iface: &'a str) ->
         .build()
 }
 
+/// fcitx5's current input method ("bamboo", "keyboard-us"); None when fcitx5 is not running.
+/// NoAutoStart: fcitx5 ships a D-Bus service file, and the indicator must not launch it.
+pub fn current_im() -> Option<String> {
+    let p = proxy(conn()?, "org.fcitx.Fcitx5", "/controller", "org.fcitx.Fcitx.Controller1").ok()?;
+    p.call_with_flags("CurrentInputMethod", zbus::proxy::MethodFlags::NoAutoStart.into(), &()).ok()?
+}
+
 fn split_registration(reg: &str) -> (String, String) {
     match reg.find('/') {
         Some(i) => (reg[..i].to_string(), reg[i..].to_string()),

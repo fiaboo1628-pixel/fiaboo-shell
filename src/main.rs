@@ -366,7 +366,7 @@ fn icon_for(class: &str) -> Option<PathBuf> {
 }
 
 // ---------- hyprland state ----------
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 struct AppIcon {
     class: String,          // window class, or pinned id when not running
     address: String,        // window to focus ("" when not running)
@@ -442,7 +442,7 @@ fn class_matches(class: &str, id: &str, d: &Desktop) -> bool {
     class_is(class, id, d) || class.to_lowercase().contains(id)
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 struct State {
     active_ws: i64,
     occupied: Vec<i64>,
@@ -562,7 +562,7 @@ fn launch_app(stem: &str) {
     // gtk-launch and its exit code means something, while the app still gets its own
     // session and outlives a shell restart.
     // args, not `sh -c`: Steam's .desktop names have spaces
-    let Ok(child) = Command::new("setsid")
+    let Ok(mut child) = Command::new("setsid")
         .args(["gtk-launch", &file])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
@@ -570,17 +570,31 @@ fn launch_app(stem: &str) {
     else {
         return;
     };
+    // the app inherits this pipe as its stderr, so EOF only comes when the app exits: reap
+    // gtk-launch first, and keep draining (not closing: the app would get SIGPIPE) while it runs
+    let reader = child.stderr.take().map(|e| std::thread::spawn(move || read_capped(e, 4096)));
     std::thread::spawn(move || {
-        let Ok(out) = child.wait_with_output() else { return }; // also reaps it
-        if out.status.success() {
+        let Ok(status) = child.wait() else { return };
+        if status.success() {
             return;
         }
-        let err = String::from_utf8_lossy(&out.stderr);
+        // failed: no app started, so the pipe closes right away
+        let err = reader.and_then(|r| r.join().ok()).unwrap_or_default();
+        let err = String::from_utf8_lossy(&err);
         let why = err.lines().find(|l| !l.trim().is_empty()).unwrap_or("gtk-launch gave no reason").trim();
         let _ = Command::new("notify-send")
             .args(["-u", "critical", "-a", "fiaboo-shell", &format!("{label} did not start"), why])
             .status();
     });
+}
+
+/// The first `cap` bytes of `r`; the rest is read to EOF and dropped.
+fn read_capped(mut r: impl std::io::Read, cap: u64) -> Vec<u8> {
+    use std::io::Read;
+    let mut head = vec![];
+    let _ = r.by_ref().take(cap).read_to_end(&mut head);
+    let _ = std::io::copy(&mut r, &mut std::io::sink());
+    head
 }
 
 /// Start a command without waiting on it; a thread reaps it so it never lingers as a zombie.
@@ -614,7 +628,7 @@ fn focus_window(address: &str) {
 
 
 // ---------- system state (quick settings) ----------
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 struct Sys {
     wifi_avail: bool, // a Wi-Fi device NetworkManager can use; false = no radio or blocked (Settings says "Unavailable")
     wifi_on: bool,
@@ -661,10 +675,20 @@ fn read_volume() -> (f32, bool) {
     (line.split_whitespace().nth(1).and_then(|v| v.parse().ok()).unwrap_or(0.0), line.contains("MUTED"))
 }
 
+fn wifi_usable() -> bool {
+    sh("nmcli -t -f TYPE,STATE device").lines().any(|l| l.starts_with("wifi:") && !l.ends_with(":unavailable"))
+}
+
+/// What the bar shows of `Sys` besides volume (that comes via OSD_PENDING): (wifi_on, bt_on).
+/// One nmcli call: NetworkManager reports the Wi-Fi device as unavailable while the radio is off.
+fn read_bar_sys() -> (bool, bool) {
+    (wifi_usable(), read_bt().on)
+}
+
 fn read_sys() -> Sys {
     let (vol, muted) = read_volume();
     let sunset = !sh("pidof hyprsunset").is_empty(); // pgrep reads every cmdline (22 ms), pidof only comm
-    let wifi_avail = sh("nmcli -t -f TYPE,STATE device").lines().any(|l| l.starts_with("wifi:") && !l.ends_with(":unavailable"));
+    let wifi_avail = wifi_usable();
     Sys {
         wifi_avail,
         // two more nmcli round trips every 8 s, pointless without an adapter
@@ -714,14 +738,19 @@ static PANELS_OPEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBoo
 static OSD_PENDING: Mutex<Option<(f32, bool)>> = Mutex::new(None);
 
 /// Follow `pactl subscribe`: when the default sink's volume or mute state changes (media keys,
-/// quick settings, apps), queue an OSD. Event-driven, no polling.
+/// quick settings, apps), queue an OSD; when a recording stream changes, recheck the mic
+/// indicator. Event-driven, no polling.
 fn start_volume_watch() {
     use std::io::{BufRead, BufReader};
     std::thread::spawn(|| loop {
         let mut last = read_volume();
         if let Ok(mut child) = Command::new("pactl").arg("subscribe").stdout(std::process::Stdio::piped()).spawn() {
+            read_mic();
             if let Some(out) = child.stdout.take() {
                 for line in BufReader::new(out).lines().map_while(Result::ok) {
+                    if line.contains("on source-output #") {
+                        read_mic();
+                    }
                     if line.contains("on sink #") {
                         let v = read_volume();
                         if v != last {
@@ -740,13 +769,13 @@ fn start_volume_watch() {
 // ---------- bar indicators: input method, mic in use, pending updates ----------
 #[derive(Clone, Default, PartialEq)]
 struct Indicators {
-    vi: Option<bool>, // fcitx5 in Bamboo; None = fcitx5-remote failed, hidden
+    vi: Option<bool>, // fcitx5 in Bamboo; None = fcitx5 not running, hidden
     mic: bool,        // some app other than our own parec is recording
     updates: usize,
 }
 static INDICATORS: Mutex<Indicators> = Mutex::new(Indicators { vi: None, mic: false, updates: 0 });
 
-/// `fcitx5-remote -n` output: the current input method name, empty when fcitx5 is not running.
+/// `fcitx5-remote -n` / `CurrentInputMethod`: the current input method name, empty when fcitx5 is not running.
 fn parse_im(name: &str) -> Option<bool> {
     let name = name.trim();
     (!name.is_empty()).then(|| name.starts_with("bamboo"))
@@ -766,6 +795,12 @@ fn mic_in_use(json: &str, own_pid: u32) -> bool {
     })
 }
 
+/// Run by the `pactl subscribe` loop when a recording stream comes, goes or (un)corks.
+fn read_mic() {
+    let mic = mic_in_use(&sh("pactl -f json list source-outputs 2>/dev/null"), std::process::id());
+    INDICATORS.lock().unwrap().mic = mic;
+}
+
 /// `checkupdates` prints one line per pending package; nothing when offline, failing or missing.
 fn count_updates(out: &str) -> usize {
     out.lines().filter(|l| !l.trim().is_empty()).count()
@@ -775,14 +810,12 @@ fn check_updates() {
     INDICATORS.lock().unwrap().updates = count_updates(&sh("checkupdates 2>/dev/null"));
 }
 
-/// Two cheap reads every 2 s (input method, mic), checkupdates every 30 min; the bar loop picks them up.
+/// The input method every 2 s, checkupdates every 30 min; the bar loop picks them up.
+/// The mic comes from `start_volume_watch`.
 fn start_indicators() {
     std::thread::spawn(|| loop {
-        let vi = parse_im(&sh("fcitx5-remote -n 2>/dev/null"));
-        let mic = mic_in_use(&sh("pactl -f json list source-outputs 2>/dev/null"), std::process::id());
-        let mut ind = INDICATORS.lock().unwrap();
-        (ind.vi, ind.mic) = (vi, mic);
-        drop(ind);
+        let vi = parse_im(&tray::current_im().unwrap_or_default());
+        INDICATORS.lock().unwrap().vi = vi;
         std::thread::sleep(Duration::from_secs(2));
     });
     std::thread::spawn(|| loop {
@@ -1047,8 +1080,9 @@ impl Bar {
                     None
                 };
                 let sys = if last_sys.elapsed() > Duration::from_secs(8) {
+                    let first = last_sys == long_ago;
                     last_sys = std::time::Instant::now();
-                    Some(cx.background_executor().spawn(async { read_sys() }).await)
+                    Some(cx.background_executor().spawn(async move { (read_bar_sys(), first.then(read_volume)) }).await)
                 } else {
                     None
                 };
@@ -1056,13 +1090,17 @@ impl Bar {
                 let rec_flag = format!("{}/fiaboo-recording", std::env::var("XDG_RUNTIME_DIR").unwrap_or_default());
                 let alive = this.update(cx, |bar, cx| {
                     let mut changed = false;
-                    if let Some(st) = st {
+                    if let Some(st) = st.filter(|st| *st != bar.st) {
                         bar.st = st;
                         changed = true;
                     }
-                    if let Some(sys) = sys {
-                        bar.sys = sys;
-                        changed = true;
+                    if let Some(((wifi_on, bt_on), vol)) = sys {
+                        let (vol, muted) = vol.unwrap_or((bar.sys.vol, bar.sys.muted));
+                        let sys = Sys { wifi_on, bt_on, vol, muted, ..Sys::default() };
+                        if sys != bar.sys {
+                            bar.sys = sys;
+                            changed = true;
+                        }
                     }
                     if let Some((vol, muted)) = OSD_PENDING.lock().unwrap().take() {
                         show_osd(cx, vol, muted);
@@ -1618,6 +1656,15 @@ fn open_bar(cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn launch_stderr_keeps_the_head_and_drains_the_rest() {
+        let data = vec![b'x'; 10_000];
+        let mut r = &data[..];
+        assert_eq!(read_capped(&mut r, 4096).len(), 4096);
+        assert!(r.is_empty(), "read to EOF");
+        assert_eq!(read_capped(&b"short"[..], 4096), b"short");
+    }
 
     #[test]
     fn network_rows_read_in_plain_words() {
