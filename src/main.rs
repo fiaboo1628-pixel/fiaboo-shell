@@ -675,10 +675,20 @@ fn read_volume() -> (f32, bool) {
     (line.split_whitespace().nth(1).and_then(|v| v.parse().ok()).unwrap_or(0.0), line.contains("MUTED"))
 }
 
+fn wifi_usable() -> bool {
+    sh("nmcli -t -f TYPE,STATE device").lines().any(|l| l.starts_with("wifi:") && !l.ends_with(":unavailable"))
+}
+
+/// What the bar shows of `Sys` besides volume (that comes via OSD_PENDING): (wifi_on, bt_on).
+/// One nmcli call: NetworkManager reports the Wi-Fi device as unavailable while the radio is off.
+fn read_bar_sys() -> (bool, bool) {
+    (wifi_usable(), read_bt().on)
+}
+
 fn read_sys() -> Sys {
     let (vol, muted) = read_volume();
     let sunset = !sh("pidof hyprsunset").is_empty(); // pgrep reads every cmdline (22 ms), pidof only comm
-    let wifi_avail = sh("nmcli -t -f TYPE,STATE device").lines().any(|l| l.starts_with("wifi:") && !l.ends_with(":unavailable"));
+    let wifi_avail = wifi_usable();
     Sys {
         wifi_avail,
         // two more nmcli round trips every 8 s, pointless without an adapter
@@ -1070,8 +1080,9 @@ impl Bar {
                     None
                 };
                 let sys = if last_sys.elapsed() > Duration::from_secs(8) {
+                    let first = last_sys == long_ago;
                     last_sys = std::time::Instant::now();
-                    Some(cx.background_executor().spawn(async { read_sys() }).await)
+                    Some(cx.background_executor().spawn(async move { (read_bar_sys(), first.then(read_volume)) }).await)
                 } else {
                     None
                 };
@@ -1083,9 +1094,13 @@ impl Bar {
                         bar.st = st;
                         changed = true;
                     }
-                    if let Some(sys) = sys.filter(|sys| *sys != bar.sys) {
-                        bar.sys = sys;
-                        changed = true;
+                    if let Some(((wifi_on, bt_on), vol)) = sys {
+                        let (vol, muted) = vol.unwrap_or((bar.sys.vol, bar.sys.muted));
+                        let sys = Sys { wifi_on, bt_on, vol, muted, ..Sys::default() };
+                        if sys != bar.sys {
+                            bar.sys = sys;
+                            changed = true;
+                        }
                     }
                     if let Some((vol, muted)) = OSD_PENDING.lock().unwrap().take() {
                         show_osd(cx, vol, muted);
