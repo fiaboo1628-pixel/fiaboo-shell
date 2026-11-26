@@ -1675,6 +1675,7 @@ fn main() {
         })
         .detach();
         viz::restore(cx);
+        restore_keep_awake();
     });
 }
 
