@@ -197,7 +197,7 @@ impl Render for Quick {
         let sys = self.sys.clone();
         let (g_wifi, g_bt, g_vol) = sys_glyphs(&sys);
 
-        // left click runs `cmd`; right click opens `app` (if any) to pick a network/device
+        // left click runs `cmd`; the › button (or right click) opens `app` (if any) to pick a network/device
         // `on`: None = the device is not there; the tile explains itself and does nothing
         let focused_id = self.focus_i.and_then(|i| actions(&sys).get(i).map(|a| a.0));
         let ring = |id: &str| if focused_id == Some(id) { rgb(p.fg) } else { rgba(0x00000000) };
@@ -246,9 +246,35 @@ impl Render for Quick {
                     div()
                         .flex()
                         .flex_col()
+                        .flex_1()
+                        .min_w(px(0.))
                         .child(div().font_weight(FontWeight::SEMIBOLD).text_size(px(14.)).when(!avail, |d| d.text_color(rgb(p.dim))).child(title))
-                        .child(div().text_size(px(12.)).text_color(rgb(p.dim)).child(sub)),
+                        .child(div().overflow_hidden().whitespace_nowrap().text_ellipsis().text_size(px(12.)).text_color(rgb(p.dim)).child(sub)),
                 )
+                // the split tile's second half: the picker right-click opens, shown on screen
+                .when_some(app.filter(|_| avail), |d, app| {
+                    d.child(
+                        div()
+                            .id((id, 1usize))
+                            .cursor_pointer()
+                            .flex_none()
+                            .size(px(32.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded_md()
+                            .text_size(px(18.))
+                            .text_color(rgb(p.dim))
+                            .hover(|s| s.bg(rgba((p.dim << 8) | A_ACTIVE)).text_color(rgb(p.fg)))
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .on_click(move |_, window, cx| {
+                                cx.stop_propagation();
+                                run_bg(&format!("setsid {app}"));
+                                close_quick(window, cx);
+                            })
+                            .child("\u{203a}"),
+                    )
+                })
         };
 
         let act = |id: &str| actions(&sys).into_iter().find(|a| a.0 == id).map(|a| a.1).unwrap_or_default();
