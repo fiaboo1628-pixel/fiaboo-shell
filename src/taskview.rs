@@ -107,6 +107,7 @@ pub(crate) struct TaskView {
     sel: usize,
     last_input: std::time::Instant,
     pending_close: Option<(usize, std::time::Instant)>, // card armed by one Del / right-click, and when
+    scroll: gpui::ScrollHandle,
 }
 
 impl TaskView {
@@ -147,7 +148,7 @@ impl TaskView {
             }
         })
         .detach();
-        TaskView { pal: palette(), focus, wins, sel: 0, last_input: std::time::Instant::now(), pending_close: None }
+        TaskView { pal: palette(), focus, wins, sel: 0, last_input: std::time::Instant::now(), pending_close: None, scroll: gpui::ScrollHandle::new() }
     }
 }
 
@@ -185,8 +186,9 @@ impl TaskView {
 }
 
 impl Render for TaskView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.pal.clone();
+        let screen_h: f32 = window.bounds().size.height.into();
         let empty = self.wins.is_empty();
         let sel = self.sel;
         let pending = self.pending_close.filter(|(_, t)| t.elapsed() < CLOSE_CONFIRM).map(|(i, _)| i);
@@ -266,10 +268,12 @@ impl Render for TaskView {
                     }
                     "right" | "down" | "tab" if n > 0 => {
                         this.sel = (this.sel + 1) % n;
+                        this.scroll.scroll_to_item(this.sel);
                         cx.notify();
                     }
                     "left" | "up" if n > 0 => {
                         this.sel = (this.sel + n - 1) % n;
+                        this.scroll.scroll_to_item(this.sel);
                         cx.notify();
                     }
                     "enter" => {
@@ -293,10 +297,16 @@ impl Render for TaskView {
             .on_mouse_down(MouseButton::Right, |_, window, cx| close_taskview(window, cx))
             .child(
                 div()
+                    .id("tv-grid")
+                    // more than ~12 windows: the grid scrolls instead of running off the screen (hint row ~40 px, margins)
+                    .when(screen_h > 0., |d| d.max_h(px(screen_h - 96.)))
+                    .overflow_y_scroll()
+                    .track_scroll(&self.scroll)
                     .max_w(px(1600.))
                     .flex()
                     .flex_row()
                     .flex_wrap()
+                    .content_start()
                     .justify_center()
                     .gap_4()
                     .children(cards)
