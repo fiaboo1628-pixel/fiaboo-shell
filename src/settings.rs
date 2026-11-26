@@ -393,19 +393,6 @@ impl Render for SettingsPanel {
                 .child(div().font_family(NF).font_weight(FontWeight::MEDIUM).text_color(if *is_default { rgb(p.accent) } else { rgb(p.dim) }).child(if *is_default { "\u{f0133}" } else { "\u{f0130}" }))
                 .child(div().flex_1().min_w(px(0.)).overflow_hidden().whitespace_nowrap().text_ellipsis().child(desc.clone()))
         });
-        let btn = |id: &'static str, label: &'static str| {
-            div()
-                .id(id)
-                .cursor_pointer()
-                .px_3()
-                .py_2p5()
-                .rounded_lg()
-                .text_size(px(14.))
-                .bg(card_fill(p.accent2, false))
-                .shadow(card_shadow(&p, false))
-                .hover(|s| s.bg(card_fill(p.accent2, true)).shadow(card_shadow(&p, true)))
-                .child(label)
-        };
         div()
             .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
@@ -443,7 +430,7 @@ impl Render for SettingsPanel {
                             .items_center()
                             .gap_2()
                             .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).text_size(px(16.)).child("Settings"))
-                            .child(btn("s-wp", "Change wallpaper").on_click(|_, window, cx| {
+                            .child(button("s-wp", "Change wallpaper", p.accent2, &p).on_click(|_, window, cx| {
                                 close_settings(window, cx);
                                 toggle_wp(cx);
                             })),

@@ -335,19 +335,7 @@ impl Render for NotifCenter {
         let dnd = notify::dnd();
         let me = cx.entity();
         let focus_i = self.focus_i.min(list.len().saturating_sub(1));
-        let pill = |id: &'static str, label: String, on: bool| {
-            div()
-                .id(id)
-                .cursor_pointer()
-                .px_3()
-                .py_1()
-                .rounded_lg()
-                .text_size(px(12.))
-                .bg(card_fill(p.accent2, on))
-                .shadow(card_shadow(&p, false))
-                .hover(|s| s.bg(card_fill(p.accent2, true)).shadow(card_shadow(&p, true)))
-                .child(label)
-        };
+        let pill = |id: &'static str, label: String, on: bool| button(id, label, p.accent2, &p).bg(card_fill(p.accent2, on));
         div()
             .image_cache(gpui::retain_all("notif-center-images")) // freed with the window; plain img() stays in GPUI's global cache forever
             .font_family(NF).font_weight(FontWeight::MEDIUM)
@@ -410,13 +398,11 @@ impl Render for NotifCenter {
                             .children(if self.confirm_clear {
                                 let n = list.len();
                                 vec![
-                                    pill("nc-keep", "Keep".into(), false).on_click(cx.listener(|this, _, _, cx| {
+                                    pill("nc-keep", "Cancel".into(), false).on_click(cx.listener(|this, _, _, cx| {
                                         this.confirm_clear = false;
                                         cx.notify();
                                     })),
-                                    pill("nc-clear-yes", if n == 1 { "Delete 1".into() } else { format!("Delete all {n}") }, false)
-                                        .bg(rgba((p.err << 8) | 0xcc))
-                                        .text_color(rgb(p.bg)) // on light error red: dark text (white was ~1.7:1)
+                                    button("nc-clear-yes", if n == 1 { "Delete 1".to_string() } else { format!("Delete all {n}") }, p.err, &p)
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             let ids: Vec<u32> = notify::all().iter().map(|n| n.id).filter(|id| !this.hidden.contains(id)).collect();
                                             this.confirm_clear = false;

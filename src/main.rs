@@ -109,6 +109,29 @@ fn card_shadow(p: &Palette, lifted: bool) -> Vec<gpui::BoxShadow> {
     ]
 }
 
+/// The one text button (header actions, footers, confirmations): 36 px raised card tinted with
+/// `tone` (`p.err` for destructive ones), hover = lifted. The transparent 2 px border is where a
+/// keyboard focus ring goes (`.border_color(rgb(p.fg))`) without the button changing size.
+fn button(id: impl Into<gpui::ElementId>, label: impl Into<gpui::SharedString>, tone: u32, p: &Palette) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .cursor_pointer()
+        .flex_none()
+        .h(px(36.))
+        .px(px(10.))
+        .border_2()
+        .border_color(rgba(0x00000000))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_lg()
+        .text_size(px(14.))
+        .bg(card_fill(tone, false))
+        .shadow(card_shadow(p, false))
+        .hover(|s| s.bg(card_fill(tone, true)).shadow(card_shadow(p, true)))
+        .child(label.into())
+}
+
 fn home() -> String {
     std::env::var("HOME").unwrap_or_default()
 }

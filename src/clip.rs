@@ -267,21 +267,7 @@ impl ClipPanel {
 impl Render for ClipPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.pal.clone();
-        let small_btn = |id: &'static str, label: String| {
-            div()
-                .id(id)
-                .cursor_pointer()
-                .px_4()
-                .h(px(44.))
-                .flex()
-                .items_center()
-                .rounded_lg()
-                .text_size(px(12.))
-                .bg(card_fill(p.accent, false))
-                .shadow(card_shadow(&p, false))
-                .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)).shadow(card_shadow(&p, true)))
-                .child(label)
-        };
+        let small_btn = |id: &'static str, label: String| button(id, label, p.accent, &p);
         let list = self.visible();
         let sel = self.sel.min(list.len().saturating_sub(1));
         let rows = list.iter().enumerate().map(|(i, c)| {
@@ -401,13 +387,11 @@ impl Render for ClipPanel {
                             .children(if self.confirm_wipe {
                                 let n = self.clips.len();
                                 vec![
-                                    small_btn("clip-keep", "Keep".into()).on_click(cx.listener(|this, _, _, cx| {
+                                    small_btn("clip-keep", "Cancel".into()).on_click(cx.listener(|this, _, _, cx| {
                                         this.confirm_wipe = false;
                                         cx.notify();
                                     })),
-                                    small_btn("clip-wipe-yes", if n >= CLIP_MAX { "Delete all".to_string() } else if n == 1 { "Delete 1 item".to_string() } else { format!("Delete {n} items") })
-                                        .bg(rgba((p.err << 8) | 0xcc))
-                                        .text_color(rgb(p.bg)) // on light error red: dark text (white was ~1.7:1)
+                                    button("clip-wipe-yes", if n >= CLIP_MAX { "Delete all".to_string() } else if n == 1 { "Delete 1 item".to_string() } else { format!("Delete {n} items") }, p.err, &p)
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             this.confirm_wipe = false;
                                             let all = this.clips.clone();
@@ -444,7 +428,7 @@ impl Render for ClipPanel {
                                 .text_size(px(12.))
                                 .text_color(rgb(p.dim))
                                 .child(div().flex_1().child(if wipe && n >= CLIP_MAX { "Deleted all items".to_string() } else if n == 1 { "Deleted 1 item".to_string() } else { format!("Deleted {n} items") }))
-                                .child(small_btn("clip-undo", "Undo".into()).bg(rgba((p.accent << 8) | A_ACTIVE)).on_click(cx.listener(|this, _, _, cx| {
+                                .child(small_btn("clip-undo", "Undo".into()).on_click(cx.listener(|this, _, _, cx| {
                                     this.undo();
                                     cx.notify();
                                 }))),

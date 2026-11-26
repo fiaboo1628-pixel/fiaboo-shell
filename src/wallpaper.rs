@@ -271,23 +271,10 @@ impl Render for WpPicker {
                             .items_center()
                             .gap_2()
                             .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).text_size(px(16.)).child("Wallpaper"))
-                            .child(
-                                div()
-                                    .id("wp-random")
-                                    .cursor_pointer()
-                                    .px_3()
-                                    .py_1()
-                                    .rounded_lg()
-                                    .text_size(px(12.))
-                                    .bg(card_fill(p.accent, false))
-                                    .shadow(card_shadow(&p, false))
-                                    .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)).shadow(card_shadow(&p, true)))
-                                    .on_click(|_, window, cx| {
-                                        run_bg("setsid fiaboo-wallpaper --random");
-                                        close_wp(window, cx);
-                                    })
-                                    .child("Shuffle"),
-                            ),
+                            .child(button("wp-random", "Shuffle", p.accent, &p).on_click(|_, window, cx| {
+                                run_bg("setsid fiaboo-wallpaper --random");
+                                close_wp(window, cx);
+                            })),
                     )
                     .child(
                         div()

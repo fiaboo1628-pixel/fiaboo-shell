@@ -465,37 +465,14 @@ impl Render for StartMenu {
                 .into_any_element()
         };
 
-        let footer_btn = |id: &'static str, label: &'static str, cmd: &'static str| {
-            div()
-                .id(id)
-                .cursor_pointer()
-                .px_3()
-                .py_2p5()
-                .rounded_lg()
-                .text_size(px(14.))
-                .bg(card_fill(p.accent, false))
-                .shadow(card_shadow(&p, false))
-                .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)).shadow(card_shadow(&p, true)))
-                .on_click(move |_, window, cx| {
-                    spawn_bg(Command::new("sh").args(["-c", &format!("setsid {cmd} >/dev/null 2>&1 &")]));
-                    close_start(window, cx);
-                })
-                .child(label)
+        let footer_btn = |id: &'static str, label: &'static str, cmd: &'static str, tone: u32| {
+            button(id, label, tone, &p).on_click(move |_, window, cx| {
+                spawn_bg(Command::new("sh").args(["-c", &format!("setsid {cmd} >/dev/null 2>&1 &")]));
+                close_start(window, cx);
+            })
         };
 
-        let small_btn = |id: &'static str, label: &'static str| {
-            div()
-                .id(id)
-                .cursor_pointer()
-                .px_3()
-                .py_2p5()
-                .rounded_lg()
-                .text_size(px(14.))
-                .bg(card_fill(p.accent, false))
-                .shadow(card_shadow(&p, false))
-                .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)).shadow(card_shadow(&p, true)))
-                .child(label)
-        };
+        let small_btn = |id: &'static str, label: &'static str| button(id, label, p.accent, &p);
         let power_row = match self.confirm {
             Some(i) => {
                 let (label, question, cmd) = POWER[i];
@@ -504,7 +481,7 @@ impl Render for StartMenu {
                     .items_center()
                     .gap_3()
                     .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).child(question))
-                    .child(footer_btn("p-ok", label, cmd).bg(rgba((p.err << 8) | A_STRONG)))
+                    .child(footer_btn("p-ok", label, cmd, p.err))
                     .child(small_btn("p-cancel", "Cancel").on_click(cx.listener(|this, _, _, cx| {
                         this.confirm = None;
                         cx.notify();
@@ -534,7 +511,7 @@ impl Render for StartMenu {
                 close_start(window, cx);
                 toggle_settings(cx);
             }))
-            .child(footer_btn("f-lock", "Lock", "hyprlock"))
+            .child(footer_btn("f-lock", "Lock", "hyprlock", p.accent))
             .child(small_btn("f-power", "\u{23fb}").font_family(NF).font_weight(FontWeight::MEDIUM).on_click(cx.listener(|this, _, _, cx| {
                 this.power = !this.power;
                 this.confirm = None;
