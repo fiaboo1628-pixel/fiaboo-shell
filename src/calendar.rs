@@ -286,7 +286,7 @@ impl Render for CalendarPopup {
                 .flex_col()
                 .gap_3()
                 .p_4()
-                .rounded_2xl()
+                .rounded_xl()
                 .bg(card_fill(p.accent, true))
                 .shadow(card_shadow(&p, false))
                 .child(
@@ -323,32 +323,32 @@ impl Render for CalendarPopup {
                         ),
                 )
                 .into_any_element(),
+            // a statement and a command, not a whole card that is secretly a link
             None if self.weather_failed => div()
-                .id("w-retry")
-                .cursor_pointer()
                 .h(px(150.))
                 .flex()
+                .flex_col()
+                .gap_3()
                 .items_center()
                 .justify_center()
-                .rounded_2xl()
+                .rounded_xl()
                 .bg(card_fill(p.accent, false))
                 .shadow(card_shadow(&p, false))
-                .hover(|s| s.bg(rgba((p.accent << 8) | A_HOVER)))
                 .text_color(rgb(p.dim))
-                .on_click(cx.listener(|this, _, _, cx| {
+                .child("Couldn\u{2019}t load weather.")
+                .child(button("w-retry", "Retry", p.accent, &p).text_color(rgb(p.fg)).on_click(cx.listener(|this, _, _, cx| {
                     this.last_input = std::time::Instant::now();
                     this.retry = true;
                     this.weather_failed = false; // shows "Loading…" until the poll answers
                     cx.notify();
-                }))
-                .child("Weather unavailable \u{b7} click to retry")
+                })))
                 .into_any_element(),
             None => div()
                 .h(px(150.))
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded_2xl()
+                .rounded_xl()
                 .bg(card_fill(p.accent, false))
                 .shadow(card_shadow(&p, false))
                 .text_color(rgb(p.dim))
@@ -366,7 +366,7 @@ impl Render for CalendarPopup {
                     .items_center()
                     .gap_4()
                     .px_4()
-                    .rounded_xl()
+                    .rounded_lg()
                     .when(i == 0, |r| r.bg(card_fill(p.accent2, true)).shadow(card_shadow(&p, false)))
                     .child(div().w(px(56.)).text_color(if i == 0 { rgb(p.fg) } else { rgb(p.dim) }).child(if i == 0 { "Today".to_string() } else { d.label.clone() }))
                     .child(div().flex_1().font_family(NF).font_weight(FontWeight::MEDIUM).text_size(px(22.)).text_color(rgb(p.accent)).child(weather_glyph(d.code, true)))
