@@ -272,6 +272,7 @@ impl Render for ClipPanel {
         let sel = self.sel.min(list.len().saturating_sub(1));
         let rows = list.iter().enumerate().map(|(i, c)| {
             let (copy_id, copy_id2) = (c.id.clone(), c.id.clone());
+            let gone = c.clone();
             div()
                 .id(("clip", i))
                 .cursor_pointer()
@@ -305,6 +306,27 @@ impl Render for ClipPanel {
                         .child(c.preview.clone())
                         .into_any_element(),
                 })
+                // the mouse path to deleting one entry (Del was keyboard-only); undoable like Del
+                .child(
+                    div()
+                        .id(("clip-x", i))
+                        .flex_none()
+                        .ml_auto()
+                        .size(px(32.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_md()
+                        .text_color(rgb(p.dim))
+                        .hover(|s| s.bg(rgba((p.dim << 8) | A_ACTIVE)).text_color(rgb(p.fg)))
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.last_input = std::time::Instant::now();
+                            this.defer_delete(vec![gone.clone()], false, cx);
+                        }))
+                        .child("\u{2715}"),
+                )
         });
         div()
             .image_cache(gpui::retain_all("clip-images")) // freed with the window; plain img() stays in GPUI's global cache forever
