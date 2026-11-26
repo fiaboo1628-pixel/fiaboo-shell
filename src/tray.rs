@@ -208,6 +208,7 @@ fn try_own_watcher(conn: &Connection) -> bool {
 pub fn start() {
     thread::spawn(|| {
         let mut registered = false;
+        let mut host_known = false; // the watcher has our RegisterStatusNotifierHost
         let mut watcher: Option<(Watcher, bool)> = None;
         loop {
             if let Some(conn) = conn() {
@@ -217,6 +218,7 @@ pub fn start() {
                 if let Some((w, owner)) = watcher.as_mut() {
                     if !*owner {
                         *owner = try_own_watcher(conn); // take over if the previous watcher quit
+                        host_known &= !*owner; // our own watcher hasn't heard of the host yet
                     }
                     if *owner {
                         w.prune(conn);
@@ -226,24 +228,30 @@ pub fn start() {
                     let _ = conn.request_name(HOST);
                     registered = true;
                 }
+                if !host_known {
+                    host_known = register_host(conn).is_ok();
+                }
                 if let Ok(list) = poll(conn) {
                     drop_unused_icons(&list);
                     *ITEMS.lock().unwrap() = list;
                 }
             }
-            thread::sleep(Duration::from_millis(1500));
+            // apps that start or quit show up within one interval; a tray needs no more
+            thread::sleep(Duration::from_secs(5));
         }
     });
 }
 
+fn watcher_proxy(conn: &Connection) -> zbus::Result<Proxy<'static>> {
+    proxy(conn, "org.kde.StatusNotifierWatcher", "/StatusNotifierWatcher", "org.kde.StatusNotifierWatcher")
+}
+
+fn register_host(conn: &Connection) -> zbus::Result<()> {
+    watcher_proxy(conn)?.call_method("RegisterStatusNotifierHost", &(HOST,)).map(|_| ())
+}
+
 fn poll(conn: &Connection) -> zbus::Result<Vec<TrayItem>> {
-    let watcher = proxy(
-        conn,
-        "org.kde.StatusNotifierWatcher",
-        "/StatusNotifierWatcher",
-        "org.kde.StatusNotifierWatcher",
-    )?;
-    let _ = watcher.call_method("RegisterStatusNotifierHost", &(HOST,));
+    let watcher = watcher_proxy(conn)?;
     let regs: Vec<String> = watcher.get_property("RegisteredStatusNotifierItems")?;
     let mut out = vec![];
     for reg in regs {
