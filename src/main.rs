@@ -1019,6 +1019,30 @@ fn show_tip(cx: &mut App, text: String, x: f32, screen_w: f32) {
     .detach();
 }
 
+/// The owner's picture (Start button, Start footer).
+/// A missing file makes img() draw nothing, and the button is 30px of empty space you can
+/// still click -- which is exactly what happened when ~/Pictures/fiaboo was not copied to this
+/// machine and Start went invisible for days. Check first and fall back to a glyph, so a lost
+/// image leaves a button that looks wrong rather than one that looks absent.
+fn avatar(size_px: f32, p: &Palette) -> gpui::AnyElement {
+    let face = PathBuf::from(format!("{}/Pictures/fiaboo/cauvang.jpg", home()));
+    if face.exists() {
+        img(face).size(px(size_px)).rounded_full().object_fit(ObjectFit::Cover).into_any_element()
+    } else {
+        div()
+            .size(px(size_px))
+            .flex_none()
+            .rounded_full()
+            .bg(rgba((p.accent << 8) | A_ACTIVE))
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_color(rgb(p.bg))
+            .child("\u{2630}")
+            .into_any_element()
+    }
+}
+
 /// Hover for 600 ms shows `text` under the pointer; leaving or pressing hides it.
 fn with_tip<E: StatefulInteractiveElement>(el: E, text: impl Into<String>) -> E {
     let text = text.into();
@@ -1343,30 +1367,7 @@ impl Render for Bar {
                                 .rounded_lg()
                                 .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
                                 .on_click(|_, _, cx| toggle_start(cx))
-                                // A missing file makes img() draw nothing, and the button
-                                // is 30px of empty space you can still click -- which is
-                                // exactly what happened when ~/Pictures/fiaboo was not
-                                // copied to this machine and Start went invisible for
-                                // days. Check first and fall back to a glyph, so a lost
-                                // image leaves a button that looks wrong rather than one
-                                // that looks absent.
-                                .child({
-                                    let face = PathBuf::from(format!("{}/Pictures/fiaboo/cauvang.jpg", home()));
-                                    if face.exists() {
-                                        img(face).size(px(30.)).rounded_full().object_fit(ObjectFit::Cover).into_any_element()
-                                    } else {
-                                        div()
-                                            .size(px(30.))
-                                            .rounded_full()
-                                            .bg(rgba((p.accent << 8) | A_ACTIVE))
-                                            .flex()
-                                            .items_center()
-                                            .justify_center()
-                                            .text_color(rgb(p.bg))
-                                            .child("\u{2630}")
-                                            .into_any_element()
-                                    }
-                                }),
+                                .child(avatar(30., &p)),
                             "Start",
                         ),
                     )

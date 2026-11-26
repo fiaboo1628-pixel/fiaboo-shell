@@ -450,7 +450,10 @@ impl Render for StartMenu {
                 .gap_2()
                 .overflow_hidden()
                 .child(section("Pinned"))
-                .child(div().flex().flex_row().flex_wrap().justify_center().gap_2().children(tiles))
+                .child(div().flex().flex_row().flex_wrap().justify_center().gap_2().children(tiles).when(self.pins.is_empty(), |d| {
+                    // the tile row's height stays reserved, so say what goes there
+                    d.h(px(TILE_H)).items_center().text_size(px(12.)).text_color(rgb(p.dim)).child("Right-click an app to pin it")
+                }))
                 .child(section("All apps").pt_2())
                 .child(
                     div()
@@ -500,12 +503,7 @@ impl Render for StartMenu {
             .items_center()
             .gap_3()
             .pt_2()
-            .child(
-                img(PathBuf::from(format!("{}/Pictures/fiaboo/cauvang.jpg", home())))
-                    .size(px(32.))
-                    .rounded_full()
-                    .object_fit(ObjectFit::Cover),
-            )
+            .child(avatar(32., &p))
             .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).child("fiaboo"))
             .child(small_btn("f-settings", "Settings").on_click(|_, window, cx| {
                 close_start(window, cx);
