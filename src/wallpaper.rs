@@ -182,6 +182,7 @@ impl Render for WpPicker {
         let p = self.pal.clone();
         let shown = self.visible();
         let sel = self.sel.min(shown.len().saturating_sub(1));
+        let rows = self.list.len().div_ceil(WP_COLS).clamp(1, 5) as f32; // the whole list: filtering must not resize the panel
         let cells = shown.iter().enumerate().map(|(i, path)| {
             let thumb = wp_thumb(path);
             let target = path.clone();
@@ -252,7 +253,7 @@ impl Render for WpPicker {
             .on_mouse_down(MouseButton::Right, |_, window, cx| close_wp(window, cx))
             .child(
                 div()
-                    .w(px(840.))
+                    .w(px(WP_COLS as f32 * 190. + (WP_COLS as f32 - 1.) * 8. + 32.)) // the grid's own width plus p_4: centred, no trailing gap
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
                     .flex()
@@ -279,7 +280,8 @@ impl Render for WpPicker {
                     .child(
                         div()
                             .id("wp-grid")
-                            .h(px(5. * 107. + 4. * 8.)) // five whole thumbnail rows; flex_1 left a sixth cut by the footer
+                            // whole thumbnail rows, up to five (flex_1 left a sixth cut by the footer); fewer images, a shorter panel
+                            .h(px(rows * 107. + (rows - 1.) * 8.))
                             .overflow_y_scroll()
                             .track_scroll(&self.scroll)
                             .flex()
