@@ -138,17 +138,25 @@ impl Motion {
 }
 
 // ---------- player state ----------
-/// Whether a player is playing, kept current by `playerctl --follow` (no polling).
+/// Whether any player is playing, kept current by `playerctl -a --follow` (no polling).
 static PLAYING: AtomicBool = AtomicBool::new(false);
+
+/// `playerctl -a status` output: one status line per player.
+fn any_playing(statuses: &str) -> bool {
+    statuses.lines().any(|l| l.trim() == "Playing")
+}
 
 fn start_player_watch() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
         std::thread::spawn(|| loop {
-            if let Ok(mut child) = Command::new("playerctl").args(["--follow", "status"]).stdout(Stdio::piped()).stderr(Stdio::null()).spawn() {
+            if let Ok(mut child) = Command::new("playerctl").args(["-a", "--follow", "status"]).stdout(Stdio::piped()).stderr(Stdio::null()).spawn() {
                 if let Some(out) = child.stdout.take() {
-                    for line in BufReader::new(out).lines().map_while(Result::ok) {
-                        PLAYING.store(line.trim() == "Playing", Ordering::Relaxed);
+                    for _ in BufReader::new(out).lines().map_while(Result::ok) {
+                        // a line is one player's change; ask all of them, so a tab that pauses doesn't
+                        // hide another that plays (each flip would stop and restart parec)
+                        let all = Command::new("playerctl").args(["-a", "status"]).stderr(Stdio::null()).output();
+                        PLAYING.store(all.is_ok_and(|o| any_playing(&String::from_utf8_lossy(&o.stdout))), Ordering::Relaxed);
                     }
                 }
                 let _ = child.wait();
@@ -210,10 +218,13 @@ pub fn toggle_mini(cx: &mut App) {
                     win = cx.update(open_line);
                 }
                 if let Some(h) = win {
-                    let (level, kick, alpha) = (motion.level, motion.kick, motion.alpha);
-                    let _ = h.update(cx, |l, _, cx| {
-                        (l.level, l.kick, l.alpha) = (level, kick, alpha);
-                        cx.notify();
+                    let new = (motion.level, motion.kick, motion.alpha);
+                    let _ = h.update(cx, |l, window, cx| {
+                        // the motion still advances every frame; only a frame nobody could see is skipped
+                        if worth_drawing((l.level, l.kick, l.alpha), new, f32::from(window.bounds().size.width)) {
+                            (l.level, l.kick, l.alpha) = new;
+                            cx.notify();
+                        }
                     });
                 }
             } else {
@@ -229,7 +240,8 @@ pub fn toggle_mini(cx: &mut App) {
             if !current && !visible {
                 break;
             }
-            let wait = if visible || playing { 1000 / FPS } else { 250 };
+            // a silent player needs no 30 fps: the fade-in starts at most 250 ms late, parec keeps running
+            let wait = if visible { 1000 / FPS } else { 250 };
             cx.background_executor().timer(Duration::from_millis(wait)).await;
         }
     })
@@ -268,6 +280,18 @@ fn open_line(cx: &mut App) -> Option<WindowHandle<Line>> {
     .ok()
 }
 
+/// Share of the width the line spans.
+fn reach(level: f32, kick: f32) -> f32 {
+    (0.12 + 0.76 * level + 0.08 * kick).min(0.98)
+}
+
+/// Whether `new` (level, kick, alpha) differs visibly from the `drawn` one: the ends by half a pixel,
+/// or the line or its glow by one alpha step (the glow also covers the kick's thickness).
+fn worth_drawing(drawn: (f32, f32, f32), new: (f32, f32, f32), width: f32) -> bool {
+    let ((l0, k0, a0), (l1, k1, a1)) = (drawn, new);
+    (reach(l1, k1) - reach(l0, k0)).abs() * width >= 0.5 || (a1 - a0).abs() >= 1. / 255. || 0.2 * (k1 - k0).abs() * a1 >= 1. / 255.
+}
+
 pub struct Line {
     pal: Palette,
     level: f32,
@@ -287,7 +311,7 @@ impl Render for Line {
         // nothing: the ends melt into the bar; a faint glow spills down from the middle
         let (mid, side) = (self.pal.accent2, self.pal.accent);
         let c = |rgb: u32, v: f32| rgba((rgb << 8) | ((v * self.alpha).clamp(0., 1.) * 255.) as u32);
-        let reach = (0.12 + 0.76 * self.level + 0.08 * self.kick).min(0.98);
+        let reach = reach(self.level, self.kick);
         let thick = 2. + 1.5 * self.kick;
         let seg = |from: gpui::Rgba, to: gpui::Rgba| {
             div().flex_1().h_full().bg(linear_gradient(90., linear_color_stop(from, 0.), linear_color_stop(to, 1.)))
@@ -353,6 +377,23 @@ mod tests {
             m.step((-120., -120.));
         }
         assert!(m.alpha < 0.01 && m.level < 0.01 && m.kick < 0.01, "silent: alpha {} level {}", m.alpha, m.level);
+    }
+
+    #[test]
+    fn playing_if_any_player_plays() {
+        assert!(any_playing("Paused\nPlaying\nStopped\n"));
+        assert!(!any_playing("Paused\nStopped\n"));
+        assert!(!any_playing("")); // no players
+    }
+
+    #[test]
+    fn invisible_changes_are_not_drawn() {
+        let drawn = (0.5, 0.2, 1.);
+        assert!(!worth_drawing(drawn, (0.5002, 0.2, 1.), 1920.), "0.3 px move");
+        assert!(worth_drawing(drawn, (0.501, 0.2, 1.), 1920.), "1.5 px move");
+        assert!(!worth_drawing(drawn, (0.5, 0.2, 0.999), 1920.), "less than one alpha step");
+        assert!(worth_drawing(drawn, (0.5, 0.2, 0.99), 1920.), "fading");
+        assert!(worth_drawing(drawn, (0.5, 0.25, 1.), 0.), "the glow brightens on a kick");
     }
 
     #[test]

@@ -6,6 +6,9 @@
 #  - if it dies within 30 s of starting, swaync takes over notifications and it is retried every 30 s
 BIN=${FIABOO_SHELL_BIN:-$HOME/.local/bin/fiaboo-shell}
 LOG=$HOME/.cache/fiaboo-shell.log
+# AMD iGPU only, but nvidia-utils is installed: without this gpui's Vulkan also loads NVIDIA's libs (~21 MB PSS)
+RADEON_ICD=/usr/share/vulkan/icd.d/radeon_icd.json
+[ -f "$RADEON_ICD" ] && export VK_DRIVER_FILES=$RADEON_ICD
 
 while true; do
     [ -S "$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket.sock" ] || exit 0  # Hyprland gone (logout): don't haunt the next session

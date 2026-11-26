@@ -87,8 +87,22 @@ pub(crate) fn keep_awake() -> bool {
     let mut child = KEEP_AWAKE.lock().unwrap();
     if child.as_mut().is_some_and(|c| !matches!(c.try_wait(), Ok(None))) {
         *child = None; // it died on its own (killed from outside)
+        let _ = std::fs::remove_file(awake_flag());
     }
     child.is_some()
+}
+
+/// Present while Keep awake is on, so the next shell (after an upgrade) turns it on again.
+/// $XDG_RUNTIME_DIR is cleared at logout, so it never outlives the session.
+fn awake_flag() -> String {
+    format!("{}/fiaboo-keep-awake", std::env::var("XDG_RUNTIME_DIR").unwrap_or_default())
+}
+
+/// At shell start: Keep awake was on when the previous shell died, so start the inhibitor again.
+pub(crate) fn restore_keep_awake() {
+    if std::path::Path::new(&awake_flag()).exists() && !keep_awake() {
+        toggle_keep_awake();
+    }
 }
 
 fn toggle_keep_awake() {
@@ -97,6 +111,7 @@ fn toggle_keep_awake() {
         Some(mut c) => {
             let _ = c.kill(); // systemd-inhibit takes its child down with it (FORK_DEATHSIG_SIGTERM)
             let _ = c.wait();
+            let _ = std::fs::remove_file(awake_flag());
         }
         // `cat` on a pipe only the shell holds, not `sleep infinity`: if the shell dies (pkill -9 on upgrade)
         // cat sees EOF and the inhibitor goes with it instead of keeping the screen awake forever
@@ -106,7 +121,10 @@ fn toggle_keep_awake() {
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::null())
                 .spawn()
-                .ok()
+                .ok();
+            if child.is_some() {
+                let _ = std::fs::write(awake_flag(), "");
+            }
         }
     }
 }
