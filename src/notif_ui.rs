@@ -37,7 +37,7 @@ pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, center: Option<gpui::En
         .border_1()
         .border_color(if n.critical { rgba((p.err << 8) | 0xcc) } else { rgba((p.fg << 8) | A_BORDER) })
         .when(focused, |d| d.border_color(rgb(p.accent))) // keyboard focus ring
-        .hover(|s| s.bg(rgba((p.accent << 8) | A_HOVER)))
+        .hover(|s| if in_center { s.bg(card_fill(if n.critical { p.err } else { p.accent }, true)).shadow(card_shadow(&p, true)) } else { s.bg(rgba((p.accent << 8) | A_HOVER)) })
         .text_color(rgb(p.fg))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_mouse_down(MouseButton::Right, move |_, _, cx| {

@@ -212,7 +212,8 @@ impl Render for Quick {
                 .bg(if avail { card_fill(c, on) } else { rgba((p.dim << 8) | A_SURFACE).into() })
                 .shadow(card_shadow(&p, false))
                 .when(avail, |d| {
-                    d.hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)).shadow(card_shadow(&p, true))).on_click(cx.listener(move |this, _, _, cx| {
+                    // hover = lifted; the strong fill stays the "on" state, so an off tile never looks on under the pointer
+                    d.hover(|s| s.shadow(card_shadow(&p, true))).on_click(cx.listener(move |this, _, _, cx| {
                         this.last_input = std::time::Instant::now();
                         run_action(&cmd);
                         cx.notify();
