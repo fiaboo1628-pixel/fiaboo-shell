@@ -138,17 +138,25 @@ impl Motion {
 }
 
 // ---------- player state ----------
-/// Whether a player is playing, kept current by `playerctl --follow` (no polling).
+/// Whether any player is playing, kept current by `playerctl -a --follow` (no polling).
 static PLAYING: AtomicBool = AtomicBool::new(false);
+
+/// `playerctl -a status` output: one status line per player.
+fn any_playing(statuses: &str) -> bool {
+    statuses.lines().any(|l| l.trim() == "Playing")
+}
 
 fn start_player_watch() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
         std::thread::spawn(|| loop {
-            if let Ok(mut child) = Command::new("playerctl").args(["--follow", "status"]).stdout(Stdio::piped()).stderr(Stdio::null()).spawn() {
+            if let Ok(mut child) = Command::new("playerctl").args(["-a", "--follow", "status"]).stdout(Stdio::piped()).stderr(Stdio::null()).spawn() {
                 if let Some(out) = child.stdout.take() {
-                    for line in BufReader::new(out).lines().map_while(Result::ok) {
-                        PLAYING.store(line.trim() == "Playing", Ordering::Relaxed);
+                    for _ in BufReader::new(out).lines().map_while(Result::ok) {
+                        // a line is one player's change; ask all of them, so a tab that pauses doesn't
+                        // hide another that plays (each flip would stop and restart parec)
+                        let all = Command::new("playerctl").args(["-a", "status"]).stderr(Stdio::null()).output();
+                        PLAYING.store(all.is_ok_and(|o| any_playing(&String::from_utf8_lossy(&o.stdout))), Ordering::Relaxed);
                     }
                 }
                 let _ = child.wait();
@@ -369,6 +377,13 @@ mod tests {
             m.step((-120., -120.));
         }
         assert!(m.alpha < 0.01 && m.level < 0.01 && m.kick < 0.01, "silent: alpha {} level {}", m.alpha, m.level);
+    }
+
+    #[test]
+    fn playing_if_any_player_plays() {
+        assert!(any_playing("Paused\nPlaying\nStopped\n"));
+        assert!(!any_playing("Paused\nStopped\n"));
+        assert!(!any_playing("")); // no players
     }
 
     #[test]
