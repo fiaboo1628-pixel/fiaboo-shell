@@ -502,7 +502,7 @@ impl Render for StartMenu {
                     .gap_1()
                     .border_2()
                     .border_color(ring(StartStop::Pin(i)))
-                    .rounded_lg()
+                    .rounded_xl()
                     .bg(card_fill(if i % 2 == 0 { p.accent } else { p.accent2 }, false))
                     .shadow(card_shadow(&p, false))
                     .hover(|s| s.bg(card_fill(if i % 2 == 0 { p.accent } else { p.accent2 }, true)).shadow(card_shadow(&p, true)))
