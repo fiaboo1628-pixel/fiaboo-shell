@@ -275,7 +275,7 @@ impl Render for WpPicker {
             .on_mouse_down(MouseButton::Right, |_, window, cx| close_wp(window, cx))
             .child(
                 div()
-                    .w(px(WP_COLS as f32 * 190. + (WP_COLS as f32 - 1.) * 8. + 32.)) // the grid's own width plus p_4: centred, no trailing gap
+                    .w(px(WP_COLS as f32 * 190. + (WP_COLS as f32 - 1.) * 8. + 34.)) // the grid's own width plus p_4 and the 1 px border: centred, no trailing gap
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
                     .flex()
