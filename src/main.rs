@@ -488,9 +488,46 @@ struct State {
     occupied: Vec<i64>,
     apps: Vec<AppIcon>,
     time: String,
+    layout: String, // Hyprland's general:layout
 }
 
 use wm::hypr_json as hyprctl_json;
+
+const LAYOUTS: [&str; 3] = ["dwindle", "master", "scrolling"];
+
+/// The layout `by` steps from `cur` in LAYOUTS, wrapping; an unknown `cur` counts as dwindle.
+fn layout_step(cur: &str, by: i32) -> &'static str {
+    let i = LAYOUTS.iter().position(|l| *l == cur).unwrap_or(0) as i32;
+    LAYOUTS[(i + by).rem_euclid(LAYOUTS.len() as i32) as usize]
+}
+
+/// The layout name in a `getoption general:layout` reply.
+fn layout_of(v: &serde_json::Value) -> String {
+    v["str"].as_str().unwrap_or("").to_string()
+}
+
+fn current_layout() -> String {
+    layout_of(&hyprctl_json("getoption general:layout"))
+}
+
+/// `arg`: a layout name, `next` or `prev`; anything else is ignored.
+fn set_layout(arg: &str) {
+    let arg = arg.to_string();
+    std::thread::spawn(move || {
+        let to = match arg.as_str() {
+            "next" => layout_step(&current_layout(), 1),
+            "prev" => layout_step(&current_layout(), -1),
+            a => match LAYOUTS.iter().find(|l| **l == a) {
+                Some(l) => l,
+                None => return,
+            },
+        };
+        let lua = format!("hl.config({{ general = {{ layout = \"{to}\" }} }})");
+        let _ = Command::new("hyprctl").args(["eval", &lua]).stdout(std::process::Stdio::null()).status();
+        // Hyprland sends no event for a config change: re-read only once the eval has landed
+        HYPR_DIRTY.store(true, std::sync::atomic::Ordering::Relaxed);
+    });
+}
 
 /// Taskbar icons: pins first (each claims a window of its app), then other running apps;
 /// one icon per window class, keeping the most recently focused window of each class.
@@ -588,6 +625,7 @@ fn read_state() -> State {
             .and_then(|o| String::from_utf8(o.stdout).ok())
             .map(|s| s.trim().to_string())
             .unwrap_or_default(),
+        layout: current_layout(),
     }
 }
 
@@ -1121,7 +1159,11 @@ impl Bar {
                         "viz" => viz::toggle_mini(cx),
                         "quick" => toggle_quick(cx),
                         "notifications" => toggle_notif_center(cx),
-                        _ => {}
+                        c => {
+                            if let Some(arg) = c.strip_prefix("layout ") {
+                                set_layout(arg.trim());
+                            }
+                        }
                     });
                 }
             })
@@ -1645,8 +1687,14 @@ fn send_ipc(cmd: &str) -> ! {
 }
 
 fn main() {
-    if let Some(cmd) = std::env::args().nth(1) {
-        send_ipc(&cmd);
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args == ["layout"] {
+        // asks Hyprland itself, so it answers with or without a running shell
+        println!("{}", current_layout());
+        std::process::exit(0);
+    }
+    if !args.is_empty() {
+        send_ipc(&args.join(" "));
     }
     start_ipc();
     notify::start();
@@ -1708,6 +1756,22 @@ fn open_bar(cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn layouts_cycle_both_ways() {
+        assert_eq!(layout_step("dwindle", 1), "master");
+        assert_eq!(layout_step("master", 1), "scrolling");
+        assert_eq!(layout_step("scrolling", 1), "dwindle");
+        assert_eq!(layout_step("dwindle", -1), "scrolling");
+        assert_eq!(layout_step("monocle", 1), "master");
+    }
+
+    #[test]
+    fn getoption_reply_gives_the_layout() {
+        let v = serde_json::from_str(r#"{"option":"general:layout","str":"dwindle","set":true}"#).unwrap();
+        assert_eq!(layout_of(&v), "dwindle");
+        assert_eq!(layout_of(&serde_json::Value::Null), "");
+    }
 
     #[test]
     fn focus_starts_hidden_then_wraps() {
