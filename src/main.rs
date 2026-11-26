@@ -759,13 +759,13 @@ fn start_volume_watch() {
 // ---------- bar indicators: input method, mic in use, pending updates ----------
 #[derive(Clone, Default, PartialEq)]
 struct Indicators {
-    vi: Option<bool>, // fcitx5 in Bamboo; None = fcitx5-remote failed, hidden
+    vi: Option<bool>, // fcitx5 in Bamboo; None = fcitx5 not running, hidden
     mic: bool,        // some app other than our own parec is recording
     updates: usize,
 }
 static INDICATORS: Mutex<Indicators> = Mutex::new(Indicators { vi: None, mic: false, updates: 0 });
 
-/// `fcitx5-remote -n` output: the current input method name, empty when fcitx5 is not running.
+/// `fcitx5-remote -n` / `CurrentInputMethod`: the current input method name, empty when fcitx5 is not running.
 fn parse_im(name: &str) -> Option<bool> {
     let name = name.trim();
     (!name.is_empty()).then(|| name.starts_with("bamboo"))
@@ -804,7 +804,7 @@ fn check_updates() {
 /// The mic comes from `start_volume_watch`.
 fn start_indicators() {
     std::thread::spawn(|| loop {
-        let vi = parse_im(&sh("fcitx5-remote -n 2>/dev/null"));
+        let vi = parse_im(&tray::current_im().unwrap_or_default());
         INDICATORS.lock().unwrap().vi = vi;
         std::thread::sleep(Duration::from_secs(2));
     });
