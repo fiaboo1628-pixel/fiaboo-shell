@@ -981,7 +981,7 @@ impl Render for Tip {
             .items_center()
             .justify_center()
             .rounded_lg()
-            .bg(rgba((p.bg << 8) | 0xE6))
+            .bg(rgba((p.bg << 8) | PANEL_FILL))
             .border_1()
             .border_color(rgba((p.fg << 8) | A_BORDER))
             .text_size(px(12.))
@@ -1054,7 +1054,7 @@ fn avatar(size_px: f32, p: &Palette) -> gpui::AnyElement {
             .flex()
             .items_center()
             .justify_center()
-            .text_color(rgb(p.bg))
+            .text_color(rgb(p.fg))
             .child("\u{2630}")
             .into_any_element()
     }
