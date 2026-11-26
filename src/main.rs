@@ -1410,7 +1410,34 @@ impl Render for Bar {
                                 }
                             })
                             .children(dots),
-                    ),
+                    )
+                    .when(!st.layout.is_empty(), |d| {
+                        let glyph = match st.layout.as_str() {
+                            "master" => "\u{f0bcc}",    // md-view_split_vertical
+                            "scrolling" => "\u{f0573}", // md-view_column
+                            _ => "\u{f0575}",           // md-view_quilt
+                        };
+                        d.child(with_tip(div()
+                            .id("layout-button")
+                            .cursor_pointer()
+                            .size(px(36.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded_md()
+                            .font_family(NF).font_weight(FontWeight::MEDIUM)
+                            .text_size(px(16.))
+                            .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
+                            .on_click(|_, _, _| set_layout("next"))
+                            .on_mouse_down(MouseButton::Right, |_, _, _| set_layout("dwindle"))
+                            .on_scroll_wheel(|ev, _, _| match scroll_steps(&ev.delta) {
+                                0 => {}
+                                n if n > 0 => set_layout("next"),
+                                _ => set_layout("prev"),
+                            })
+                            .child(glyph),
+                            format!("Layout: {} · click: next · right-click: dwindle · `layout <name>` in a terminal", st.layout)))
+                    }),
             )
             // center (Win11): Start, Task View, apps
             .child(
