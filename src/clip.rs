@@ -449,8 +449,15 @@ impl Render for ClipPanel {
                             .flex()
                             .flex_col()
                             .children(rows)
-                            .when(list.is_empty() && self.loaded, |d| {
-                                d.child(div().py_6().flex().justify_center().text_color(rgb(p.dim)).child("Nothing here"))
+                            .when(list.is_empty(), |d| {
+                                let say = if !self.loaded {
+                                    "Loading\u{2026}".to_string()
+                                } else if self.query.is_empty() {
+                                    "Nothing here".to_string()
+                                } else {
+                                    format!("Nothing matches \u{201c}{}\u{201d}", self.query) // Start's words
+                                };
+                                d.child(div().py_6().flex().justify_center().text_color(rgb(p.dim)).child(say))
                             }),
                     )
                     // a deletion waits UNDO_SECS here before cliphist forgets it
