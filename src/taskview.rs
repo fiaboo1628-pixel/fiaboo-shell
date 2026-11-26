@@ -238,15 +238,30 @@ impl Render for TaskView {
                 )
                 .child(
                     div()
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_ellipsis()
+                        .flex()
+                        .items_baseline()
+                        .gap_2()
                         .text_size(px(14.))
                         .font_weight(FontWeight::SEMIBOLD)
                         // the confirmation used to sit in the header row; with that row gone this
                         // is the only place left to say it, and saying nothing would make one Del
-                        // arm a close with no sign of it on screen
-                        .child(if pending == Some(i) { "Again: close · Esc: keep".to_string() } else { w.title.clone() }),
+                        // arm a close with no sign of it on screen. It names the window; only the
+                        // title is ellipsized, never the instruction.
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w(px(0.))
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .text_ellipsis()
+                                .child(if pending == Some(i) { format!("Close \u{201c}{}", w.title) } else { w.title.clone() }),
+                        )
+                        .child(if pending == Some(i) {
+                            div().flex_none().child("\u{201d}? Del again")
+                        } else {
+                            // cards from different workspaces look alike without it
+                            div().flex_none().text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(rgb(p.dim)).child(format!("Workspace {}", w.ws))
+                        }),
                 )
         });
         div()
