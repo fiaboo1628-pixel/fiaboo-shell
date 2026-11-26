@@ -374,7 +374,7 @@ impl Render for StartMenu {
                 .flex_none() // the list scrolls; without this the rows shrink to fit it
                 .rounded_lg()
                 .when(first, |d| d.bg(card_fill(p.accent, true)).shadow(card_shadow(&p, false)))
-                .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
+                .when(!first, |d| d.hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))) // the selected card stays itself under the pointer
                 .on_click(move |_, window, cx| activate(&hit, window, cx))
                 .child(icon)
                 .child(

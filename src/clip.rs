@@ -283,7 +283,7 @@ impl Render for ClipPanel {
                 .px_4()
                 .rounded_lg()
                 .when(i == sel, |d| d.bg(card_fill(p.accent, true)).shadow(card_shadow(&p, false)))
-                .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
+                .when(i != sel, |d| d.hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))) // the selected card stays itself under the pointer
                 .on_mouse_down(MouseButton::Right, cx.listener(move |this, _, _, cx| {
                     cx.stop_propagation();
                     this.last_input = std::time::Instant::now();
