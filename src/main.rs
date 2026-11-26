@@ -407,6 +407,7 @@ fn icon_for(class: &str) -> Option<PathBuf> {
 // ---------- hyprland state ----------
 #[derive(Clone, Default, PartialEq)]
 struct AppIcon {
+    name: String,           // tooltip: the pin's app name, else the window class
     class: String,          // window class, or pinned id when not running
     address: String,        // window to focus ("" when not running)
     launch: Option<String>, // desktop file stem for gtk-launch
@@ -521,6 +522,7 @@ fn dock_icons(mut clients: Vec<serde_json::Value>, pins: &[(String, Desktop)], a
             used_class.push(class.clone());
         }
         apps.push(AppIcon {
+            name: d.name.clone(),
             icon: find_icon_file(&d.icon).or_else(|| icon_for(&class)),
             active: !address.is_empty() && address == active_addr,
             running: win.is_some(),
@@ -542,6 +544,7 @@ fn dock_icons(mut clients: Vec<serde_json::Value>, pins: &[(String, Desktop)], a
         }
         let address = c["address"].as_str().unwrap_or("").to_string();
         extra.push(AppIcon {
+            name: class.to_string(),
             class: class.to_string(),
             icon: icon_for(class),
             active: address == active_addr,
@@ -1280,7 +1283,8 @@ impl Render for Bar {
                     .child(letter)
                     .into_any_element(),
             };
-            div()
+            let name = a.name.clone();
+            with_tip(div()
                 .id(("app", i))
                 .cursor_pointer()
                 .flex()
@@ -1319,7 +1323,7 @@ impl Render for Bar {
                         } else {
                             rgba(0x00000000)
                         }),
-                )
+                ), name)
         });
 
         let (clock_time, clock_date) = st.time.split_once('|').unwrap_or((st.time.as_str(), ""));
@@ -1463,8 +1467,9 @@ impl Render for Bar {
                         ))
                     })
                     .when(self.ind.mic, |d| {
-                        d.child(
+                        d.child(with_tip(
                             div()
+                                .id("mic")
                                 .size(px(36.))
                                 .flex()
                                 .items_center()
@@ -1473,7 +1478,8 @@ impl Render for Bar {
                                 .text_size(px(16.))
                                 .text_color(rgb(p.accent))
                                 .child("\u{f036c}"),
-                        )
+                            "Microphone in use",
+                        ))
                     })
                     .when_some(self.rec_secs, |d, secs| {
                         d.child(with_tip(
