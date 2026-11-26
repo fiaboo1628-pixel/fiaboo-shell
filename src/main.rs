@@ -562,7 +562,7 @@ fn launch_app(stem: &str) {
     // gtk-launch and its exit code means something, while the app still gets its own
     // session and outlives a shell restart.
     // args, not `sh -c`: Steam's .desktop names have spaces
-    let Ok(child) = Command::new("setsid")
+    let Ok(mut child) = Command::new("setsid")
         .args(["gtk-launch", &file])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
@@ -570,17 +570,31 @@ fn launch_app(stem: &str) {
     else {
         return;
     };
+    // the app inherits this pipe as its stderr, so EOF only comes when the app exits: reap
+    // gtk-launch first, and keep draining (not closing: the app would get SIGPIPE) while it runs
+    let reader = child.stderr.take().map(|e| std::thread::spawn(move || read_capped(e, 4096)));
     std::thread::spawn(move || {
-        let Ok(out) = child.wait_with_output() else { return }; // also reaps it
-        if out.status.success() {
+        let Ok(status) = child.wait() else { return };
+        if status.success() {
             return;
         }
-        let err = String::from_utf8_lossy(&out.stderr);
+        // failed: no app started, so the pipe closes right away
+        let err = reader.and_then(|r| r.join().ok()).unwrap_or_default();
+        let err = String::from_utf8_lossy(&err);
         let why = err.lines().find(|l| !l.trim().is_empty()).unwrap_or("gtk-launch gave no reason").trim();
         let _ = Command::new("notify-send")
             .args(["-u", "critical", "-a", "fiaboo-shell", &format!("{label} did not start"), why])
             .status();
     });
+}
+
+/// The first `cap` bytes of `r`; the rest is read to EOF and dropped.
+fn read_capped(mut r: impl std::io::Read, cap: u64) -> Vec<u8> {
+    use std::io::Read;
+    let mut head = vec![];
+    let _ = r.by_ref().take(cap).read_to_end(&mut head);
+    let _ = std::io::copy(&mut r, &mut std::io::sink());
+    head
 }
 
 /// Start a command without waiting on it; a thread reaps it so it never lingers as a zombie.
@@ -1618,6 +1632,15 @@ fn open_bar(cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn launch_stderr_keeps_the_head_and_drains_the_rest() {
+        let data = vec![b'x'; 10_000];
+        let mut r = &data[..];
+        assert_eq!(read_capped(&mut r, 4096).len(), 4096);
+        assert!(r.is_empty(), "read to EOF");
+        assert_eq!(read_capped(&b"short"[..], 4096), b"short");
+    }
 
     #[test]
     fn network_rows_read_in_plain_words() {
