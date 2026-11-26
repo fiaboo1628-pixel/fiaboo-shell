@@ -12,6 +12,11 @@ futures = "0.3"
 zbus = "5"
 png = "0.17"
 
+# no panic = "abort": a panicking background thread must die alone, not take the desktop with it
+[profile.release]
+strip = true
+lto = "thin"
+
 [profile.dev]
 opt-level = 1
 [profile.dev.package."*"]
