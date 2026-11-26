@@ -182,6 +182,7 @@ impl Render for WpPicker {
         let p = self.pal.clone();
         let shown = self.visible();
         let sel = self.sel.min(shown.len().saturating_sub(1));
+        let rows = self.list.len().div_ceil(WP_COLS).clamp(1, 5) as f32; // the whole list: filtering must not resize the panel
         let cells = shown.iter().enumerate().map(|(i, path)| {
             let thumb = wp_thumb(path);
             let target = path.clone();
@@ -194,8 +195,10 @@ impl Render for WpPicker {
                 .flex_none()
                 .rounded_lg()
                 .overflow_hidden()
+                .relative()
                 .bg(rgba((p.dim << 8) | A_HOVER))
                 .shadow(card_shadow(&p, i == sel))
+                .hover(|s| s.shadow(card_shadow(&p, true)))
                 .border_2()
                 .border_color(if i == sel {
                     rgb(p.accent)
@@ -209,7 +212,27 @@ impl Render for WpPicker {
                     close_wp(window, cx);
                 })
                 .when(thumb.exists(), |d| d.child(img(thumb).size_full().object_fit(ObjectFit::Cover)))
+                // "current" as a mark of its own; the border alone told it from "selected" by alpha only
+                .when(is_cur, |d| {
+                    d.child(
+                        div()
+                            .absolute()
+                            .top(px(6.))
+                            .right(px(6.))
+                            .size(px(22.))
+                            .rounded_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .bg(rgba((p.bg << 8) | PANEL_FILL))
+                            .font_family(NF)
+                            .text_size(px(14.))
+                            .text_color(rgb(p.accent))
+                            .child("\u{f012c}"),
+                    )
+                })
         });
+        let sel_name = shown.get(sel).and_then(|f| f.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         div()
             .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
@@ -252,7 +275,7 @@ impl Render for WpPicker {
             .on_mouse_down(MouseButton::Right, |_, window, cx| close_wp(window, cx))
             .child(
                 div()
-                    .w(px(840.))
+                    .w(px(WP_COLS as f32 * 190. + (WP_COLS as f32 - 1.) * 8. + 34.)) // the grid's own width plus p_4 and the 1 px border: centred, no trailing gap
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
                     .flex()
@@ -270,29 +293,19 @@ impl Render for WpPicker {
                             .flex()
                             .items_center()
                             .gap_2()
-                            .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).text_size(px(16.)).child("Wallpaper"))
-                            .child(
-                                div()
-                                    .id("wp-random")
-                                    .cursor_pointer()
-                                    .px_3()
-                                    .py_1()
-                                    .rounded_lg()
-                                    .text_size(px(12.))
-                                    .bg(card_fill(p.accent, false))
-                                    .shadow(card_shadow(&p, false))
-                                    .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)).shadow(card_shadow(&p, true)))
-                                    .on_click(|_, window, cx| {
-                                        run_bg("setsid fiaboo-wallpaper --random");
-                                        close_wp(window, cx);
-                                    })
-                                    .child("Shuffle"),
-                            ),
+                            .child(div().font_weight(FontWeight::SEMIBOLD).text_size(px(16.)).child("Wallpaper"))
+                            // the selected file's name: what the filter matches on
+                            .child(div().flex_1().min_w(px(0.)).overflow_hidden().whitespace_nowrap().text_ellipsis().text_size(px(12.)).text_color(rgb(p.dim)).child(sel_name))
+                            .child(button("wp-random", "Shuffle", p.accent, &p).on_click(|_, window, cx| {
+                                run_bg("setsid fiaboo-wallpaper --random");
+                                close_wp(window, cx);
+                            })),
                     )
                     .child(
                         div()
                             .id("wp-grid")
-                            .h(px(5. * 107. + 4. * 8.)) // five whole thumbnail rows; flex_1 left a sixth cut by the footer
+                            // whole thumbnail rows, up to five (flex_1 left a sixth cut by the footer); fewer images, a shorter panel
+                            .h(px(rows * 107. + (rows - 1.) * 8.))
                             .overflow_y_scroll()
                             .track_scroll(&self.scroll)
                             .flex()
@@ -300,7 +313,10 @@ impl Render for WpPicker {
                             .flex_wrap()
                             .content_start()
                             .gap_2()
-                            .children(cells),
+                            .children(cells)
+                            .when(shown.is_empty() && !self.query.is_empty(), |d| {
+                                d.child(div().w_full().h(px(107.)).flex().items_center().justify_center().text_color(rgb(p.dim)).child(format!("Nothing matches \u{201c}{}\u{201d}", self.query)))
+                            }),
                     )
                     .child(
                         div()

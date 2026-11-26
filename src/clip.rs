@@ -267,25 +267,12 @@ impl ClipPanel {
 impl Render for ClipPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.pal.clone();
-        let small_btn = |id: &'static str, label: String| {
-            div()
-                .id(id)
-                .cursor_pointer()
-                .px_4()
-                .h(px(44.))
-                .flex()
-                .items_center()
-                .rounded_lg()
-                .text_size(px(12.))
-                .bg(card_fill(p.accent, false))
-                .shadow(card_shadow(&p, false))
-                .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)).shadow(card_shadow(&p, true)))
-                .child(label)
-        };
+        let small_btn = |id: &'static str, label: String| button(id, label, p.accent, &p);
         let list = self.visible();
         let sel = self.sel.min(list.len().saturating_sub(1));
         let rows = list.iter().enumerate().map(|(i, c)| {
             let (copy_id, copy_id2) = (c.id.clone(), c.id.clone());
+            let gone = c.clone();
             div()
                 .id(("clip", i))
                 .cursor_pointer()
@@ -297,7 +284,7 @@ impl Render for ClipPanel {
                 .px_4()
                 .rounded_lg()
                 .when(i == sel, |d| d.bg(card_fill(p.accent, true)).shadow(card_shadow(&p, false)))
-                .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
+                .when(i != sel, |d| d.hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))) // the selected card stays itself under the pointer
                 .on_mouse_down(MouseButton::Right, cx.listener(move |this, _, _, cx| {
                     cx.stop_propagation();
                     this.last_input = std::time::Instant::now();
@@ -319,6 +306,27 @@ impl Render for ClipPanel {
                         .child(c.preview.clone())
                         .into_any_element(),
                 })
+                // the mouse path to deleting one entry (Del was keyboard-only); undoable like Del
+                .child(
+                    div()
+                        .id(("clip-x", i))
+                        .flex_none()
+                        .ml_auto()
+                        .size(px(32.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_md()
+                        .text_color(rgb(p.dim))
+                        .hover(|s| s.bg(rgba((p.dim << 8) | A_ACTIVE)).text_color(rgb(p.fg)))
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.last_input = std::time::Instant::now();
+                            this.defer_delete(vec![gone.clone()], false, cx);
+                        }))
+                        .child("\u{2715}"),
+                )
         });
         div()
             .image_cache(gpui::retain_all("clip-images")) // freed with the window; plain img() stays in GPUI's global cache forever
@@ -398,29 +406,40 @@ impl Render for ClipPanel {
                                     .child(div().text_color(rgb(p.dim)).child("\u{f002}"))
                                     .child(div().child(SearchLine(self.field.clone()))),
                             )
-                            .children(if self.confirm_wipe {
-                                let n = self.clips.len();
-                                vec![
-                                    small_btn("clip-keep", "Keep".into()).on_click(cx.listener(|this, _, _, cx| {
-                                        this.confirm_wipe = false;
-                                        cx.notify();
-                                    })),
-                                    small_btn("clip-wipe-yes", if n >= CLIP_MAX { "Delete all".to_string() } else if n == 1 { "Delete 1 item".to_string() } else { format!("Delete {n} items") })
-                                        .bg(rgba((p.err << 8) | 0xcc))
-                                        .text_color(rgb(p.bg)) // on light error red: dark text (white was ~1.7:1)
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            this.confirm_wipe = false;
-                                            let all = this.clips.clone();
-                                            this.defer_delete(all, true, cx);
-                                        })),
-                                ]
-                            } else {
-                                vec![small_btn("clip-wipe", "Clear all".into()).on_click(cx.listener(|this, _, _, cx| {
+                            // nothing to clear: no button (and none while the confirmation below asks)
+                            .when(!self.confirm_wipe && self.clips.iter().any(|c| !self.hidden.contains(&c.id)), |d| {
+                                d.child(small_btn("clip-wipe", "Clear all".into()).on_click(cx.listener(|this, _, _, cx| {
                                     this.confirm_wipe = true;
                                     cx.notify();
-                                }))]
+                                })))
                             }),
                     )
+                    // the confirmation names its scope in a sentence, like Start's power row
+                    .when(self.confirm_wipe, |d| {
+                        let n = self.clips.len();
+                        d.child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_3()
+                                .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).child(if n >= CLIP_MAX {
+                                    "Delete the whole clipboard history?".to_string()
+                                } else if n == 1 {
+                                    "Delete 1 item?".to_string()
+                                } else {
+                                    format!("Delete {n} items?")
+                                }))
+                                .child(small_btn("clip-keep", "Cancel".into()).on_click(cx.listener(|this, _, _, cx| {
+                                    this.confirm_wipe = false;
+                                    cx.notify();
+                                })))
+                                .child(button("clip-wipe-yes", "Delete", p.err, &p).on_click(cx.listener(|this, _, _, cx| {
+                                    this.confirm_wipe = false;
+                                    let all = this.clips.clone();
+                                    this.defer_delete(all, true, cx);
+                                }))),
+                        )
+                    })
                     .child(
                         div()
                             .id("clip-list")
@@ -430,8 +449,15 @@ impl Render for ClipPanel {
                             .flex()
                             .flex_col()
                             .children(rows)
-                            .when(list.is_empty() && self.loaded, |d| {
-                                d.child(div().py_6().flex().justify_center().text_color(rgb(p.dim)).child("Nothing here"))
+                            .when(list.is_empty(), |d| {
+                                let say = if !self.loaded {
+                                    "Loading\u{2026}".to_string()
+                                } else if self.query.is_empty() {
+                                    "Nothing here".to_string()
+                                } else {
+                                    format!("Nothing matches \u{201c}{}\u{201d}", self.query) // Start's words
+                                };
+                                d.child(div().py_6().flex().justify_center().text_color(rgb(p.dim)).child(say))
                             }),
                     )
                     // a deletion waits UNDO_SECS here before cliphist forgets it
@@ -444,7 +470,7 @@ impl Render for ClipPanel {
                                 .text_size(px(12.))
                                 .text_color(rgb(p.dim))
                                 .child(div().flex_1().child(if wipe && n >= CLIP_MAX { "Deleted all items".to_string() } else if n == 1 { "Deleted 1 item".to_string() } else { format!("Deleted {n} items") }))
-                                .child(small_btn("clip-undo", "Undo".into()).bg(rgba((p.accent << 8) | A_ACTIVE)).on_click(cx.listener(|this, _, _, cx| {
+                                .child(small_btn("clip-undo", "Undo".into()).on_click(cx.listener(|this, _, _, cx| {
                                     this.undo();
                                     cx.notify();
                                 }))),

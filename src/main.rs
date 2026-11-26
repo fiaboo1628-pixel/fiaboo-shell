@@ -109,6 +109,43 @@ fn card_shadow(p: &Palette, lifted: bool) -> Vec<gpui::BoxShadow> {
     ]
 }
 
+/// The one text button (header actions, footers, confirmations): 36 px raised card tinted with
+/// `tone` (`p.err` for destructive ones), hover = lifted. The transparent 2 px border is where a
+/// keyboard focus ring goes (`.border_color(rgb(p.fg))`) without the button changing size.
+fn button(id: impl Into<gpui::ElementId>, label: impl Into<gpui::SharedString>, tone: u32, p: &Palette) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .cursor_pointer()
+        .flex_none()
+        .h(px(36.))
+        .px(px(10.))
+        .border_2()
+        .border_color(rgba(0x00000000))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_lg()
+        .text_size(px(14.))
+        .bg(card_fill(tone, false))
+        .shadow(card_shadow(p, false))
+        .hover(|s| s.bg(card_fill(tone, true)).shadow(card_shadow(p, true)))
+        .child(label.into())
+}
+
+/// Keyboard focus after one Tab/arrow press over `n` stops (None for n = 0). It starts at None, so
+/// the ring shows only once the keyboard is used, not when a panel is opened with the mouse.
+fn step_focus(cur: Option<usize>, n: usize, back: bool) -> Option<usize> {
+    if n == 0 {
+        return None;
+    }
+    Some(match cur {
+        None if back => n - 1,
+        None => 0,
+        Some(i) if back => (i.min(n - 1) + n - 1) % n,
+        Some(i) => (i.min(n - 1) + 1) % n,
+    })
+}
+
 fn home() -> String {
     std::env::var("HOME").unwrap_or_default()
 }
@@ -370,6 +407,7 @@ fn icon_for(class: &str) -> Option<PathBuf> {
 // ---------- hyprland state ----------
 #[derive(Clone, Default, PartialEq)]
 struct AppIcon {
+    name: String,           // tooltip: the pin's app name, else the window class
     class: String,          // window class, or pinned id when not running
     address: String,        // window to focus ("" when not running)
     launch: Option<String>, // desktop file stem for gtk-launch
@@ -484,6 +522,7 @@ fn dock_icons(mut clients: Vec<serde_json::Value>, pins: &[(String, Desktop)], a
             used_class.push(class.clone());
         }
         apps.push(AppIcon {
+            name: d.name.clone(),
             icon: find_icon_file(&d.icon).or_else(|| icon_for(&class)),
             active: !address.is_empty() && address == active_addr,
             running: win.is_some(),
@@ -505,6 +544,7 @@ fn dock_icons(mut clients: Vec<serde_json::Value>, pins: &[(String, Desktop)], a
         }
         let address = c["address"].as_str().unwrap_or("").to_string();
         extra.push(AppIcon {
+            name: class.to_string(),
             class: class.to_string(),
             icon: icon_for(class),
             active: address == active_addr,
@@ -941,7 +981,7 @@ impl Render for Tip {
             .items_center()
             .justify_center()
             .rounded_lg()
-            .bg(rgba((p.bg << 8) | 0xE6))
+            .bg(rgba((p.bg << 8) | PANEL_FILL))
             .border_1()
             .border_color(rgba((p.fg << 8) | A_BORDER))
             .text_size(px(12.))
@@ -994,6 +1034,30 @@ fn show_tip(cx: &mut App, text: String, x: f32, screen_w: f32) {
         });
     })
     .detach();
+}
+
+/// The owner's picture (Start button, Start footer).
+/// A missing file makes img() draw nothing, and the button is 30px of empty space you can
+/// still click -- which is exactly what happened when ~/Pictures/fiaboo was not copied to this
+/// machine and Start went invisible for days. Check first and fall back to a glyph, so a lost
+/// image leaves a button that looks wrong rather than one that looks absent.
+fn avatar(size_px: f32, p: &Palette) -> gpui::AnyElement {
+    let face = PathBuf::from(format!("{}/Pictures/fiaboo/cauvang.jpg", home()));
+    if face.exists() {
+        img(face).size(px(size_px)).rounded_full().object_fit(ObjectFit::Cover).into_any_element()
+    } else {
+        div()
+            .size(px(size_px))
+            .flex_none()
+            .rounded_full()
+            .bg(rgba((p.accent << 8) | A_ACTIVE))
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_color(rgb(p.fg))
+            .child("\u{2630}")
+            .into_any_element()
+    }
 }
 
 /// Hover for 600 ms shows `text` under the pointer; leaving or pressing hides it.
@@ -1179,11 +1243,13 @@ impl Render for Bar {
         let dots = (1..=5).map(|id| {
             let is_active = id == st.active_ws;
             let used = st.occupied.contains(&id);
-            div()
+            with_tip(div()
                 .id(("ws", id as usize))
                 .cursor_pointer()
                 .py(px(12.))
-                .px(px(4.))
+                .px(px(8.)) // a 24 px wide target round an 8 px dot
+                .rounded_md()
+                .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
                 .on_click(move |_, _, _| wm::focus_workspace(id))
                 .child(div()
                 .w(if is_active { px(22.) } else { px(8.) })
@@ -1195,7 +1261,7 @@ impl Render for Bar {
                     rgb(p.dim)
                 } else {
                     rgba((p.dim << 8) | A_STRONG) // empty workspace: still >= 3:1 on the bar
-                }))
+                })), format!("Workspace {id}"))
         });
 
         let apps = st.apps.iter().enumerate().map(|(i, a)| {
@@ -1219,15 +1285,17 @@ impl Render for Bar {
                     .child(letter)
                     .into_any_element(),
             };
-            div()
+            let name = a.name.clone();
+            with_tip(div()
                 .id(("app", i))
                 .cursor_pointer()
                 .flex()
                 .flex_col()
                 .items_center()
+                .justify_center()
                 .gap_0p5()
                 .px_2()
-                .py_1()
+                .h(px(36.))
                 .rounded_md()
                 .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
                 .on_mouse_down(MouseButton::Middle, {
@@ -1258,7 +1326,7 @@ impl Render for Bar {
                         } else {
                             rgba(0x00000000)
                         }),
-                )
+                ), name)
         });
 
         let (clock_time, clock_date) = st.time.split_once('|').unwrap_or((st.time.as_str(), ""));
@@ -1316,34 +1384,14 @@ impl Render for Bar {
                             div()
                                 .id("start-button")
                                 .cursor_pointer()
-                                .p_1()
-                                .rounded_lg()
+                                .size(px(36.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded_md()
                                 .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
                                 .on_click(|_, _, cx| toggle_start(cx))
-                                // A missing file makes img() draw nothing, and the button
-                                // is 30px of empty space you can still click -- which is
-                                // exactly what happened when ~/Pictures/fiaboo was not
-                                // copied to this machine and Start went invisible for
-                                // days. Check first and fall back to a glyph, so a lost
-                                // image leaves a button that looks wrong rather than one
-                                // that looks absent.
-                                .child({
-                                    let face = PathBuf::from(format!("{}/Pictures/fiaboo/cauvang.jpg", home()));
-                                    if face.exists() {
-                                        img(face).size(px(30.)).rounded_full().object_fit(ObjectFit::Cover).into_any_element()
-                                    } else {
-                                        div()
-                                            .size(px(30.))
-                                            .rounded_full()
-                                            .bg(rgba((p.accent << 8) | A_ACTIVE))
-                                            .flex()
-                                            .items_center()
-                                            .justify_center()
-                                            .text_color(rgb(p.bg))
-                                            .child("\u{2630}")
-                                            .into_any_element()
-                                    }
-                                }),
+                                .child(avatar(30., &p)),
                             "Start",
                         ),
                     )
@@ -1352,7 +1400,7 @@ impl Render for Bar {
                             div()
                                 .id("taskview-button")
                                 .cursor_pointer()
-                                .size(px(32.))
+                                .size(px(36.))
                                 .flex()
                                 .items_center()
                                 .justify_center()
@@ -1393,7 +1441,7 @@ impl Render for Bar {
                             let it = left.clone();
                             std::thread::spawn(move || tray::activate(&it));
                         })
-                        .on_mouse_down(MouseButton::Right, move |_, _, cx| open_tray_menu(cx, right.clone()))
+                        .on_mouse_down(MouseButton::Right, move |ev: &gpui::MouseDownEvent, _, cx| open_tray_menu(cx, right.clone(), ev.position.x.into()))
                         .child(match &it.icon {
                             Some(path) => img(path.clone()).size(px(18.)).object_fit(ObjectFit::Contain).into_any_element(),
                             None => div()
@@ -1411,7 +1459,7 @@ impl Render for Bar {
                                 .cursor_pointer()
                                 .px_2()
                                 .h(px(36.))
-                                .rounded_lg()
+                                .rounded_md()
                                 .flex()
                                 .items_center()
                                 .gap_1()
@@ -1425,8 +1473,9 @@ impl Render for Bar {
                         ))
                     })
                     .when(self.ind.mic, |d| {
-                        d.child(
+                        d.child(with_tip(
                             div()
+                                .id("mic")
                                 .size(px(36.))
                                 .flex()
                                 .items_center()
@@ -1435,7 +1484,8 @@ impl Render for Bar {
                                 .text_size(px(16.))
                                 .text_color(rgb(p.accent))
                                 .child("\u{f036c}"),
-                        )
+                            "Microphone in use",
+                        ))
                     })
                     .when_some(self.rec_secs, |d, secs| {
                         d.child(with_tip(
@@ -1444,7 +1494,7 @@ impl Render for Bar {
                                 .cursor_pointer()
                                 .px_2()
                                 .h(px(36.))
-                                .rounded_lg()
+                                .rounded_md()
                                 .flex()
                                 .items_center()
                                 .gap_1()
@@ -1466,7 +1516,7 @@ impl Render for Bar {
                                 .min_w(px(36.))
                                 .px_2()
                                 .h(px(36.))
-                                .rounded_lg()
+                                .rounded_md()
                                 .flex()
                                 .items_center()
                                 .justify_center()
@@ -1497,7 +1547,7 @@ impl Render for Bar {
                     .gap_3()
                     .px_2()
                     .h(px(36.))
-                    .rounded_lg()
+                    .rounded_md()
                     .font_family(NF).font_weight(FontWeight::MEDIUM)
                     .text_size(px(16.))
                     .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
@@ -1510,7 +1560,7 @@ impl Render for Bar {
                         with_tip(div()
                             .id("clock")
                             .cursor_pointer()
-                            .rounded_lg()
+                            .rounded_md()
                             .h(px(36.))
                             .justify_center()
                             .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
@@ -1529,10 +1579,10 @@ impl Render for Bar {
                             .id("bell")
                             .cursor_pointer()
                             .font_family(NF).font_weight(FontWeight::MEDIUM)
-                            .text_size(px(18.))
+                            .text_size(px(16.))
                             .px_2()
                             .h(px(36.))
-                            .rounded_lg()
+                            .rounded_md()
                             .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
                             .on_click(|_, _, cx| toggle_notif_center(cx))
                             .flex()
@@ -1658,6 +1708,16 @@ fn open_bar(cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn focus_starts_hidden_then_wraps() {
+        assert_eq!(step_focus(None, 0, false), None);
+        assert_eq!(step_focus(None, 3, false), Some(0));
+        assert_eq!(step_focus(None, 3, true), Some(2));
+        assert_eq!(step_focus(Some(2), 3, false), Some(0));
+        assert_eq!(step_focus(Some(0), 3, true), Some(2));
+        assert_eq!(step_focus(Some(7), 3, false), Some(0), "a list that shrank");
+    }
 
     #[test]
     fn launch_stderr_keeps_the_head_and_drains_the_rest() {

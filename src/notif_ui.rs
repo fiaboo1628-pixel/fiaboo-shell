@@ -36,8 +36,9 @@ pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, center: Option<gpui::En
         .when(in_center, |d| d.bg(card_fill(if n.critical { p.err } else { p.accent }, false)).shadow(card_shadow(&p, false)))
         .border_1()
         .border_color(if n.critical { rgba((p.err << 8) | 0xcc) } else { rgba((p.fg << 8) | A_BORDER) })
-        .when(focused, |d| d.border_color(rgb(p.accent))) // keyboard focus ring
-        .hover(|s| s.bg(rgba((p.accent << 8) | A_HOVER)))
+        // keyboard focus ring: 2 px fg; one px less padding keeps the content still
+        .when(focused, |d| d.border_2().p(px(11.)).border_color(rgb(p.fg)))
+        .hover(|s| if in_center { s.bg(card_fill(if n.critical { p.err } else { p.accent }, true)).shadow(card_shadow(&p, true)) } else { s.bg(rgba((p.accent << 8) | A_HOVER)) })
         .text_color(rgb(p.fg))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_mouse_down(MouseButton::Right, move |_, _, cx| {
@@ -248,7 +249,7 @@ pub(crate) struct NotifCenter {
     focus: FocusHandle,
     gen: u64,
     confirm_clear: bool, // "Clear all" asks once before deleting every notification
-    focus_i: usize,      // keyboard focus in the visible list
+    focus_i: Option<usize>, // keyboard focus in the visible list; None (ring hidden) until the first Tab or arrow
     hidden: std::collections::HashSet<u32>, // dismissed, still undoable
     pending: Option<(Vec<u32>, u64)>,       // (ids waiting for the store, token of the timer that commits them)
     undo_token: u64,
@@ -323,7 +324,7 @@ impl NotifCenter {
             }
         })
         .detach();
-        NotifCenter { pal: palette(), focus, gen: notify::generation(), confirm_clear: false, focus_i: 0, hidden: Default::default(), pending: None, undo_token: 0 }
+        NotifCenter { pal: palette(), focus, gen: notify::generation(), confirm_clear: false, focus_i: None, hidden: Default::default(), pending: None, undo_token: 0 }
     }
 }
 
@@ -334,20 +335,8 @@ impl Render for NotifCenter {
         let today = today_dm();
         let dnd = notify::dnd();
         let me = cx.entity();
-        let focus_i = self.focus_i.min(list.len().saturating_sub(1));
-        let pill = |id: &'static str, label: String, on: bool| {
-            div()
-                .id(id)
-                .cursor_pointer()
-                .px_3()
-                .py_1()
-                .rounded_lg()
-                .text_size(px(12.))
-                .bg(card_fill(p.accent2, on))
-                .shadow(card_shadow(&p, false))
-                .hover(|s| s.bg(card_fill(p.accent2, true)).shadow(card_shadow(&p, true)))
-                .child(label)
-        };
+        let focus_i = self.focus_i.map(|i| i.min(list.len().saturating_sub(1)));
+        let pill = |id: &'static str, label: String, on: bool| button(id, label, p.accent2, &p).bg(card_fill(p.accent2, on));
         div()
             .image_cache(gpui::retain_all("notif-center-images")) // freed with the window; plain img() stays in GPUI's global cache forever
             .font_family(NF).font_weight(FontWeight::MEDIUM)
@@ -359,14 +348,15 @@ impl Render for NotifCenter {
                 let k = &ev.keystroke;
                 match k.key.as_str() {
                     "escape" => close_notif_center(window, cx),
-                    "tab" if k.modifiers.shift && n > 0 => this.focus_i = (this.focus_i.min(n - 1) + n - 1) % n,
-                    "tab" | "down" if n > 0 => this.focus_i = (this.focus_i + 1) % n,
-                    "up" if n > 0 => this.focus_i = (this.focus_i.min(n - 1) + n - 1) % n,
+                    "tab" if k.modifiers.shift => this.focus_i = step_focus(this.focus_i, n, true),
+                    "tab" | "down" => this.focus_i = step_focus(this.focus_i, n, false),
+                    "up" => this.focus_i = step_focus(this.focus_i, n, true),
+                    // with no ring yet these act on the first card, as before
                     "delete" | "backspace" if n > 0 => {
-                        let id = shown[this.focus_i.min(n - 1)];
+                        let id = shown[this.focus_i.unwrap_or(0).min(n - 1)];
                         this.defer_dismiss(vec![id], cx);
                     }
-                    "enter" if n > 0 => notify::activate(shown[this.focus_i.min(n - 1)]),
+                    "enter" if n > 0 => notify::activate(shown[this.focus_i.unwrap_or(0).min(n - 1)]),
                     "z" if k.modifiers.control => this.undo(),
                     _ => {}
                 }
@@ -401,35 +391,40 @@ impl Render for NotifCenter {
                             .items_center()
                             .gap_2()
                             .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).text_size(px(16.)).child("Notifications"))
-                            .child(pill("nc-dnd", if dnd { "\u{f009b} DND".into() } else { "\u{f009c} DND".into() }, dnd).on_click(
+                            // the state in words (a check), not only in the fill; Quick calls it the same
+                            .child(pill("nc-dnd", if dnd { "\u{f012c} Do not disturb".into() } else { "Do not disturb".into() }, dnd).on_click(
                                 cx.listener(|_, _, _, cx| {
                                     notify::toggle_dnd();
                                     cx.notify();
                                 }),
                             ))
-                            .children(if self.confirm_clear {
-                                let n = list.len();
-                                vec![
-                                    pill("nc-keep", "Keep".into(), false).on_click(cx.listener(|this, _, _, cx| {
-                                        this.confirm_clear = false;
-                                        cx.notify();
-                                    })),
-                                    pill("nc-clear-yes", if n == 1 { "Delete 1".into() } else { format!("Delete all {n}") }, false)
-                                        .bg(rgba((p.err << 8) | 0xcc))
-                                        .text_color(rgb(p.bg)) // on light error red: dark text (white was ~1.7:1)
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            let ids: Vec<u32> = notify::all().iter().map(|n| n.id).filter(|id| !this.hidden.contains(id)).collect();
-                                            this.confirm_clear = false;
-                                            this.defer_dismiss(ids, cx);
-                                        })),
-                                ]
-                            } else {
-                                vec![pill("nc-clear", "Clear all".into(), false).on_click(cx.listener(|this, _, _, cx| {
+                            // only with something to clear, and not while the row below asks
+                            .when(!self.confirm_clear && !list.is_empty(), |d| {
+                                d.child(pill("nc-clear", "Clear".into(), false).on_click(cx.listener(|this, _, _, cx| {
                                     this.confirm_clear = true;
                                     cx.notify();
-                                }))]
+                                })))
                             }),
                     )
+                    .when(self.confirm_clear && !list.is_empty(), |d| {
+                        let n = list.len();
+                        d.child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).child(if n == 1 { "Clear 1 notification?".to_string() } else { format!("Clear {n} notifications?") }))
+                                .child(pill("nc-keep", "Cancel".into(), false).on_click(cx.listener(|this, _, _, cx| {
+                                    this.confirm_clear = false;
+                                    cx.notify();
+                                })))
+                                .child(button("nc-clear-yes", "Clear", p.err, &p).on_click(cx.listener(|this, _, _, cx| {
+                                    let ids: Vec<u32> = notify::all().iter().map(|n| n.id).filter(|id| !this.hidden.contains(id)).collect();
+                                    this.confirm_clear = false;
+                                    this.defer_dismiss(ids, cx);
+                                }))),
+                        )
+                    })
                     .child(
                         div()
                             .id("nc-list")
@@ -439,7 +434,7 @@ impl Render for NotifCenter {
                             .flex()
                             .flex_col()
                             .gap_2()
-                            .children(list.iter().enumerate().map(|(i, n)| notif_card(n, &p, Some(me.clone()), i == focus_i, i, &today)))
+                            .children(list.iter().enumerate().map(|(i, n)| notif_card(n, &p, Some(me.clone()), focus_i == Some(i), i, &today)))
                             .when(list.is_empty(), |d| {
                                 d.child(div().py_6().flex().justify_center().text_color(rgb(p.dim)).child("No notifications"))
                             }),
@@ -453,19 +448,16 @@ impl Render for NotifCenter {
                                 .gap_2()
                                 .text_size(px(12.))
                                 .text_color(rgb(p.dim))
-                                .child(div().flex_1().child(if n == 1 { "Deleted 1 notification".to_string() } else { format!("Deleted {n} notifications") }))
+                                .child(div().flex_1().child(if n == 1 { "Cleared 1 notification".to_string() } else { format!("Cleared {n} notifications") }))
                                 .child(pill("nc-undo", "Undo".into(), true).on_click(cx.listener(|this, _, _, cx| {
                                     this.undo();
                                     cx.notify();
                                 }))),
                         )
                     })
-                    .child(
-                        div()
-                            .text_size(px(12.))
-                            .text_color(rgb(p.dim))
-                            .child("Enter: open · Del: dismiss · Esc: close"),
-                    ),
+                    .when(!list.is_empty(), |d| {
+                        d.child(div().text_size(px(12.)).text_color(rgb(p.dim)).child("Enter: open · Del: clear · Esc: close"))
+                    }),
             )
     }
 }

@@ -107,6 +107,7 @@ pub(crate) struct TaskView {
     sel: usize,
     last_input: std::time::Instant,
     pending_close: Option<(usize, std::time::Instant)>, // card armed by one Del / right-click, and when
+    scroll: gpui::ScrollHandle,
 }
 
 impl TaskView {
@@ -147,7 +148,7 @@ impl TaskView {
             }
         })
         .detach();
-        TaskView { pal: palette(), focus, wins, sel: 0, last_input: std::time::Instant::now(), pending_close: None }
+        TaskView { pal: palette(), focus, wins, sel: 0, last_input: std::time::Instant::now(), pending_close: None, scroll: gpui::ScrollHandle::new() }
     }
 }
 
@@ -185,8 +186,9 @@ impl TaskView {
 }
 
 impl Render for TaskView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.pal.clone();
+        let screen_h: f32 = window.bounds().size.height.into();
         let empty = self.wins.is_empty();
         let sel = self.sel;
         let pending = self.pending_close.filter(|(_, t)| t.elapsed() < CLOSE_CONFIRM).map(|(i, _)| i);
@@ -206,11 +208,11 @@ impl Render for TaskView {
                 .shadow(card_shadow(&p, i == sel))
                 .border_1()
                 .border_color(rgba((p.fg << 8) | A_BORDER))
-                .when(i == sel, |d| d.border_2().border_color(rgb(p.accent)))
+                .when(i == sel || pending == Some(i), |d| d.border_2().p(px(11.)).border_color(rgb(p.accent))) // 1 px less padding: the content stays put
                 // armed to close: the border carries the warning, because the line below says so
                 // in fg. err at 14 px measured 3.4:1 over the old glass, under AA, and a border is
                 // not the only cue -- the text changes too.
-                .when(pending == Some(i), |d| d.border_2().border_color(rgb(p.err)))
+                .when(pending == Some(i), |d| d.border_color(rgb(p.err)))
                 .hover(|s| s.bg(card_fill(if i % 2 == 0 { p.accent } else { p.accent2 }, true)).shadow(card_shadow(&p, true)))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 // The ✕ lived in a header row that is gone, so right-click is the mouse path to
@@ -236,15 +238,30 @@ impl Render for TaskView {
                 )
                 .child(
                     div()
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_ellipsis()
+                        .flex()
+                        .items_baseline()
+                        .gap_2()
                         .text_size(px(14.))
                         .font_weight(FontWeight::SEMIBOLD)
                         // the confirmation used to sit in the header row; with that row gone this
                         // is the only place left to say it, and saying nothing would make one Del
-                        // arm a close with no sign of it on screen
-                        .child(if pending == Some(i) { "Again: close · Esc: keep".to_string() } else { w.title.clone() }),
+                        // arm a close with no sign of it on screen. It names the window; only the
+                        // title is ellipsized, never the instruction.
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w(px(0.))
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .text_ellipsis()
+                                .child(if pending == Some(i) { format!("Close \u{201c}{}", w.title) } else { w.title.clone() }),
+                        )
+                        .child(if pending == Some(i) {
+                            div().flex_none().child("\u{201d}? Del again")
+                        } else {
+                            // cards from different workspaces look alike without it
+                            div().flex_none().text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(rgb(p.dim)).child(format!("Workspace {}", w.ws))
+                        }),
                 )
         });
         div()
@@ -264,12 +281,19 @@ impl Render for TaskView {
                         let i = this.sel;
                         this.request_close(i, window, cx);
                     }
+                    "tab" if n > 0 && ev.keystroke.modifiers.shift => {
+                        this.sel = (this.sel + n - 1) % n;
+                        this.scroll.scroll_to_item(this.sel);
+                        cx.notify();
+                    }
                     "right" | "down" | "tab" if n > 0 => {
                         this.sel = (this.sel + 1) % n;
+                        this.scroll.scroll_to_item(this.sel);
                         cx.notify();
                     }
                     "left" | "up" if n > 0 => {
                         this.sel = (this.sel + n - 1) % n;
+                        this.scroll.scroll_to_item(this.sel);
                         cx.notify();
                     }
                     "enter" => {
@@ -293,10 +317,16 @@ impl Render for TaskView {
             .on_mouse_down(MouseButton::Right, |_, window, cx| close_taskview(window, cx))
             .child(
                 div()
+                    .id("tv-grid")
+                    // more than ~12 windows: the grid scrolls instead of running off the screen (hint row ~40 px, margins)
+                    .when(screen_h > 0., |d| d.max_h(px(screen_h - 96.)))
+                    .overflow_y_scroll()
+                    .track_scroll(&self.scroll)
                     .max_w(px(1600.))
                     .flex()
                     .flex_row()
                     .flex_wrap()
+                    .content_start()
                     .justify_center()
                     .gap_4()
                     .children(cards)

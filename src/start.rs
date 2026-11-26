@@ -72,6 +72,24 @@ pub(crate) struct StartMenu {
     power: bool,            // power row shown
     confirm: Option<usize>, // POWER action waiting for confirmation
     wins: Vec<serde_json::Value>, // Hyprland clients when Start opened
+    focus_on: Option<StartStop>, // Tab focus on a tile or button; None = Enter and the arrows work the list
+}
+
+/// What Tab walks besides the list, in screen order: pinned tiles, the power row, the footer.
+#[derive(Clone, Copy, PartialEq)]
+enum StartStop {
+    Pin(usize),
+    PowerAct(usize),
+    Confirm,
+    Cancel,
+    Settings,
+    Lock,
+    Power,
+}
+
+/// `cmd` in its own session, so it outlives Start (and the shell).
+fn run_detached(cmd: &str) {
+    spawn_bg(Command::new("sh").args(["-c", &format!("setsid {cmd} >/dev/null 2>&1 &")]));
 }
 
 impl StartMenu {
@@ -89,6 +107,7 @@ impl StartMenu {
             if m.query != field.read(cx).text {
                 m.query = field.read(cx).text.clone();
                 m.sel = 0;
+                m.focus_on = None; // typing goes back to the results
                 cx.notify();
             }
         })
@@ -130,7 +149,60 @@ impl StartMenu {
             power: false,
             confirm: None,
             wins: vec![],
+            focus_on: None,
         }
+    }
+
+    fn stops(&self) -> Vec<StartStop> {
+        use StartStop::*;
+        let mut v: Vec<StartStop> = if self.query.is_empty() { (0..self.pins.len()).map(Pin).collect() } else { vec![] };
+        if self.power {
+            match self.confirm {
+                Some(_) => v.extend([Confirm, Cancel]),
+                None => v.extend((0..POWER.len()).map(PowerAct)),
+            }
+        }
+        v.extend([Settings, Lock, Power]);
+        v
+    }
+
+    /// What a click on the tile or button, or Enter on its focus, does.
+    fn run_stop(&mut self, s: StartStop, window: &mut Window, cx: &mut Context<Self>) {
+        match s {
+            StartStop::Pin(i) => {
+                if let Some(e) = self.pins.get(i) {
+                    launch_app(&e.stem);
+                }
+                return close_start(window, cx);
+            }
+            StartStop::Settings => {
+                close_start(window, cx);
+                return toggle_settings(cx);
+            }
+            StartStop::Lock => {
+                run_detached("hyprlock");
+                return close_start(window, cx);
+            }
+            StartStop::Confirm => {
+                if let Some(i) = self.confirm {
+                    run_detached(POWER[i].2);
+                }
+                return close_start(window, cx);
+            }
+            StartStop::Power => {
+                self.power = !self.power;
+                self.confirm = None;
+            }
+            StartStop::PowerAct(i) => {
+                self.confirm = Some(i);
+                self.focus_on = self.focus_on.map(|_| StartStop::Cancel); // the safe answer, if the keyboard got here
+            }
+            StartStop::Cancel => {
+                self.focus_on = self.focus_on.and(self.confirm.map(StartStop::PowerAct));
+                self.confirm = None;
+            }
+        }
+        cx.notify();
     }
 
     /// The calculator first, then the first 40 ranked apps, then matching open windows.
@@ -327,6 +399,8 @@ impl Render for StartMenu {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.pal.clone();
         let searching = !self.query.is_empty();
+        let (focus_on, fg) = (self.focus_on, p.fg);
+        let ring = move |s: StartStop| if focus_on == Some(s) { rgb(fg) } else { rgba(0x00000000) };
 
         let search = div()
             .h(px(44.))
@@ -344,7 +418,9 @@ impl Render for StartMenu {
             div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(rgb(p.dim)).child(title)
         };
 
+        let pinned_stems: HashSet<String> = self.pins.iter().map(|e| e.stem.clone()).collect();
         let row = |hit: Hit, i: usize, first: bool| {
+            let is_pinned = matches!(&hit, Hit::App(e, _) if pinned_stems.contains(&e.stem));
             let (icon, name, why, pin_stem) = match &hit {
                 Hit::App(e, why) => (tile_icon(e, 26., &p), e.name.clone(), why.clone(), Some(e.stem.clone())),
                 Hit::Win { title, class, .. } => {
@@ -374,7 +450,7 @@ impl Render for StartMenu {
                 .flex_none() // the list scrolls; without this the rows shrink to fit it
                 .rounded_lg()
                 .when(first, |d| d.bg(card_fill(p.accent, true)).shadow(card_shadow(&p, false)))
-                .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
+                .when(!first, |d| d.hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))) // the selected card stays itself under the pointer
                 .on_click(move |_, window, cx| activate(&hit, window, cx))
                 .child(icon)
                 .child(
@@ -386,6 +462,8 @@ impl Render for StartMenu {
                         .child(div().line_height(px(18.)).overflow_hidden().whitespace_nowrap().text_ellipsis().child(name))
                         .when_some(why, |d, why| d.child(div().text_size(px(12.)).line_height(px(14.)).text_color(rgb(p.dim)).child(why))),
                 )
+                // pinned: the state right-click toggles, visible in the row
+                .when(is_pinned, |d| d.child(div().flex_none().font_family(NF).text_color(rgb(p.dim)).child("\u{f0403}")))
         };
 
         let body = if searching {
@@ -406,7 +484,6 @@ impl Render for StartMenu {
                 .into_any_element()
         } else {
             let tiles = self.pins.iter().enumerate().map(|(i, e)| {
-                let stem = e.stem.clone();
                 let pin_stem = e.stem.clone();
                 div()
                     .id(("pin", i))
@@ -423,14 +500,13 @@ impl Render for StartMenu {
                     .items_center()
                     .justify_center()
                     .gap_1()
-                    .rounded_lg()
+                    .border_2()
+                    .border_color(ring(StartStop::Pin(i)))
+                    .rounded_xl()
                     .bg(card_fill(if i % 2 == 0 { p.accent } else { p.accent2 }, false))
                     .shadow(card_shadow(&p, false))
                     .hover(|s| s.bg(card_fill(if i % 2 == 0 { p.accent } else { p.accent2 }, true)).shadow(card_shadow(&p, true)))
-                    .on_click(move |_, window, cx| {
-                        launch_app(&stem);
-                        close_start(window, cx);
-                    })
+                    .on_click(cx.listener(move |this, _, window, cx| this.run_stop(StartStop::Pin(i), window, cx)))
                     .child(tile_icon(e, 38., &p))
                     .child(
                         div()
@@ -450,7 +526,10 @@ impl Render for StartMenu {
                 .gap_2()
                 .overflow_hidden()
                 .child(section("Pinned"))
-                .child(div().flex().flex_row().flex_wrap().justify_center().gap_2().children(tiles))
+                .child(div().flex().flex_row().flex_wrap().justify_center().gap_2().children(tiles).when(self.pins.is_empty(), |d| {
+                    // the tile row's height stays reserved, so say what goes there
+                    d.h(px(TILE_H)).items_center().text_size(px(12.)).text_color(rgb(p.dim)).child("Right-click an app to pin it")
+                }))
                 .child(section("All apps").pt_2())
                 .child(
                     div()
@@ -465,56 +544,22 @@ impl Render for StartMenu {
                 .into_any_element()
         };
 
-        let footer_btn = |id: &'static str, label: &'static str, cmd: &'static str| {
-            div()
-                .id(id)
-                .cursor_pointer()
-                .px_3()
-                .py_2p5()
-                .rounded_lg()
-                .text_size(px(14.))
-                .bg(card_fill(p.accent, false))
-                .shadow(card_shadow(&p, false))
-                .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)).shadow(card_shadow(&p, true)))
-                .on_click(move |_, window, cx| {
-                    spawn_bg(Command::new("sh").args(["-c", &format!("setsid {cmd} >/dev/null 2>&1 &")]));
-                    close_start(window, cx);
-                })
-                .child(label)
-        };
-
-        let small_btn = |id: &'static str, label: &'static str| {
-            div()
-                .id(id)
-                .cursor_pointer()
-                .px_3()
-                .py_2p5()
-                .rounded_lg()
-                .text_size(px(14.))
-                .bg(card_fill(p.accent, false))
-                .shadow(card_shadow(&p, false))
-                .hover(|s| s.bg(rgba((p.accent << 8) | A_ACTIVE)).shadow(card_shadow(&p, true)))
-                .child(label)
+        let stop_btn = |id: &'static str, label: &'static str, tone: u32, s: StartStop| {
+            button(id, label, tone, &p).border_color(ring(s)).on_click(cx.listener(move |this, _, window, cx| this.run_stop(s, window, cx)))
         };
         let power_row = match self.confirm {
             Some(i) => {
-                let (label, question, cmd) = POWER[i];
+                let (label, question, _) = POWER[i];
                 div()
                     .flex()
                     .items_center()
                     .gap_3()
                     .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).child(question))
-                    .child(footer_btn("p-ok", label, cmd).bg(rgba((p.err << 8) | A_STRONG)))
-                    .child(small_btn("p-cancel", "Cancel").on_click(cx.listener(|this, _, _, cx| {
-                        this.confirm = None;
-                        cx.notify();
-                    })))
+                    .child(stop_btn("p-ok", label, p.err, StartStop::Confirm))
+                    .child(stop_btn("p-cancel", "Cancel", p.accent, StartStop::Cancel))
             }
             None => div().flex().justify_end().gap_3().children(POWER.iter().enumerate().map(|(i, &(label, _, _))| {
-                small_btn(label, label).on_click(cx.listener(move |this, _, _, cx| {
-                    this.confirm = Some(i);
-                    cx.notify();
-                }))
+                stop_btn(label, label, p.accent, StartStop::PowerAct(i))
             })),
         };
 
@@ -523,23 +568,11 @@ impl Render for StartMenu {
             .items_center()
             .gap_3()
             .pt_2()
-            .child(
-                img(PathBuf::from(format!("{}/Pictures/fiaboo/cauvang.jpg", home())))
-                    .size(px(32.))
-                    .rounded_full()
-                    .object_fit(ObjectFit::Cover),
-            )
+            .child(avatar(32., &p))
             .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).child("fiaboo"))
-            .child(small_btn("f-settings", "Settings").on_click(|_, window, cx| {
-                close_start(window, cx);
-                toggle_settings(cx);
-            }))
-            .child(footer_btn("f-lock", "Lock", "hyprlock"))
-            .child(small_btn("f-power", "\u{23fb}").font_family(NF).font_weight(FontWeight::MEDIUM).on_click(cx.listener(|this, _, _, cx| {
-                this.power = !this.power;
-                this.confirm = None;
-                cx.notify();
-            })));
+            .child(stop_btn("f-settings", "Settings", p.accent, StartStop::Settings))
+            .child(stop_btn("f-lock", "Lock", p.accent, StartStop::Lock))
+            .child(stop_btn("f-power", "\u{23fb}", p.accent, StartStop::Power).font_family(NF).font_weight(FontWeight::MEDIUM));
 
         div()
             .font_family(NF).font_weight(FontWeight::MEDIUM)
@@ -549,9 +582,29 @@ impl Render for StartMenu {
                 this.last_input = std::time::Instant::now();
                 let k = &ev.keystroke;
                 match k.key.as_str() {
+                    // Esc closes the topmost layer: the power confirmation, then the power row, then Start
+                    "escape" if this.confirm.is_some() => {
+                        this.confirm = None;
+                        cx.notify();
+                    }
+                    "escape" if this.power => {
+                        this.power = false;
+                        cx.notify();
+                    }
                     "escape" => close_start(window, cx),
                     "backspace" => this.field.update(cx, |f, cx| f.backspace(cx)),
+                    "tab" => {
+                        let stops = this.stops();
+                        let cur = this.focus_on.and_then(|f| stops.iter().position(|s| *s == f));
+                        this.focus_on = step_focus(cur, stops.len(), k.modifiers.shift).map(|i| stops[i]);
+                        cx.notify();
+                    }
+                    "enter" if this.focus_on.is_some_and(|f| this.stops().contains(&f)) => {
+                        let f = this.focus_on.unwrap();
+                        this.run_stop(f, window, cx);
+                    }
                     "down" | "up" => {
+                        this.focus_on = None; // the arrows are the list's
                         // with no query the arrows walk the whole All apps list
                         let n = if this.query.is_empty() { this.all.len() } else { this.results().len() };
                         if n > 0 {
@@ -598,7 +651,7 @@ impl Render for StartMenu {
                     .child(if searching {
                         "Enter: open · Backspace: edit · Esc: close"
                     } else {
-                        "Type: search · Enter: open · Right-click: pin or unpin · Esc: close"
+                        "Type: search · Enter: open · Tab: buttons · Right-click: pin or unpin · Esc: close"
                     }),
             )
             .child(footer)

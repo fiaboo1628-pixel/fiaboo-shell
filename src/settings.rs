@@ -200,19 +200,58 @@ pub(crate) fn bt_power_cmd(on: bool) -> &'static str {
     if on { "rfkill unblock bluetooth; bluetoothctl power on" } else { "bluetoothctl power off" }
 }
 
-/// Power, paired devices (click: connect/disconnect), scan, found devices (click: pair + connect).
-pub(crate) fn bt_rows(ui: &BtUi, p: &Palette, cx: &mut Context<SettingsPanel>) -> Vec<gpui::AnyElement> {
+/// A Settings row that does something, in Tab order; a click and Enter both go through `SettingsPanel::run`.
+#[derive(Clone, PartialEq)]
+pub(crate) enum Stop {
+    Wallpaper,
+    Sink(String),
+    Bt { key: String, want: bool, cmd: String },
+    Scan,
+}
+
+/// The Bluetooth section in order: (stop, label, glyph, on). Power, paired devices (connect/disconnect),
+/// scan, found devices (pair + connect).
+fn bt_items(ui: &BtUi) -> Vec<(Stop, String, &'static str, bool)> {
+    let info = &ui.info;
+    let glyph = |on: bool| if on { "\u{f00af}" } else { "\u{f00b2}" };
+    let bt = |key: String, want: bool, cmd: String| Stop::Bt { key, want, cmd };
+    let mut v = vec![(bt("power".into(), !info.on, bt_power_cmd(!info.on).into()), "Bluetooth".into(), glyph(info.on), info.on)]; // the row's trailing On/Off is the state
+    if !info.on {
+        return v;
+    }
+    v.extend(info.paired.iter().map(|(mac, name, on)| {
+        let cmd = format!("bluetoothctl {} {mac}", if *on { "disconnect" } else { "connect" });
+        (bt(mac.clone(), !*on, cmd), format!("{name} · {}", if *on { "connected" } else { "paired" }), glyph(*on), *on)
+    }));
+    v.push((Stop::Scan, String::new(), "", false));
+    if ui.scan_until.is_some() {
+        v.extend(info.found.iter().map(|(mac, name)| {
+            // shortcut: devices that ask for a PIN or passkey are not handled, pair those with `bluetoothctl` in a terminal
+            // pairable only while pairing, so nearby devices can't pair on their own afterwards
+            let cmd = format!("bluetoothctl pairable on; bluetoothctl --timeout 25 pair {mac} && bluetoothctl trust {mac}; bluetoothctl pairable off; bluetoothctl connect {mac}");
+            (bt(mac.clone(), true, cmd), format!("{name} · pair"), "\u{f00b1}", false)
+        }));
+    }
+    v
+}
+
+/// The rows of `bt_items`; `focused` gets the keyboard focus ring.
+pub(crate) fn bt_rows(ui: &BtUi, p: &Palette, focused: Option<&Stop>, cx: &mut Context<SettingsPanel>) -> Vec<gpui::AnyElement> {
     let (accent, dim) = (p.accent, p.dim);
     let busy = ui.busy.as_ref().map(|b| b.0.clone());
     let failed = ui.failed.clone();
-    let row = |id: gpui::ElementId, key: String, label: String, glyph: &'static str, on: bool, want: bool, cmd: String| {
+    let ring = |s: &Stop| if focused == Some(s) { rgb(p.fg) } else { rgba(0x00000000) };
+    let row = |id: gpui::ElementId, stop: Stop, label: String, glyph: &'static str, on: bool| {
+        let Stop::Bt { key, .. } = &stop else { unreachable!() };
         let label = if busy.as_deref() == Some(key.as_str()) {
             format!("{label} · working…")
         } else if failed.as_deref() == Some(key.as_str()) {
-            format!("{label} · failed, click to retry")
+            format!("{label} · couldn\u{2019}t connect · Retry")
         } else {
             label
         };
+        let power = key == "power";
+        let border = ring(&stop);
         div()
             .id(id)
             .cursor_pointer()
@@ -221,65 +260,42 @@ pub(crate) fn bt_rows(ui: &BtUi, p: &Palette, cx: &mut Context<SettingsPanel>) -
             .gap_3()
             .px_3()
             .py_2p5()
+            .border_2()
+            .border_color(border)
             .rounded_lg()
-            // selected stays the strongest fill; hover on an unselected tile must not outshine it
+            // selected stays the strongest fill; hover only lifts, so it never looks selected
             .bg(card_fill(accent, on))
             .shadow(card_shadow(&p, false))
-            .hover(|s| s.bg(card_fill(accent, true)).shadow(card_shadow(&p, true)))
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.last_input = std::time::Instant::now();
-                this.bt.failed = None;
-                this.bt.busy = Some((key.clone(), want, std::time::Instant::now()));
-                run_bg(&cmd); // the next refresh shows the new state and clears busy
-                cx.notify();
-            }))
+            .hover(|s| s.shadow(card_shadow(&p, true)))
+            .on_click(cx.listener(move |this, _, window, cx| this.run(&stop, window, cx)))
             .child(div().font_family(NF).font_weight(FontWeight::MEDIUM).text_color(if on { rgb(accent) } else { rgb(dim) }).child(glyph))
             .child(div().flex_1().min_w(px(0.)).overflow_hidden().whitespace_nowrap().text_ellipsis().child(label))
+            .when(power, |d| d.child(div().flex_none().text_color(rgb(dim)).child(if on { "On" } else { "Off" })))
             .into_any_element()
     };
-    let info = &ui.info;
-    let power_cmd = bt_power_cmd(!info.on);
-    let glyph = |on: bool| if on { "\u{f00af}" } else { "\u{f00b2}" };
-    let mut rows = vec![row("bt-power".into(), "power".into(), (if info.on { "On" } else { "Off" }).into(), glyph(info.on), info.on, !info.on, power_cmd.into())];
-    if !info.on {
-        return rows;
-    }
-    rows.extend(info.paired.iter().enumerate().map(|(i, (mac, name, on))| {
-        let cmd = format!("bluetoothctl {} {mac}", if *on { "disconnect" } else { "connect" });
-        row(("bt-dev", i).into(), mac.clone(), format!("{name} · {}", if *on { "connected" } else { "paired" }), glyph(*on), *on, !*on, cmd)
-    }));
     let scanning = ui.scan_until.is_some_and(|t| t > std::time::Instant::now());
-    rows.push(
-        div()
-            .id("bt-scan")
-            .cursor_pointer()
-            .px_3()
-            .py_2p5()
-            .rounded_lg()
-            .text_color(rgb(if scanning { dim } else { p.fg }))
-            .bg(card_fill(p.accent2, false))
-            .shadow(card_shadow(&p, false))
-            .hover(|s| s.bg(card_fill(p.accent2, true)).shadow(card_shadow(&p, true)))
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.last_input = std::time::Instant::now();
-                if !scanning {
-                    this.bt.scan_until = Some(std::time::Instant::now() + Duration::from_secs(BT_SCAN_SECS));
-                    run_bg(&format!("bluetoothctl --timeout {BT_SCAN_SECS} scan on"));
-                }
-                cx.notify();
-            }))
-            .child(if scanning { "Scanning for new devices…" } else { "Scan for new devices" })
-            .into_any_element(),
-    );
-    if ui.scan_until.is_some() {
-        rows.extend(info.found.iter().enumerate().map(|(i, (mac, name))| {
-            // shortcut: devices that ask for a PIN or passkey are not handled, pair those with `bluetoothctl` in a terminal
-            // pairable only while pairing, so nearby devices can't pair on their own afterwards
-            let cmd = format!("bluetoothctl pairable on; bluetoothctl --timeout 25 pair {mac} && bluetoothctl trust {mac}; bluetoothctl pairable off; bluetoothctl connect {mac}");
-            row(("bt-new", i).into(), mac.clone(), format!("{name} · pair"), "\u{f00b1}", false, true, cmd)
-        }));
-    }
-    rows
+    bt_items(ui)
+        .into_iter()
+        .enumerate()
+        .map(|(i, (stop, label, glyph, on))| match &stop {
+            Stop::Scan => div()
+                .id("bt-scan")
+                .cursor_pointer()
+                .px_3()
+                .py_2p5()
+                .border_2()
+                .border_color(ring(&stop))
+                .rounded_lg()
+                .text_color(rgb(if scanning { dim } else { p.fg }))
+                .bg(card_fill(p.accent2, false))
+                .shadow(card_shadow(&p, false))
+                .hover(|s| s.bg(card_fill(p.accent2, true)).shadow(card_shadow(&p, true)))
+                .on_click(cx.listener(move |this, _, window, cx| this.run(&Stop::Scan, window, cx)))
+                .child(if scanning { "Scanning for new devices…" } else { "Scan for new devices" })
+                .into_any_element(),
+            _ => row(("bt", i).into(), stop, label, glyph, on),
+        })
+        .collect()
 }
 
 pub(crate) fn toggle_settings(cx: &mut App) {
@@ -309,6 +325,50 @@ pub(crate) struct SettingsPanel {
     info: SettingsInfo,
     last_input: std::time::Instant,
     bt: BtUi,
+    focus_i: Option<usize>, // keyboard focus in `stops()`; None until the first Tab or arrow
+}
+
+impl SettingsPanel {
+    fn stops(&self) -> Vec<Stop> {
+        let sinks = self.info.sinks.iter().map(|s| Stop::Sink(s.0.clone()));
+        std::iter::once(Stop::Wallpaper).chain(sinks).chain(bt_items(&self.bt).into_iter().map(|b| b.0)).collect()
+    }
+
+    fn focused(&self) -> Option<Stop> {
+        let stops = self.stops();
+        self.focus_i.and_then(|i| stops.get(i.min(stops.len().saturating_sub(1))).cloned())
+    }
+
+    /// What a click on the row, or Enter on its focus, does.
+    fn run(&mut self, stop: &Stop, window: &mut Window, cx: &mut Context<Self>) {
+        self.last_input = std::time::Instant::now();
+        match stop {
+            Stop::Wallpaper => {
+                close_settings(window, cx);
+                toggle_wp(cx);
+                return;
+            }
+            Stop::Sink(name) => {
+                // no shell: a sink name is device-supplied and would otherwise need quoting
+                spawn_bg(Command::new("pactl").args(["set-default-sink", name.as_str()]));
+                for s in self.info.sinks.iter_mut() {
+                    s.2 = s.0 == *name; // show it now, the next refresh confirms
+                }
+            }
+            Stop::Bt { key, want, cmd } => {
+                self.bt.failed = None;
+                self.bt.busy = Some((key.clone(), *want, std::time::Instant::now()));
+                run_bg(cmd); // the next refresh shows the new state and clears busy
+            }
+            Stop::Scan => {
+                if !self.bt.scan_until.is_some_and(|t| t > std::time::Instant::now()) {
+                    self.bt.scan_until = Some(std::time::Instant::now() + Duration::from_secs(BT_SCAN_SECS));
+                    run_bg(&format!("bluetoothctl --timeout {BT_SCAN_SECS} scan on"));
+                }
+            }
+        }
+        cx.notify();
+    }
 }
 
 impl SettingsPanel {
@@ -346,7 +406,7 @@ impl SettingsPanel {
             cx.background_executor().timer(Duration::from_secs(3)).await;
         })
         .detach();
-        SettingsPanel { pal: palette(), focus, info: SettingsInfo::default(), last_input: std::time::Instant::now(), bt: BtUi::default() }
+        SettingsPanel { pal: palette(), focus, info: SettingsInfo::default(), last_input: std::time::Instant::now(), bt: BtUi::default(), focus_i: None }
     }
 }
 
@@ -367,8 +427,10 @@ impl Render for SettingsPanel {
                 .child(div().w(px(170.)).flex_none().overflow_hidden().whitespace_nowrap().text_ellipsis().child(label))
                 .child(div().flex_1().min_w(px(0.)).overflow_hidden().whitespace_nowrap().text_ellipsis().text_color(rgb(p.dim)).child(value))
         };
+        let focused = self.focused();
+        let ring = |s: &Stop| if focused.as_ref() == Some(s) { rgb(p.fg) } else { rgba(0x00000000) };
         let sinks = info.sinks.iter().enumerate().map(|(i, (name, desc, is_default))| {
-            let name = name.clone();
+            let stop = Stop::Sink(name.clone());
             div()
                 .id(("sink", i))
                 .cursor_pointer()
@@ -377,43 +439,37 @@ impl Render for SettingsPanel {
                 .gap_3()
                 .px_3()
                 .py_2p5()
+                .border_2()
+                .border_color(ring(&stop))
                 .rounded_lg()
                 .bg(card_fill(p.accent, *is_default))
                 .shadow(card_shadow(&p, false))
-                .hover(|s| s.bg(card_fill(p.accent, true)).shadow(card_shadow(&p, true)))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.last_input = std::time::Instant::now();
-                    // no shell: a sink name is device-supplied and would otherwise need quoting
-                    spawn_bg(Command::new("pactl").args(["set-default-sink", name.as_str()]));
-                    for s in this.info.sinks.iter_mut() {
-                        s.2 = s.0 == name; // show it now, the next refresh confirms
-                    }
-                    cx.notify();
-                }))
+                .hover(|s| s.shadow(card_shadow(&p, true))) // lift only: the strong fill is the selected output
+                .on_click(cx.listener(move |this, _, window, cx| this.run(&stop, window, cx)))
                 .child(div().font_family(NF).font_weight(FontWeight::MEDIUM).text_color(if *is_default { rgb(p.accent) } else { rgb(p.dim) }).child(if *is_default { "\u{f0133}" } else { "\u{f0130}" }))
                 .child(div().flex_1().min_w(px(0.)).overflow_hidden().whitespace_nowrap().text_ellipsis().child(desc.clone()))
         });
-        let btn = |id: &'static str, label: &'static str| {
-            div()
-                .id(id)
-                .cursor_pointer()
-                .px_3()
-                .py_2p5()
-                .rounded_lg()
-                .text_size(px(14.))
-                .bg(card_fill(p.accent2, false))
-                .shadow(card_shadow(&p, false))
-                .hover(|s| s.bg(card_fill(p.accent2, true)).shadow(card_shadow(&p, true)))
-                .child(label)
-        };
         div()
             .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                 this.last_input = std::time::Instant::now();
-                if ev.keystroke.key == "escape" {
-                    close_settings(window, cx);
+                let k = &ev.keystroke;
+                let n = this.stops().len();
+                let back = k.key == "up" || (k.key == "tab" && k.modifiers.shift);
+                match k.key.as_str() {
+                    "escape" => close_settings(window, cx),
+                    "tab" | "down" | "up" => {
+                        this.focus_i = step_focus(this.focus_i, n, back);
+                        cx.notify();
+                    }
+                    "enter" | "space" => {
+                        if let Some(stop) = this.focused() {
+                            this.run(&stop, window, cx);
+                        }
+                    }
+                    _ => {}
                 }
             }))
             .flex()
@@ -443,7 +499,7 @@ impl Render for SettingsPanel {
                             .items_center()
                             .gap_2()
                             .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).text_size(px(16.)).child("Settings"))
-                            .child(btn("s-wp", "Change wallpaper").on_click(|_, window, cx| {
+                            .child(button("s-wp", "Wallpaper\u{2026}", p.accent2, &p).border_color(ring(&Stop::Wallpaper)).on_click(|_, window, cx| {
                                 close_settings(window, cx);
                                 toggle_wp(cx);
                             })),
@@ -461,12 +517,13 @@ impl Render for SettingsPanel {
                             .child(section("Sound output"))
                             .children(sinks)
                             .child(section("Bluetooth"))
-                            .children(bt_rows(&self.bt, &p, cx))
+                            .children(bt_rows(&self.bt, &p, focused.as_ref(), cx))
                             .child(section("Displays"))
                             .children(info.displays.iter().map(|d| row(d.split(" · ").next().unwrap_or("").to_string(), d.split_once(" · ").map(|x| x.1).unwrap_or("").to_string())))
                             .child(section("About"))
                             .children(info.about.iter().map(|(a, b)| row(a.to_string(), b.clone()))),
                     )
+                    .child(div().text_size(px(12.)).text_color(rgb(p.dim)).child("Tab, arrows: move · Enter: select · Esc: close"))
 
             )
     }
