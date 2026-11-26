@@ -142,6 +142,7 @@ pub(crate) struct ClipPanel {
     query: String, // mirrors `field`
     field: gpui::Entity<SearchField>,
     sel: usize,
+    scroll: gpui::ScrollHandle,
     last_input: std::time::Instant,
     confirm_wipe: bool, // "Clear all" asks once before deleting the whole history
     loaded: bool,       // cliphist answered (until then an empty list is not "Nothing here")
@@ -247,6 +248,7 @@ impl ClipPanel {
             query: String::new(),
             field,
             sel: 0,
+            scroll: gpui::ScrollHandle::new(),
             last_input: std::time::Instant::now(),
             confirm_wipe: false,
             loaded: false,
@@ -332,10 +334,12 @@ impl Render for ClipPanel {
                     "backspace" => this.field.update(cx, |f, cx| f.backspace(cx)),
                     "down" if n > 0 => {
                         this.sel = (this.sel + 1) % n;
+                        this.scroll.scroll_to_item(this.sel);
                         cx.notify();
                     }
                     "up" if n > 0 => {
                         this.sel = (this.sel + n - 1) % n;
+                        this.scroll.scroll_to_item(this.sel);
                         cx.notify();
                     }
                     "enter" => {
@@ -422,6 +426,7 @@ impl Render for ClipPanel {
                             .id("clip-list")
                             .h(px(CLIP_ROWS * CLIP_ROW)) // whole rows: the fixed 560 px panel cut the 12th
                             .overflow_y_scroll()
+                            .track_scroll(&self.scroll)
                             .flex()
                             .flex_col()
                             .children(rows)
