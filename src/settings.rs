@@ -215,7 +215,7 @@ fn bt_items(ui: &BtUi) -> Vec<(Stop, String, &'static str, bool)> {
     let info = &ui.info;
     let glyph = |on: bool| if on { "\u{f00af}" } else { "\u{f00b2}" };
     let bt = |key: String, want: bool, cmd: String| Stop::Bt { key, want, cmd };
-    let mut v = vec![(bt("power".into(), !info.on, bt_power_cmd(!info.on).into()), (if info.on { "On" } else { "Off" }).into(), glyph(info.on), info.on)];
+    let mut v = vec![(bt("power".into(), !info.on, bt_power_cmd(!info.on).into()), "Bluetooth".into(), glyph(info.on), info.on)]; // the row's trailing On/Off is the state
     if !info.on {
         return v;
     }
@@ -250,6 +250,7 @@ pub(crate) fn bt_rows(ui: &BtUi, p: &Palette, focused: Option<&Stop>, cx: &mut C
         } else {
             label
         };
+        let power = key == "power";
         let border = ring(&stop);
         div()
             .id(id)
@@ -262,13 +263,14 @@ pub(crate) fn bt_rows(ui: &BtUi, p: &Palette, focused: Option<&Stop>, cx: &mut C
             .border_2()
             .border_color(border)
             .rounded_lg()
-            // selected stays the strongest fill; hover on an unselected tile must not outshine it
+            // selected stays the strongest fill; hover only lifts, so it never looks selected
             .bg(card_fill(accent, on))
             .shadow(card_shadow(&p, false))
-            .hover(|s| s.bg(card_fill(accent, true)).shadow(card_shadow(&p, true)))
+            .hover(|s| s.shadow(card_shadow(&p, true)))
             .on_click(cx.listener(move |this, _, window, cx| this.run(&stop, window, cx)))
             .child(div().font_family(NF).font_weight(FontWeight::MEDIUM).text_color(if on { rgb(accent) } else { rgb(dim) }).child(glyph))
             .child(div().flex_1().min_w(px(0.)).overflow_hidden().whitespace_nowrap().text_ellipsis().child(label))
+            .when(power, |d| d.child(div().flex_none().text_color(rgb(dim)).child(if on { "On" } else { "Off" })))
             .into_any_element()
     };
     let scanning = ui.scan_until.is_some_and(|t| t > std::time::Instant::now());
@@ -442,7 +444,7 @@ impl Render for SettingsPanel {
                 .rounded_lg()
                 .bg(card_fill(p.accent, *is_default))
                 .shadow(card_shadow(&p, false))
-                .hover(|s| s.bg(card_fill(p.accent, true)).shadow(card_shadow(&p, true)))
+                .hover(|s| s.shadow(card_shadow(&p, true))) // lift only: the strong fill is the selected output
                 .on_click(cx.listener(move |this, _, window, cx| this.run(&stop, window, cx)))
                 .child(div().font_family(NF).font_weight(FontWeight::MEDIUM).text_color(if *is_default { rgb(p.accent) } else { rgb(p.dim) }).child(if *is_default { "\u{f0133}" } else { "\u{f0130}" }))
                 .child(div().flex_1().min_w(px(0.)).overflow_hidden().whitespace_nowrap().text_ellipsis().child(desc.clone()))
