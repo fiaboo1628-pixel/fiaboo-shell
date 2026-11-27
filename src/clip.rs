@@ -444,23 +444,36 @@ impl Render for ClipPanel {
                     })
                     .child(
                         div()
-                            .id("clip-list")
-                            .h(px(CLIP_ROWS * CLIP_ROW)) // whole rows: the fixed 560 px panel cut the 12th
-                            .overflow_y_scroll()
-                            .track_scroll(&self.scroll)
-                            .flex()
-                            .flex_col()
-                            .children(rows)
-                            .when(list.is_empty(), |d| {
-                                let say = if !self.loaded {
-                                    "Loading\u{2026}".to_string()
-                                } else if self.query.is_empty() {
-                                    "Nothing here".to_string()
-                                } else {
-                                    format!("Nothing matches \u{201c}{}\u{201d}", self.query) // Start's words
-                                };
-                                d.child(div().py_6().flex().justify_center().text_color(rgb(p.dim)).child(say))
-                            }),
+                            .relative() // the scrollbar overlays the list's right edge
+                            .child(
+                                div()
+                                    .id("clip-list")
+                                    .h(px(CLIP_ROWS * CLIP_ROW)) // whole rows: the fixed 560 px panel cut the 12th
+                                    .overflow_y_scroll()
+                                    .track_scroll(&self.scroll)
+                                    .flex()
+                                    .flex_col()
+                                    .children(rows)
+                                    .when(list.is_empty(), |d| {
+                                        let say = if !self.loaded {
+                                            "Loading\u{2026}".to_string()
+                                        } else if self.query.is_empty() {
+                                            "Nothing here".to_string()
+                                        } else {
+                                            format!("Nothing matches \u{201c}{}\u{201d}", self.query) // Start's words
+                                        };
+                                        d.child(div().py_6().flex().justify_center().text_color(rgb(p.dim)).child(say))
+                                    }),
+                            )
+                            // thin, inside the rows' 16 px right padding; shown while scrolling (keys too) or hovered
+                            .child(
+                                gpui_base::Scrollbar::vertical(&self.scroll).mode(gpui_base::ScrollbarMode::Hover).styles(|s| {
+                                    s.track(|t| t.width(px(10.)))
+                                        .thumb(|t| t.bg(rgba((p.dim << 8) | A_STRONG)).width(px(4.)).inset(px(3.)).radius(px(2.)))
+                                        .thumb_hover(|t| t.bg(rgba((p.fg << 8) | A_STRONG)).width(px(6.)).inset(px(2.)).radius(px(3.)))
+                                        .thumb_active(|t| t.bg(rgba((p.fg << 8) | A_STRONG)).width(px(6.)).inset(px(2.)).radius(px(3.)))
+                                }),
+                            ),
                     )
                     // a deletion waits UNDO_SECS here before cliphist forgets it
                     .when_some(self.pending.as_ref().map(|p| (p.0.len(), p.1)), |d, (n, wipe)| {
