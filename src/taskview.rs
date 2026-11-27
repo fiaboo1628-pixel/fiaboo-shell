@@ -309,7 +309,7 @@ impl Render for TaskView {
             .flex_col()
             .items_center()
             .justify_center()
-            .bg(rgba((p.bg << 8) | 0xB0))
+            .bg(rgba((p.bg << 8) | PANEL_FILL))
             .text_color(rgb(p.fg))
             .on_mouse_move(cx.listener(|this, _: &gpui::MouseMoveEvent, _, _| this.last_input = std::time::Instant::now()))
             .on_scroll_wheel(cx.listener(|this, _: &gpui::ScrollWheelEvent, _, _| this.last_input = std::time::Instant::now()))
