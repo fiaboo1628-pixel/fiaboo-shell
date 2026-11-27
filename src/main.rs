@@ -115,7 +115,6 @@ fn card_shadow(p: &Palette, lifted: bool) -> Vec<gpui::BoxShadow> {
 fn button(id: impl Into<gpui::ElementId>, label: impl Into<gpui::SharedString>, tone: u32, p: &Palette) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
-        .cursor_pointer()
         .flex_none()
         .h(px(36.))
         .px(px(10.))
@@ -686,6 +685,24 @@ fn spawn_bg(cmd: &mut Command) {
     }
 }
 
+/// For long-lived helpers (pactl subscribe, playerctl --follow, parec): the kernel sends them
+/// SIGTERM when the shell dies, even by SIGKILL on an upgrade, so they don't pile up as orphans.
+/// The signal follows the *thread* that spawns, so call this only from a thread that outlives the helper.
+fn die_with_shell(cmd: &mut Command) -> &mut Command {
+    use std::os::unix::process::CommandExt;
+    let parent = std::process::id() as libc::pid_t;
+    // SAFETY: the closure runs between fork and exec and calls only async-signal-safe libc functions.
+    unsafe {
+        cmd.pre_exec(move || {
+            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+            if libc::getppid() != parent {
+                libc::_exit(0); // the shell died before prctl took effect
+            }
+            Ok(())
+        })
+    }
+}
+
 /// Turn wheel events into whole steps (+1 = scroll down). Touchpads send many small pixel
 /// deltas, so those are accumulated until they add up to one notch.
 fn scroll_steps(delta: &gpui::ScrollDelta) -> i32 {
@@ -824,7 +841,7 @@ fn start_volume_watch() {
     use std::io::{BufRead, BufReader};
     std::thread::spawn(|| loop {
         let mut last = read_volume();
-        if let Ok(mut child) = Command::new("pactl").arg("subscribe").stdout(std::process::Stdio::piped()).spawn() {
+        if let Ok(mut child) = die_with_shell(Command::new("pactl").arg("subscribe")).stdout(std::process::Stdio::piped()).spawn() {
             read_mic();
             if let Some(out) = child.stdout.take() {
                 for line in BufReader::new(out).lines().map_while(Result::ok) {
@@ -1287,7 +1304,6 @@ impl Render for Bar {
             let used = st.occupied.contains(&id);
             with_tip(div()
                 .id(("ws", id as usize))
-                .cursor_pointer()
                 .py(px(12.))
                 .px(px(8.)) // a 24 px wide target round an 8 px dot
                 .rounded_md()
@@ -1330,7 +1346,6 @@ impl Render for Bar {
             let name = a.name.clone();
             with_tip(div()
                 .id(("app", i))
-                .cursor_pointer()
                 .flex()
                 .flex_col()
                 .items_center()
@@ -1419,7 +1434,6 @@ impl Render for Bar {
                         };
                         d.child(with_tip(div()
                             .id("layout-button")
-                            .cursor_pointer()
                             .size(px(36.))
                             .flex()
                             .items_center()
@@ -1452,7 +1466,6 @@ impl Render for Bar {
                         with_tip(
                             div()
                                 .id("start-button")
-                                .cursor_pointer()
                                 .size(px(36.))
                                 .flex()
                                 .items_center()
@@ -1468,7 +1481,6 @@ impl Render for Bar {
                         with_tip(
                             div()
                                 .id("taskview-button")
-                                .cursor_pointer()
                                 .size(px(36.))
                                 .flex()
                                 .items_center()
@@ -1499,7 +1511,6 @@ impl Render for Bar {
                     let title = if it.title.is_empty() { "Tray".to_string() } else { it.title.clone() };
                     with_tip(div()
                         .id(("tray", i))
-                        .cursor_pointer()
                         .size(px(36.))
                         .flex()
                         .items_center()
@@ -1525,7 +1536,6 @@ impl Render for Bar {
                         d.child(with_tip(
                             div()
                                 .id("updates")
-                                .cursor_pointer()
                                 .px_2()
                                 .h(px(36.))
                                 .rounded_md()
@@ -1560,7 +1570,6 @@ impl Render for Bar {
                         d.child(with_tip(
                             div()
                                 .id("rec")
-                                .cursor_pointer()
                                 .px_2()
                                 .h(px(36.))
                                 .rounded_md()
@@ -1581,7 +1590,6 @@ impl Render for Bar {
                         d.child(with_tip(
                             div()
                                 .id("input-method")
-                                .cursor_pointer()
                                 .min_w(px(36.))
                                 .px_2()
                                 .h(px(36.))
@@ -1610,7 +1618,6 @@ impl Render for Bar {
                             run_bg(&format!("wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ {}%{dir}", 5 * n.abs()));
                         }
                     })
-                    .cursor_pointer()
                     .flex()
                     .items_center()
                     .gap_3()
@@ -1628,7 +1635,6 @@ impl Render for Bar {
                     .child(
                         with_tip(div()
                             .id("clock")
-                            .cursor_pointer()
                             .rounded_md()
                             .h(px(36.))
                             .justify_center()
@@ -1646,7 +1652,6 @@ impl Render for Bar {
                     .child(
                         with_tip(div()
                             .id("bell")
-                            .cursor_pointer()
                             .font_family(NF).font_weight(FontWeight::MEDIUM)
                             .text_size(px(16.))
                             .px_2()
@@ -1784,6 +1789,13 @@ fn open_bar(cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn helper_gets_sigterm_when_its_spawning_thread_ends() {
+        use std::os::unix::process::ExitStatusExt;
+        let mut child = std::thread::spawn(|| die_with_shell(Command::new("sleep").arg("30")).spawn().unwrap()).join().unwrap();
+        assert_eq!(child.wait().unwrap().signal(), Some(libc::SIGTERM));
+    }
 
     #[test]
     fn layouts_cycle_both_ways() {
