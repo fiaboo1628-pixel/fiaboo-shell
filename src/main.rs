@@ -686,6 +686,24 @@ fn spawn_bg(cmd: &mut Command) {
     }
 }
 
+/// For long-lived helpers (pactl subscribe, playerctl --follow, parec): the kernel sends them
+/// SIGTERM when the shell dies, even by SIGKILL on an upgrade, so they don't pile up as orphans.
+/// The signal follows the *thread* that spawns, so call this only from a thread that outlives the helper.
+fn die_with_shell(cmd: &mut Command) -> &mut Command {
+    use std::os::unix::process::CommandExt;
+    let parent = std::process::id() as libc::pid_t;
+    // SAFETY: the closure runs between fork and exec and calls only async-signal-safe libc functions.
+    unsafe {
+        cmd.pre_exec(move || {
+            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+            if libc::getppid() != parent {
+                libc::_exit(0); // the shell died before prctl took effect
+            }
+            Ok(())
+        })
+    }
+}
+
 /// Turn wheel events into whole steps (+1 = scroll down). Touchpads send many small pixel
 /// deltas, so those are accumulated until they add up to one notch.
 fn scroll_steps(delta: &gpui::ScrollDelta) -> i32 {
@@ -824,7 +842,7 @@ fn start_volume_watch() {
     use std::io::{BufRead, BufReader};
     std::thread::spawn(|| loop {
         let mut last = read_volume();
-        if let Ok(mut child) = Command::new("pactl").arg("subscribe").stdout(std::process::Stdio::piped()).spawn() {
+        if let Ok(mut child) = die_with_shell(Command::new("pactl").arg("subscribe")).stdout(std::process::Stdio::piped()).spawn() {
             read_mic();
             if let Some(out) = child.stdout.take() {
                 for line in BufReader::new(out).lines().map_while(Result::ok) {
@@ -1784,6 +1802,13 @@ fn open_bar(cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn helper_gets_sigterm_when_its_spawning_thread_ends() {
+        use std::os::unix::process::ExitStatusExt;
+        let mut child = std::thread::spawn(|| die_with_shell(Command::new("sleep").arg("30")).spawn().unwrap()).join().unwrap();
+        assert_eq!(child.wait().unwrap().signal(), Some(libc::SIGTERM));
+    }
 
     #[test]
     fn layouts_cycle_both_ways() {

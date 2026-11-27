@@ -19,7 +19,7 @@ use gpui::{
     Context, Global, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions,
 };
 
-use crate::{home, palette, Palette};
+use crate::{die_with_shell, home, palette, Palette};
 
 const RATE: usize = 44100;
 const FPS: u64 = 30;
@@ -59,11 +59,10 @@ fn capture_start() {
     if failed_at.is_some_and(|t| t.elapsed() < Duration::from_secs(2)) {
         return;
     }
-    let child = Command::new("parec")
-        .args(["--client-name=fiaboo-musicline", "-d", "@DEFAULT_MONITOR@", "--format=s16le", "--rate=44100", "--channels=1", "--latency-msec=30"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn();
+    // called from the controller task on the GPUI main thread, which lives as long as the shell
+    let mut cmd = Command::new("parec");
+    cmd.args(["--client-name=fiaboo-musicline", "-d", "@DEFAULT_MONITOR@", "--format=s16le", "--rate=44100", "--channels=1", "--latency-msec=30"]);
+    let child = die_with_shell(&mut cmd).stdout(Stdio::piped()).stderr(Stdio::null()).spawn();
     let Ok(mut child) = child else {
         *failed_at = Some(Instant::now());
         return;
@@ -150,7 +149,7 @@ fn start_player_watch() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
         std::thread::spawn(|| loop {
-            if let Ok(mut child) = Command::new("playerctl").args(["-a", "--follow", "status"]).stdout(Stdio::piped()).stderr(Stdio::null()).spawn() {
+            if let Ok(mut child) = die_with_shell(Command::new("playerctl").args(["-a", "--follow", "status"])).stdout(Stdio::piped()).stderr(Stdio::null()).spawn() {
                 if let Some(out) = child.stdout.take() {
                     for _ in BufReader::new(out).lines().map_while(Result::ok) {
                         // a line is one player's change; ask all of them, so a tab that pauses doesn't
