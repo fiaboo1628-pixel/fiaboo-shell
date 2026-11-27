@@ -35,7 +35,7 @@ pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, center: Option<gpui::En
         .bg(rgba((p.bg << 8) | if in_center { 0x00 } else { PANEL_FILL }))
         .when(in_center, |d| d.bg(card_fill(if n.critical { p.err } else { p.accent }, false)).shadow(card_shadow(&p, false)))
         .border_1()
-        .border_color(if n.critical { rgba((p.err << 8) | 0xcc) } else { rgba((p.fg << 8) | A_BORDER) })
+        .border_color(if n.critical { rgba((p.err << 8) | A_BORDER) } else { rgba((p.fg << 8) | A_BORDER) })
         // keyboard focus ring: 2 px fg; one px less padding keeps the content still
         .when(focused, |d| d.border_2().p(px(11.)).border_color(rgb(p.fg)))
         .hover(|s| if in_center { s.bg(card_fill(if n.critical { p.err } else { p.accent }, true)).shadow(card_shadow(&p, true)) } else { s.bg(rgba((p.accent << 8) | A_HOVER)) })
