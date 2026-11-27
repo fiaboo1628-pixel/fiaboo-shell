@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Launch a TUI in a floating kitty, or focus it if it is already open (Omarchy's launch-or-focus-tui).
+# Usage: fiaboo-tui <name> <command...>  -> window class fiaboo.tui-float-<name>, floated by hypr-custom.lua.
+# shortcut: a window minimized from the taskbar is not brought back first, use wm.rs focus_window's eval if that matters.
+set -eu
+name=$1; shift
+class="fiaboo.tui-float-$name"
+addr=$(hyprctl clients -j | jq -r --arg c "$class" 'first(.[] | select(.class == $c) | .address) // empty')
+if [ -n "$addr" ]; then
+    hyprctl dispatch "hl.dsp.focus({ window = \"address:$addr\" })" >/dev/null
+else
+    exec kitty --class="$class" "$@"
+fi
