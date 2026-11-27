@@ -1736,6 +1736,14 @@ fn main() {
     start_indicators();
     // Explicit: losing the bar (its only window) must not quit the app before on_window_closed reopens it.
     application().with_quit_mode(gpui::QuitMode::Explicit).run(|cx: &mut App| {
+        gpui_base::init(cx); // the text input's key bindings and the theme global it reads; no Root wrapper needed
+        // gpui-base snaps scrollbars in and out; the shell's motion is soft and slow
+        gpui_base::Theme::global_mut(cx).scrollbar = gpui_base::ScrollbarTheme::new().with_motion(
+            gpui_base::ScrollbarMotion::default()
+                .with_enter(Duration::from_millis(300))
+                .with_exit(Duration::from_millis(700))
+                .with_expand(Duration::from_millis(300)),
+        );
         open_bar(cx);
         // Hyprland closes every layer surface when its monitor goes away (DP-1 re-plugs itself at login);
         // GPUI then just drops the window, so put the bar back once a monitor is there again.
