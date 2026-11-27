@@ -115,13 +115,6 @@ impl EntityInputHandler for SearchField {
 /// Sized to its text like the plain text div it replaces, so the panels look the same.
 pub(crate) struct SearchLine(pub(crate) Entity<SearchField>);
 
-impl IntoElement for SearchLine {
-    type Element = Self;
-    fn into_element(self) -> Self {
-        self
-    }
-}
-
 impl Element for SearchLine {
     type RequestLayoutState = Option<ShapedLine>;
     type PrepaintState = ();
