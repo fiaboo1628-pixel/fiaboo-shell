@@ -570,7 +570,7 @@ impl Render for StartMenu {
             .pt_2()
             .child(avatar(32., &p))
             .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).child("fiaboo"))
-            .child(stop_btn("f-settings", "Settings", p.accent, StartStop::Settings))
+            .child(stop_btn("f-settings", "Settings\u{2026}", p.accent, StartStop::Settings))
             .child(stop_btn("f-lock", "Lock", p.accent, StartStop::Lock))
             .child(stop_btn("f-power", "\u{23fb}", p.accent, StartStop::Power).font_family(NF).font_weight(FontWeight::MEDIUM));
 
