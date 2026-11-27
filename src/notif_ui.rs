@@ -88,7 +88,7 @@ pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, center: Option<gpui::En
                         .text_size(px(14.))
                         .child(n.summary.clone()),
                 )
-                .child(div().max_h(px(34.)).line_height(px(17.)).overflow_hidden().text_size(px(12.)).text_color(rgb(p.fg)).child(n.body.clone()))
+                .child(div().max_h(px(34.)).line_height(px(17.)).overflow_hidden().line_clamp(2).text_ellipsis().text_size(px(12.)).text_color(rgb(p.fg)).child(n.body.clone()))
                 .when(buttons(n).next().is_some(), |d| {
                     d.child(div().mt_1().flex().gap_1().children(buttons(n).enumerate().map(|(j, (key, label))| {
                         let key = key.clone();
