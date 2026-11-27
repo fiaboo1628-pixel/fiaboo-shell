@@ -108,6 +108,7 @@ pub(crate) struct TaskView {
     last_input: std::time::Instant,
     pending_close: Option<(usize, std::time::Instant)>, // card armed by one Del / right-click, and when
     scroll: gpui::ScrollHandle,
+    thumbs_done: Arc<std::sync::atomic::AtomicBool>, // capture finished: a missing thumbnail failed, it is not still loading
 }
 
 impl TaskView {
@@ -117,7 +118,7 @@ impl TaskView {
         let wins = tv_windows();
         let jobs: Vec<(String, PathBuf)> = wins.iter().map(|w| (w.stable_id.clone(), w.thumb.clone())).collect();
         let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let flag = done.clone();
+        let (flag, thumbs_done) = (done.clone(), done.clone());
         std::thread::spawn(move || {
             tv_capture(jobs);
             flag.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -148,7 +149,7 @@ impl TaskView {
             }
         })
         .detach();
-        TaskView { pal: palette(), focus, wins, sel: 0, last_input: std::time::Instant::now(), pending_close: None, scroll: gpui::ScrollHandle::new() }
+        TaskView { pal: palette(), focus, wins, sel: 0, last_input: std::time::Instant::now(), pending_close: None, scroll: gpui::ScrollHandle::new(), thumbs_done }
     }
 }
 
@@ -192,6 +193,7 @@ impl Render for TaskView {
         let empty = self.wins.is_empty();
         let sel = self.sel;
         let pending = self.pending_close.filter(|(_, t)| t.elapsed() < CLOSE_CONFIRM).map(|(i, _)| i);
+        let thumbs_done = self.thumbs_done.load(std::sync::atomic::Ordering::Relaxed);
         let cards = self.wins.iter().enumerate().map(|(i, w)| {
             let focus_addr = w.address.clone();
             div()
@@ -234,7 +236,18 @@ impl Render for TaskView {
                         .rounded_lg()
                         .overflow_hidden()
                         .bg(rgba((p.bg << 8) | A_STRONG))
-                        .when(w.thumb.exists(), |d| d.child(img(w.thumb.clone()).size_full().object_fit(ObjectFit::Contain))),
+                        .map(|d| {
+                            if w.thumb.exists() {
+                                d.child(img(w.thumb.clone()).size_full().object_fit(ObjectFit::Contain))
+                            } else {
+                                d.flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .text_size(px(12.))
+                                    .text_color(rgb(p.dim))
+                                    .child(if thumbs_done { "No preview" } else { "Loading\u{2026}" })
+                            }
+                        }),
                 )
                 .child(
                     div()
