@@ -270,7 +270,7 @@ impl Render for WpPicker {
             .items_center()
             .justify_center()
             .on_mouse_move(cx.listener(|this, _: &gpui::MouseMoveEvent, _, _| this.last_input = std::time::Instant::now()))
-            .on_scroll_wheel(cx.listener(|this, _: &gpui::ScrollWheelEvent, _, _| this.last_input = std::time::Instant::now()))
+            .on_scroll(cx.listener(|this, _: &gpui::ScrollEvent, _, _| this.last_input = std::time::Instant::now()))
             .on_mouse_down(MouseButton::Left, |_, window, cx| close_wp(window, cx))
             .on_mouse_down(MouseButton::Right, |_, window, cx| close_wp(window, cx))
             .child(

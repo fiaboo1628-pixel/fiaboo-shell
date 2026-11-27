@@ -1399,7 +1399,7 @@ impl Render for Bar {
                             .flex()
                             .flex_row()
                             .items_center()
-                            .on_scroll_wheel({
+                            .on_scroll({
                                 let active = st.active_ws;
                                 move |ev, _, _| {
                                     let n = scroll_steps(&ev.delta) as i64;
@@ -1430,7 +1430,7 @@ impl Render for Bar {
                             .hover(|s| s.bg(rgba((p.dim << 8) | A_HOVER)))
                             .on_click(|_, _, _| set_layout("next"))
                             .on_mouse_down(MouseButton::Right, |_, _, _| set_layout("dwindle"))
-                            .on_scroll_wheel(|ev, _, _| match scroll_steps(&ev.delta) {
+                            .on_scroll(|ev, _, _| match scroll_steps(&ev.delta) {
                                 0 => {}
                                 n if n > 0 => set_layout("next"),
                                 _ => set_layout("prev"),
@@ -1603,7 +1603,7 @@ impl Render for Bar {
                 let (g_wifi, g_bt, g_vol) = sys_glyphs(&self.sys);
                 with_tip(div()
                     .id("sys-button")
-                    .on_scroll_wheel(|ev, _, _| {
+                    .on_scroll(|ev, _, _| {
                         let n = scroll_steps(&ev.delta);
                         if n != 0 {
                             let dir = if n > 0 { "-" } else { "+" };
