@@ -1,12 +1,35 @@
-//! The search text of Start, Clipboard and Wallpaper. fcitx5/Bamboo deliver commits and preedit
-//! only through a GPUI input handler, never as KeyDownEvent.key_char, so the panels type here.
-//! Plain keys reach it too: GPUI hands an unhandled key's key_char to the input handler.
+//! The panels' search text. Start and Clipboard use gpui-base's input (`search_input`); Wallpaper
+//! keeps `SearchField`, because its Left/Right walk the thumbnail grid and its filter is a bit of
+//! the footer text, sized to what was typed.
+//! fcitx5/Bamboo deliver commits and preedit only through a GPUI input handler, never as
+//! KeyDownEvent.key_char, so the panels type here. Plain keys reach it too: GPUI hands an
+//! unhandled key's key_char to the input handler.
 use crate::*;
 use gpui::{
     Bounds, ElementId, ElementInputHandler, Entity, EntityInputHandler, GlobalElementId, LayoutId,
     Pixels, Rgba, ShapedLine, SharedString, Style, TextRun, UTF16Selection, UnderlineStyle,
 };
+use gpui_base::input::{InputEditorStyle, InputState};
 use std::ops::Range;
+
+/// A focused single-line input in the palette. Text takes the parent's colour like any text;
+/// Up/Down/PageUp/PageDown/Tab/Enter/Esc still reach the panel's key handler, since a single
+/// line handles none of them (Enter and Esc propagate). The panel root must not track a focus
+/// handle of its own: GPUI hands focus to it on any click there, and typing would stop.
+pub(crate) fn search_input(placeholder: &'static str, window: &mut Window, cx: &mut App) -> Entity<InputState> {
+    let p = palette();
+    cx.new(|cx| {
+        let mut f = InputState::new(window, cx).placeholder(placeholder);
+        f.set_editor_style(InputEditorStyle {
+            foreground: rgb(p.fg).into(),
+            muted_foreground: rgb(p.dim).into(), // the placeholder
+            selection: rgba((p.accent << 8) | A_ACTIVE).into(),
+            ..Default::default()
+        });
+        f.focus(window, cx);
+        f
+    })
+}
 
 pub(crate) struct SearchField {
     focus: FocusHandle, // the panel's own: its key handler keeps arrows, Enter, Esc and Backspace

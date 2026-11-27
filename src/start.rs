@@ -62,8 +62,7 @@ pub(crate) fn toggle_start(cx: &mut App) {
 pub(crate) struct StartMenu {
     pal: Palette,
     query: String, // mirrors `field`
-    field: gpui::Entity<SearchField>,
-    focus: FocusHandle,
+    field: gpui::Entity<gpui_base::input::InputState>,
     all: Vec<Entry>,
     pins: Vec<Entry>,
     sel: usize, // highlighted result (arrow keys); with no query it walks the all-apps list
@@ -94,18 +93,18 @@ fn run_detached(cmd: &str) {
 
 impl StartMenu {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let focus = cx.focus_handle();
-        window.focus(&focus, cx);
         let mut all: Vec<Entry> = apps().0.iter().map(entry_of).collect();
         // apps A–Z first, then configuration tools (network editor, input method setup…) A–Z
         all.sort_by_key(|e| (e.settings, e.name.to_lowercase()));
         all.dedup_by(|a, b| a.stem == b.stem);
         let pins = pinned().iter().map(|(_, d)| entry_of(d)).collect();
-        let field = cx.new(|_| SearchField::new(focus.clone(), "Search apps and windows, or type a sum…", palette().dim));
+        let field = search_input("Search apps and windows, or type a sum…", window, cx);
+        // observe, not InputEvent::Change: the IME preedit emits no Change, and the list filters on it too
         cx.observe(&field, |m, field, cx| {
-            m.last_input = std::time::Instant::now();
-            if m.query != field.read(cx).text {
-                m.query = field.read(cx).text.clone();
+            let text = field.read(cx).value();
+            if m.query != text.as_ref() {
+                m.last_input = std::time::Instant::now(); // only on edits: the caret blink notifies too
+                m.query = text.to_string();
                 m.sel = 0;
                 m.focus_on = None; // typing goes back to the results
                 cx.notify();
@@ -140,7 +139,6 @@ impl StartMenu {
             pal: palette(),
             query: String::new(),
             field,
-            focus,
             all,
             pins,
             sel: 0,
@@ -412,7 +410,7 @@ impl Render for StartMenu {
             .text_size(px(16.))
             .gap_2()
             .child(div().text_color(rgb(p.dim)).child("\u{f002}"))
-            .child(div().text_color(rgb(p.fg)).child(SearchLine(self.field.clone())));
+            .child(div().flex_1().min_w_0().text_color(rgb(p.fg)).child(gpui_base::Input::new(&self.field)));
 
         let section = |title: &'static str| {
             div().text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(rgb(p.dim)).child(title)
@@ -575,7 +573,6 @@ impl Render for StartMenu {
         div()
             .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
-            .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                 this.last_input = std::time::Instant::now();
                 let k = &ev.keystroke;
@@ -590,7 +587,6 @@ impl Render for StartMenu {
                         cx.notify();
                     }
                     "escape" => close_start(window, cx),
-                    "backspace" => this.field.update(cx, |f, cx| f.backspace(cx)),
                     "tab" => {
                         let stops = this.stops();
                         let cur = this.focus_on.and_then(|f| stops.iter().position(|s| *s == f));
@@ -616,7 +612,7 @@ impl Render for StartMenu {
                             activate(hit, window, cx);
                         }
                     }
-                    _ => {} // typed text arrives through `field`
+                    _ => {} // typed text and the editing keys go to `field`
                 }
             }))
             .flex()

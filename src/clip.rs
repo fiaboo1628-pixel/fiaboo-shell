@@ -137,10 +137,9 @@ pub(crate) fn close_clip(window: &mut Window, cx: &mut App) {
 
 pub(crate) struct ClipPanel {
     pal: Palette,
-    focus: FocusHandle,
     clips: Vec<Clip>,
     query: String, // mirrors `field`
-    field: gpui::Entity<SearchField>,
+    field: gpui::Entity<gpui_base::input::InputState>,
     sel: usize,
     scroll: gpui::ScrollHandle,
     last_input: std::time::Instant,
@@ -209,8 +208,6 @@ impl Drop for ClipPanel {
 
 impl ClipPanel {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let focus = cx.focus_handle();
-        window.focus(&focus, cx);
         // exclusive keyboard focus: close after 90 s without a key press
         cx.spawn_in(window, async move |this, cx| loop {
             cx.background_executor().timer(Duration::from_secs(1)).await;
@@ -231,11 +228,13 @@ impl ClipPanel {
             });
         })
         .detach();
-        let field = cx.new(|_| SearchField::new(focus.clone(), "Search clipboard history…", palette().dim));
+        let field = search_input("Search clipboard history…", window, cx);
+        // observe, not InputEvent::Change: the IME preedit emits no Change, and the list filters on it too
         cx.observe(&field, |c, field, cx| {
-            c.last_input = std::time::Instant::now();
-            if c.query != field.read(cx).text {
-                c.query = field.read(cx).text.clone();
+            let text = field.read(cx).value();
+            if c.query != text.as_ref() {
+                c.last_input = std::time::Instant::now(); // only on edits: the caret blink notifies too
+                c.query = text.to_string();
                 c.sel = 0;
                 cx.notify();
             }
@@ -243,7 +242,6 @@ impl ClipPanel {
         .detach();
         ClipPanel {
             pal: palette(),
-            focus,
             clips: Vec::new(),
             query: String::new(),
             field,
@@ -331,14 +329,28 @@ impl Render for ClipPanel {
             .image_cache(gpui::retain_all("clip-images")) // freed with the window; plain img() stays in GPUI's global cache forever
             .font_family(NF).font_weight(FontWeight::MEDIUM)
             .size_full()
-            .track_focus(&self.focus)
+            // the field binds Del and Ctrl+Z too; the panel's meaning comes first
+            .capture_action(cx.listener(|this, _: &gpui_base::input::Delete, _, cx| {
+                cx.stop_propagation();
+                this.last_input = std::time::Instant::now();
+                if let Some(c) = this.visible().get(this.sel).cloned() {
+                    this.defer_delete(vec![c], false, cx);
+                }
+            }))
+            .capture_action(cx.listener(|this, _: &gpui_base::input::Undo, _, cx| {
+                this.last_input = std::time::Instant::now();
+                if this.pending.is_some() {
+                    cx.stop_propagation(); // a deletion waiting for its undo; otherwise the field undoes typing
+                    this.undo();
+                    cx.notify();
+                }
+            }))
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                 this.last_input = std::time::Instant::now();
                 let k = &ev.keystroke;
                 let n = this.visible().len();
                 match k.key.as_str() {
                     "escape" => close_clip(window, cx),
-                    "backspace" => this.field.update(cx, |f, cx| f.backspace(cx)),
                     "down" if n > 0 => {
                         this.sel = (this.sel + 1) % n;
                         this.scroll.scroll_to_item(this.sel);
@@ -355,16 +367,7 @@ impl Render for ClipPanel {
                         }
                         close_clip(window, cx);
                     }
-                    "delete" => {
-                        if let Some(c) = this.visible().get(this.sel).cloned() {
-                            this.defer_delete(vec![c], false, cx);
-                        }
-                    }
-                    "z" if k.modifiers.control => {
-                        this.undo();
-                        cx.notify();
-                    }
-                    _ => {} // typed text arrives through `field`
+                    _ => {} // typed text and the editing keys go to `field`
                 }
             }))
             .flex()
@@ -403,7 +406,7 @@ impl Render for ClipPanel {
                                     .bg(card_fill(p.accent, false))
                                     .gap_2()
                                     .child(div().text_color(rgb(p.dim)).child("\u{f002}"))
-                                    .child(div().child(SearchLine(self.field.clone()))),
+                                    .child(div().flex_1().min_w_0().child(gpui_base::Input::new(&self.field))),
                             )
                             // nothing to clear: no button (and none while the confirmation below asks)
                             .when(!self.confirm_wipe && self.clips.iter().any(|c| !self.hidden.contains(&c.id)), |d| {
