@@ -12,6 +12,7 @@ futures = "0.3"
 zbus = "5"
 png = "0.17"
 libc = "0.2"
+gpui-base = "=0.11.0"
 
 # no panic = "abort": a panicking background thread must die alone, not take the desktop with it
 [profile.release]
