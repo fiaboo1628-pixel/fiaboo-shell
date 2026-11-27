@@ -1331,6 +1331,7 @@ dependencies = [
  "futures",
  "gpui-pre",
  "gpui-pre-platform",
+ "libc",
  "png 0.17.16",
  "serde_json",
  "zbus",

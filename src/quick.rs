@@ -225,7 +225,6 @@ impl Render for Quick {
             let c = if matches!(id, "q-wifi" | "q-dnd" | "q-awake") { p.accent } else { p.accent2 }; // checkerboard
             div()
                 .id(id)
-                .when(avail, |d| d.cursor_pointer())
                 .flex_1()
                 // keyboard focus: a 2 px fg ring (always a border so the tile keeps its size)
                 .border_2()
@@ -274,7 +273,6 @@ impl Render for Quick {
                     d.child(
                         div()
                             .id((id, 1usize))
-                            .cursor_pointer()
                             .flex_none()
                             .size(px(32.))
                             .flex()
@@ -305,7 +303,6 @@ impl Render for Quick {
                 let filled = (i * 5) <= level + 2;
                 div()
                     .id((id, i as usize))
-                    .cursor_pointer()
                     .flex_1()
                     .h(px(22.))
                     .flex()
@@ -343,7 +340,6 @@ impl Render for Quick {
         let media_btn = |id: &'static str, glyph: &'static str, cmd: &'static str| {
             div()
                 .id(id)
-                .cursor_pointer()
                 .size(px(40.))
                 .border_2()
                 .border_color(ring(id))
@@ -579,7 +575,6 @@ impl Render for Quick {
                     .child(
                         div()
                             .id("q-mute")
-                            .cursor_pointer()
                             .flex_none()
                             .size(px(32.)) // a frame like the media buttons; the bare glyph had no hover and no hit area
                             .flex()

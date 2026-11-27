@@ -254,7 +254,6 @@ pub(crate) fn bt_rows(ui: &BtUi, p: &Palette, focused: Option<&Stop>, cx: &mut C
         let border = ring(&stop);
         div()
             .id(id)
-            .cursor_pointer()
             .flex()
             .items_center()
             .gap_3()
@@ -280,7 +279,6 @@ pub(crate) fn bt_rows(ui: &BtUi, p: &Palette, focused: Option<&Stop>, cx: &mut C
         .map(|(i, (stop, label, glyph, on))| match &stop {
             Stop::Scan => div()
                 .id("bt-scan")
-                .cursor_pointer()
                 .px_3()
                 .py_2p5()
                 .border_2()
@@ -433,7 +431,6 @@ impl Render for SettingsPanel {
             let stop = Stop::Sink(name.clone());
             div()
                 .id(("sink", i))
-                .cursor_pointer()
                 .flex()
                 .items_center()
                 .gap_3()

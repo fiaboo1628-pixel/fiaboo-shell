@@ -24,7 +24,6 @@ pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, center: Option<gpui::En
     let icon = find_icon_file(&n.icon).or_else(|| icon_for(&n.app.to_lowercase()));
     div()
         .id(("notif", id))
-        .cursor_pointer()
         .w_full()
         .h(px(card_h(n)))
         .flex_none()
@@ -35,7 +34,7 @@ pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, center: Option<gpui::En
         .bg(rgba((p.bg << 8) | if in_center { 0x00 } else { PANEL_FILL }))
         .when(in_center, |d| d.bg(card_fill(if n.critical { p.err } else { p.accent }, false)).shadow(card_shadow(&p, false)))
         .border_1()
-        .border_color(if n.critical { rgba((p.err << 8) | 0xcc) } else { rgba((p.fg << 8) | A_BORDER) })
+        .border_color(if n.critical { rgba((p.err << 8) | A_BORDER) } else { rgba((p.fg << 8) | A_BORDER) })
         // keyboard focus ring: 2 px fg; one px less padding keeps the content still
         .when(focused, |d| d.border_2().p(px(11.)).border_color(rgb(p.fg)))
         .hover(|s| if in_center { s.bg(card_fill(if n.critical { p.err } else { p.accent }, true)).shadow(card_shadow(&p, true)) } else { s.bg(rgba((p.accent << 8) | A_HOVER)) })
@@ -88,13 +87,12 @@ pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, center: Option<gpui::En
                         .text_size(px(14.))
                         .child(n.summary.clone()),
                 )
-                .child(div().max_h(px(34.)).line_height(px(17.)).overflow_hidden().text_size(px(12.)).text_color(rgb(p.fg)).child(n.body.clone()))
+                .child(div().max_h(px(34.)).line_height(px(17.)).overflow_hidden().line_clamp(2).text_ellipsis().text_size(px(12.)).text_color(rgb(p.fg)).child(n.body.clone()))
                 .when(buttons(n).next().is_some(), |d| {
                     d.child(div().mt_1().flex().gap_1().children(buttons(n).enumerate().map(|(j, (key, label))| {
                         let key = key.clone();
                         div()
                             .id(("notif-act", j))
-                            .cursor_pointer()
                             .flex_1()
                             .min_w(px(0.))
                             .h(px(32.))

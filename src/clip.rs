@@ -275,7 +275,6 @@ impl Render for ClipPanel {
             let gone = c.clone();
             div()
                 .id(("clip", i))
-                .cursor_pointer()
                 .flex_none()
                 .h(px(if c.image.is_some() { 2. * CLIP_ROW } else { CLIP_ROW })) // image rows take two rows, so the list stays on the grid
                 .flex()
