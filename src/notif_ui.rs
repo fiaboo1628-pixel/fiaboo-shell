@@ -24,7 +24,6 @@ pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, center: Option<gpui::En
     let icon = find_icon_file(&n.icon).or_else(|| icon_for(&n.app.to_lowercase()));
     div()
         .id(("notif", id))
-        .cursor_pointer()
         .w_full()
         .h(px(card_h(n)))
         .flex_none()
@@ -94,7 +93,6 @@ pub(crate) fn notif_card(n: &notify::Notif, p: &Palette, center: Option<gpui::En
                         let key = key.clone();
                         div()
                             .id(("notif-act", j))
-                            .cursor_pointer()
                             .flex_1()
                             .min_w(px(0.))
                             .h(px(32.))

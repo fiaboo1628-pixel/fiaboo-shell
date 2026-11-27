@@ -115,7 +115,6 @@ fn card_shadow(p: &Palette, lifted: bool) -> Vec<gpui::BoxShadow> {
 fn button(id: impl Into<gpui::ElementId>, label: impl Into<gpui::SharedString>, tone: u32, p: &Palette) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
-        .cursor_pointer()
         .flex_none()
         .h(px(36.))
         .px(px(10.))
@@ -1305,7 +1304,6 @@ impl Render for Bar {
             let used = st.occupied.contains(&id);
             with_tip(div()
                 .id(("ws", id as usize))
-                .cursor_pointer()
                 .py(px(12.))
                 .px(px(8.)) // a 24 px wide target round an 8 px dot
                 .rounded_md()
@@ -1348,7 +1346,6 @@ impl Render for Bar {
             let name = a.name.clone();
             with_tip(div()
                 .id(("app", i))
-                .cursor_pointer()
                 .flex()
                 .flex_col()
                 .items_center()
@@ -1437,7 +1434,6 @@ impl Render for Bar {
                         };
                         d.child(with_tip(div()
                             .id("layout-button")
-                            .cursor_pointer()
                             .size(px(36.))
                             .flex()
                             .items_center()
@@ -1470,7 +1466,6 @@ impl Render for Bar {
                         with_tip(
                             div()
                                 .id("start-button")
-                                .cursor_pointer()
                                 .size(px(36.))
                                 .flex()
                                 .items_center()
@@ -1486,7 +1481,6 @@ impl Render for Bar {
                         with_tip(
                             div()
                                 .id("taskview-button")
-                                .cursor_pointer()
                                 .size(px(36.))
                                 .flex()
                                 .items_center()
@@ -1517,7 +1511,6 @@ impl Render for Bar {
                     let title = if it.title.is_empty() { "Tray".to_string() } else { it.title.clone() };
                     with_tip(div()
                         .id(("tray", i))
-                        .cursor_pointer()
                         .size(px(36.))
                         .flex()
                         .items_center()
@@ -1543,7 +1536,6 @@ impl Render for Bar {
                         d.child(with_tip(
                             div()
                                 .id("updates")
-                                .cursor_pointer()
                                 .px_2()
                                 .h(px(36.))
                                 .rounded_md()
@@ -1578,7 +1570,6 @@ impl Render for Bar {
                         d.child(with_tip(
                             div()
                                 .id("rec")
-                                .cursor_pointer()
                                 .px_2()
                                 .h(px(36.))
                                 .rounded_md()
@@ -1599,7 +1590,6 @@ impl Render for Bar {
                         d.child(with_tip(
                             div()
                                 .id("input-method")
-                                .cursor_pointer()
                                 .min_w(px(36.))
                                 .px_2()
                                 .h(px(36.))
@@ -1628,7 +1618,6 @@ impl Render for Bar {
                             run_bg(&format!("wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ {}%{dir}", 5 * n.abs()));
                         }
                     })
-                    .cursor_pointer()
                     .flex()
                     .items_center()
                     .gap_3()
@@ -1646,7 +1635,6 @@ impl Render for Bar {
                     .child(
                         with_tip(div()
                             .id("clock")
-                            .cursor_pointer()
                             .rounded_md()
                             .h(px(36.))
                             .justify_center()
@@ -1664,7 +1652,6 @@ impl Render for Bar {
                     .child(
                         with_tip(div()
                             .id("bell")
-                            .cursor_pointer()
                             .font_family(NF).font_weight(FontWeight::MEDIUM)
                             .text_size(px(16.))
                             .px_2()

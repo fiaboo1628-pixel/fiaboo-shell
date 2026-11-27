@@ -198,7 +198,6 @@ impl Render for TaskView {
             let focus_addr = w.address.clone();
             div()
                 .id(("tv", i))
-                .cursor_pointer()
                 .w(px(300.))
                 .h(px(236.))
                 .p_3()

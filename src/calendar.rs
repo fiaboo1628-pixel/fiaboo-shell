@@ -383,7 +383,6 @@ impl Render for CalendarPopup {
         let nav = |id: &'static str, label: &'static str, delta: i32| {
             div()
                 .id(id)
-                .cursor_pointer()
                 .size(px(36.))
                 .flex()
                 .items_center()
@@ -480,7 +479,6 @@ impl Render for CalendarPopup {
                             .child(
                                 div()
                                     .id("c-today")
-                                    .cursor_pointer()
                                     .h(px(36.)) // the same frame as ‹ ›
                                     .px_3()
                                     .flex()

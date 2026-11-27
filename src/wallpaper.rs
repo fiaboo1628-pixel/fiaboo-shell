@@ -189,7 +189,6 @@ impl Render for WpPicker {
             let is_cur = path.to_string_lossy() == self.current;
             div()
                 .id(("wp", i))
-                .cursor_pointer()
                 .w(px(190.))
                 .h(px(107.))
                 .flex_none()

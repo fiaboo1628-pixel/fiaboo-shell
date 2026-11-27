@@ -441,7 +441,6 @@ impl Render for StartMenu {
                     this.pins = pinned().iter().map(|(_, d)| entry_of(d)).collect();
                     cx.notify();
                 })))
-                .cursor_pointer()
                 .flex()
                 .items_center()
                 .gap_3()
@@ -492,7 +491,6 @@ impl Render for StartMenu {
                         this.pins = pinned().iter().map(|(_, d)| entry_of(d)).collect();
                         cx.notify();
                     }))
-                    .cursor_pointer()
                     .w(px(92.))
                     .h(px(TILE_H))
                     .flex()
