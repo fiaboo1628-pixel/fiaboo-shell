@@ -1,6 +1,22 @@
 //! Quick settings: Wi-Fi/Bluetooth/Night light/DND/Keep awake tiles, system monitor, brightness, volume, media.
-
-use crate::*;
+use crate::commons::theme::{
+    A_ACTIVE, A_BORDER, A_SURFACE, card_fill, card_shadow, mix, NF, Palette, palette, PANEL_FILL,
+};
+use crate::commons::ui::{overlay_options, step_focus};
+use crate::commons::util::run_bg;
+use crate::panels::settings::bt_power_cmd;
+use crate::services::notify;
+use crate::services::system::{read_sys, Sys, sys_glyphs};
+use gpui::{
+    AnyWindowHandle, App, Context, div, FocusHandle, FontWeight, Global, KeyDownEvent, MouseButton, px, rgb,
+    rgba, Window,
+};
+use gpui::prelude::*;
+use std::fs;
+use std::path::PathBuf;
+use std::process::Command;
+use std::sync::Mutex;
+use std::time::Duration;
 
 // ---------- quick settings ----------
 pub(crate) struct QuickState(pub(crate) Option<AnyWindowHandle>);
@@ -14,7 +30,7 @@ pub(crate) fn toggle_quick(cx: &mut App) {
         }
     }
     let opened = cx.open_window(
-        crate::overlay_options("fiaboo-quick"),
+        overlay_options("fiaboo-quick"),
         |window, cx| cx.new(|cx| Quick::new(window, cx)),
     );
     if let Ok(h) = opened {

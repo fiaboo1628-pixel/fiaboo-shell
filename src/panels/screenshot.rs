@@ -1,6 +1,16 @@
 //! Screenshot overlay: drag = region, click = window, F = whole screen.
-
-use crate::*;
+use crate::commons::theme::{A_BORDER, A_STRONG, NF, Palette, palette, PANEL_FILL};
+use crate::commons::ui::overlay_options;
+use crate::commons::util::{home, sh, spawn_bg};
+use crate::services::wm::hypr_json as hyprctl_json;
+use gpui::{
+    AnyWindowHandle, App, Context, div, FocusHandle, FontWeight, Global, KeyDownEvent, MouseButton, point,
+    px, rgb, rgba, Window,
+};
+use gpui::prelude::*;
+use std::fs;
+use std::process::Command;
+use std::time::Duration;
 
 // ---------- screenshot: drag = region, click = window under the pointer, F = whole screen ----------
 pub(crate) struct ShotState(pub(crate) Option<AnyWindowHandle>);
@@ -65,7 +75,7 @@ pub(crate) fn toggle_shot(cx: &mut App) {
         }
     }
     let opened = cx.open_window(
-        crate::overlay_options("fiaboo-shot"),
+        overlay_options("fiaboo-shot"),
         |window, cx| cx.new(|cx| ShotOverlay::new(window, cx)),
     );
     if let Ok(h) = opened {

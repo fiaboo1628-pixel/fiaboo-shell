@@ -1,6 +1,18 @@
 //! Calendar popup with weather and the lunar date.
+use crate::commons::theme::{A_BORDER, A_HOVER, card_fill, card_shadow, NF, Palette, palette, PANEL_FILL};
+use crate::commons::ui::{button, overlay_options};
+use crate::commons::util::home;
+use crate::services::lunar;
+use gpui::{
+    AnyWindowHandle, App, Context, div, FocusHandle, FontWeight, Global, KeyDownEvent, MouseButton, px, rgb,
+    rgba, Window,
+};
+use gpui::prelude::*;
+use std::fs;
+use std::process::Command;
+use std::sync::Mutex;
+use std::time::Duration;
 
-use crate::*;
 use gpui::{Animation, AnimationExt};
 
 // ---------- calendar + weather ----------
@@ -200,7 +212,7 @@ pub(crate) fn toggle_calendar(cx: &mut App) {
         }
     }
     let opened = cx.open_window(
-        crate::overlay_options("fiaboo-calendar"),
+        overlay_options("fiaboo-calendar"),
         |window, cx| cx.new(|cx| CalendarPopup::new(window, cx)),
     );
     if let Ok(h) = opened {

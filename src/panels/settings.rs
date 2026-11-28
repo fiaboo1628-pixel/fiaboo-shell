@@ -1,6 +1,19 @@
 //! Settings panel (network, sound, Bluetooth, displays, about).
+use crate::commons::theme::{A_BORDER, card_fill, card_shadow, NF, Palette, palette, PANEL_FILL};
+use crate::commons::ui::{button, overlay_options, step_focus};
+use crate::commons::util::{run_bg, sh, spawn_bg};
+use crate::panels::wallpaper::toggle_wp;
+use crate::services::wm::hypr_json as hyprctl_json;
+use gpui::{
+    AnyWindowHandle, App, Context, div, FocusHandle, FontWeight, Global, KeyDownEvent, MouseButton, px, rgb,
+    rgba, Window,
+};
+use gpui::prelude::*;
+use std::fs;
+use std::process::Command;
+use std::sync::OnceLock;
+use std::time::Duration;
 
-use crate::*;
 use zbus::blocking::{fdo::ObjectManagerProxy, Connection};
 
 // ---------- settings ----------
@@ -304,7 +317,7 @@ pub(crate) fn toggle_settings(cx: &mut App) {
         }
     }
     let opened = cx.open_window(
-        crate::overlay_options("fiaboo-settings"),
+        overlay_options("fiaboo-settings"),
         |window, cx| cx.new(|cx| SettingsPanel::new(window, cx)),
     );
     if let Ok(h) = opened {

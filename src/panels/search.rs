@@ -4,7 +4,9 @@
 //! fcitx5/Bamboo deliver commits and preedit only through a GPUI input handler, never as
 //! KeyDownEvent.key_char, so the panels type here. Plain keys reach it too: GPUI hands an
 //! unhandled key's key_char to the input handler.
-use crate::*;
+use crate::commons::theme::{A_ACTIVE, palette};
+use gpui::{App, Context, FocusHandle, point, px, rgb, rgba, Window};
+use gpui::prelude::*;
 use gpui::{
     Bounds, ElementId, ElementInputHandler, Entity, EntityInputHandler, GlobalElementId, LayoutId,
     Pixels, Rgba, ShapedLine, SharedString, Style, TextRun, UTF16Selection, UnderlineStyle,

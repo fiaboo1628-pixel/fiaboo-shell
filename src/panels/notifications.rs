@@ -1,6 +1,27 @@
 //! Notification popups (toasts) and the notification center.
-
-use crate::*;
+use crate::commons::theme::{
+    A_ACTIVE, A_BORDER, A_HOVER, A_SURFACE, card_fill, card_shadow, NF, Palette, palette, PANEL_FILL,
+};
+use crate::commons::ui::{button, overlay_options, step_focus};
+use crate::panels::calendar::{CalState, today_dm};
+use crate::panels::clipboard::ClipState;
+use crate::panels::quick::QuickState;
+use crate::panels::screenshot::ShotState;
+use crate::panels::settings::SettingsState;
+use crate::panels::start::StartState;
+use crate::panels::taskview::TaskViewState;
+use crate::panels::traymenu::TrayMenuState;
+use crate::panels::wallpaper::WpState;
+use crate::services::apps::{find_icon_file, icon_for};
+use crate::services::notify;
+use gpui::{
+    AnyWindowHandle, App, Bounds, Context, div, FocusHandle, FontWeight, Global, img, KeyDownEvent,
+    MouseButton, ObjectFit, point, px, rgb, rgba, size, Window, WindowBackgroundAppearance, WindowBounds,
+    WindowKind, WindowOptions,
+};
+use gpui::layer_shell::{Anchor, KeyboardInteractivity, Layer, LayerShellOptions};
+use gpui::prelude::*;
+use std::time::Duration;
 
 // ---------- notifications: popups + center ----------
 const NC_ROWS: usize = 4; // cards shown before the center scrolls
@@ -229,7 +250,7 @@ pub(crate) fn toggle_notif_center(cx: &mut App) {
     }
     notify::mark_seen();
     let opened = cx.open_window(
-        crate::overlay_options("fiaboo-notifcenter"),
+        overlay_options("fiaboo-notifcenter"),
         |window, cx| cx.new(|cx| NotifCenter::new(window, cx)),
     );
     if let Ok(h) = opened {

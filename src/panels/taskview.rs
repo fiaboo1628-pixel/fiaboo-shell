@@ -1,6 +1,20 @@
 //! Task View (Hyprland window thumbnails).
-
-use crate::*;
+use crate::commons::theme::{A_BORDER, A_STRONG, card_fill, card_shadow, NF, Palette, palette, PANEL_FILL};
+use crate::commons::ui::overlay_options;
+use crate::commons::util::home;
+use crate::services::hypr::focus_window;
+use crate::services::wm;
+use crate::services::wm::hypr_json as hyprctl_json;
+use gpui::{
+    AnyWindowHandle, App, Context, div, FocusHandle, FontWeight, Global, img, KeyDownEvent, MouseButton,
+    ObjectFit, px, rgb, rgba, Window,
+};
+use gpui::prelude::*;
+use std::fs;
+use std::path::PathBuf;
+use std::process::Command;
+use std::sync::Arc;
+use std::time::Duration;
 
 // ---------- Task View ----------
 pub(crate) struct TaskViewState(pub(crate) Option<AnyWindowHandle>);
@@ -87,7 +101,7 @@ pub(crate) fn toggle_taskview(cx: &mut App) {
         }
     }
     let opened = cx.open_window(
-        crate::overlay_options("fiaboo-taskview"),
+        overlay_options("fiaboo-taskview"),
         |window, cx| cx.new(|cx| TaskView::new(window, cx)),
     );
     if let Ok(h) = opened {

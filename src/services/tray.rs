@@ -1,5 +1,7 @@
 //! StatusNotifierItem host: polls the session bus for tray items (via the running
 //! org.kde.StatusNotifierWatcher) and exposes a snapshot to the UI, plus dbusmenu helpers.
+use crate::commons::util::{data_dirs, write_png};
+use crate::services::notify;
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -293,7 +295,7 @@ fn find_in_themes(name: &str) -> Option<PathBuf> {
     // environment rather than a written-out /usr/share (see data_dirs).
     let bases: Vec<String> = ["kora", "Adwaita", "breeze", "hicolor"]
         .iter()
-        .flat_map(|theme| crate::data_dirs().into_iter().map(move |d| format!("{d}/icons/{theme}")))
+        .flat_map(|theme| data_dirs().into_iter().map(move |d| format!("{d}/icons/{theme}")))
         .collect();
     'outer: for base in bases {
         let Ok(l1) = fs::read_dir(&base) else { continue };
@@ -341,7 +343,7 @@ fn icon_of(p: &Proxy, key: &str) -> Option<PathBuf> {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     key.hash(&mut hasher);
     data.hash(&mut hasher);
-    let dir = crate::notify::cache_dir();
+    let dir = notify::cache_dir();
     fs::create_dir_all(&dir).ok()?;
     let file = dir.join(format!("tray-{:x}.png", hasher.finish()));
     if !file.exists() {
@@ -350,14 +352,14 @@ fn icon_of(p: &Proxy, key: &str) -> Option<PathBuf> {
         for px in data.chunks_exact(4) {
             rgba.extend_from_slice(&[px[1], px[2], px[3], px[0]]);
         }
-        crate::write_png(&file, w as u32, h as u32, &rgba)?;
+        write_png(&file, w as u32, h as u32, &rgba)?;
     }
     Some(file)
 }
 
 /// Pixmap icons get a new file per distinct image (badge counters, animations): keep only the current ones.
 fn drop_unused_icons(items: &[TrayItem]) {
-    let Ok(rd) = fs::read_dir(crate::notify::cache_dir()) else { return };
+    let Ok(rd) = fs::read_dir(notify::cache_dir()) else { return };
     for e in rd.flatten() {
         let p = e.path();
         let ours = p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("tray-") && n.ends_with(".png"));
