@@ -1,4 +1,5 @@
 //! Compositor backend: Hyprland's JSON queries, dispatchers and event socket.
+use crate::commons::util::spawn_bg;
 
 use std::process::Command;
 
@@ -35,7 +36,7 @@ fn instance_dir() -> Option<String> {
 }
 
 fn hypr_dispatch(arg: &str) {
-    crate::spawn_bg(Command::new("hyprctl").args(["dispatch", arg]));
+    spawn_bg(Command::new("hyprctl").args(["dispatch", arg]));
 }
 
 pub fn focus_workspace(n: i64) {
@@ -46,7 +47,7 @@ pub fn focus_workspace(n: i64) {
 /// A minimized window (dropped on the taskbar, see keybindings/default.lua) comes back to the current workspace first.
 pub fn focus_window(address: &str) {
     let w = format!("\"address:{address}\"");
-    crate::spawn_bg(Command::new("hyprctl").args(["eval", &format!(
+    spawn_bg(Command::new("hyprctl").args(["eval", &format!(
         "local w = hl.get_window({w}) \
          if w and w.workspace and w.workspace.name == \"special:minimized\" then \
            hl.dispatch(hl.dsp.window.move({{ workspace = hl.get_active_workspace().id, window = {w} }})) end \

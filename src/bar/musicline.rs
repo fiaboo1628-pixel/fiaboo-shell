@@ -3,6 +3,10 @@
 //! Audio comes from the default sink monitor via `parec`; only loudness and bass are measured.
 //! The line lives in its own small layer surface on top of the bar, so the bar never
 //! redraws for it, and the surface exists only while there is something to show.
+use crate::bar::{Bar, BAR_HEIGHT};
+use crate::commons::theme::{palette, Palette};
+use crate::commons::util::{die_with_shell, home};
+use gpui::layer_shell::{Anchor, KeyboardInteractivity, Layer, LayerShellOptions};
 
 use std::{
     io::{BufRead, BufReader, Read},
@@ -15,11 +19,9 @@ use std::{
 };
 
 use gpui::{
-    div, layer_shell::*, linear_color_stop, linear_gradient, point, prelude::*, px, relative, rgba, size, App, Bounds,
+    div, linear_color_stop, linear_gradient, point, prelude::*, px, relative, rgba, size, App, Bounds,
     Context, Global, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions,
 };
-
-use crate::{die_with_shell, home, palette, Palette};
 
 const RATE: usize = 44100;
 const FPS: u64 = 30;
@@ -254,7 +256,7 @@ fn open_line(cx: &mut App) -> Option<WindowHandle<Line>> {
     let display_id = cx
         .windows()
         .into_iter()
-        .find_map(|w| w.downcast::<crate::Bar>())
+        .find_map(|w| w.downcast::<Bar>())
         .and_then(|bar| bar.update(cx, |_, window, cx| window.display(cx).map(|d| d.id())).ok().flatten());
     cx.open_window(
         WindowOptions {
@@ -267,7 +269,7 @@ fn open_line(cx: &mut App) -> Option<WindowHandle<Line>> {
                 layer: Layer::Top,
                 anchor: Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
                 exclusive_zone: Some(px(-1.)), // ignore the bar's zone: lie on top of it
-                margin: Some((px(0.), px(0.), px(crate::BAR_HEIGHT - STRIP), px(0.))),
+                margin: Some((px(0.), px(0.), px(BAR_HEIGHT - STRIP), px(0.))),
                 keyboard_interactivity: KeyboardInteractivity::None,
                 ..Default::default()
             }),

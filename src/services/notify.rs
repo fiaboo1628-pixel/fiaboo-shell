@@ -1,6 +1,7 @@
 //! Notification daemon (org.freedesktop.Notifications): keeps a list the UI renders as
 //! popups and a notification center. Replaces swaync while fiaboo-shell runs; if the shell
 //! dies the name is released and D-Bus activation brings swaync back.
+use crate::commons::util::{home, write_png};
 use std::{
     collections::HashMap,
     fs,
@@ -321,11 +322,11 @@ fn chrono_now() -> String {
 }
 
 fn store_path() -> String {
-    format!("{}/.local/state/fiaboo-notifs.json", crate::home())
+    format!("{}/.local/state/fiaboo-notifs.json", home())
 }
 
 pub(crate) fn cache_dir() -> PathBuf {
-    PathBuf::from(format!("{}/.cache/fiaboo-shell", crate::home()))
+    PathBuf::from(format!("{}/.cache/fiaboo-shell", home()))
 }
 
 /// Keep the list across shell restarts (actions are dropped: the sender may be gone).
@@ -403,7 +404,7 @@ fn pixel_hint(hints: &HashMap<String, OwnedValue>, keys: &[&str]) -> Option<Stri
     fs::create_dir_all(&dir).ok()?;
     let file = dir.join(format!("notif-{:x}.png", hasher.finish()));
     if !file.exists() {
-        crate::write_png(&file, w as u32, h as u32, &rgba)?;
+        write_png(&file, w as u32, h as u32, &rgba)?;
     }
     Some(file.to_string_lossy().to_string())
 }

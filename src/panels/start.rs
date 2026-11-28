@@ -1,6 +1,23 @@
 //! Start menu.
-
-use crate::*;
+use crate::commons::theme::{
+    A_ACTIVE, A_BORDER, A_HOVER, card_fill, card_shadow, NF, Palette, palette, PANEL_FILL,
+};
+use crate::commons::ui::{avatar, button, overlay_options, step_focus};
+use crate::commons::util::spawn_bg;
+use crate::panels::search::search_input;
+use crate::panels::settings::toggle_settings;
+use crate::services::apps::{apps, Desktop, find_icon_file, icon_for, launch_app, pinned, toggle_pin};
+use crate::services::hypr::{focus_window, hidden_ws};
+use crate::services::wm::hypr_json as hyprctl_json;
+use gpui::{
+    AnyWindowHandle, App, Context, div, FontWeight, Global, img, KeyDownEvent, MouseButton, ObjectFit, px,
+    rgb, rgba, Window,
+};
+use gpui::prelude::*;
+use std::collections::HashSet;
+use std::path::PathBuf;
+use std::process::Command;
+use std::time::Duration;
 
 // ---------- start menu ----------
 #[derive(Clone)]
@@ -51,7 +68,7 @@ pub(crate) fn toggle_start(cx: &mut App) {
         }
     }
     let opened = cx.open_window(
-        crate::overlay_options("fiaboo-start"),
+        overlay_options("fiaboo-start"),
         |window, cx| cx.new(|cx| StartMenu::new(window, cx)),
     );
     if let Ok(h) = opened {

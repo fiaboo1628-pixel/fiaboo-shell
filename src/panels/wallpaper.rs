@@ -1,6 +1,17 @@
 //! Wallpaper picker.
-
-use crate::*;
+use crate::commons::theme::{A_BORDER, A_HOVER, A_STRONG, card_shadow, NF, Palette, palette, PANEL_FILL};
+use crate::commons::ui::{button, overlay_options};
+use crate::commons::util::{home, run_bg, spawn_bg};
+use crate::panels::search::{SearchField, SearchLine};
+use gpui::{
+    AnyWindowHandle, App, Context, div, FocusHandle, FontWeight, Global, img, KeyDownEvent, MouseButton,
+    ObjectFit, px, rgb, rgba, Window,
+};
+use gpui::prelude::*;
+use std::fs;
+use std::path::PathBuf;
+use std::process::Command;
+use std::time::Duration;
 
 // ---------- wallpaper picker ----------
 pub(crate) struct WpState(pub(crate) Option<AnyWindowHandle>);
@@ -90,7 +101,7 @@ pub(crate) fn toggle_wp(cx: &mut App) {
         }
     }
     let opened = cx.open_window(
-        crate::overlay_options("fiaboo-wallpaper"),
+        overlay_options("fiaboo-wallpaper"),
         |window, cx| cx.new(|cx| WpPicker::new(window, cx)),
     );
     if let Ok(h) = opened {

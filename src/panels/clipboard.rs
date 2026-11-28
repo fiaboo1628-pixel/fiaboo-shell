@@ -1,6 +1,20 @@
 //! Clipboard history (cliphist).
-
-use crate::*;
+use crate::commons::theme::{
+    A_ACTIVE, A_BORDER, A_HOVER, A_STRONG, card_fill, card_shadow, NF, Palette, palette, PANEL_FILL,
+};
+use crate::commons::ui::{button, overlay_options};
+use crate::commons::util::{run_bg, sh};
+use crate::panels::search::search_input;
+use crate::services::notify;
+use gpui::{
+    AnyWindowHandle, App, Context, div, FontWeight, Global, img, KeyDownEvent, MouseButton, ObjectFit, px,
+    rgb, rgba, Window,
+};
+use gpui::prelude::*;
+use std::fs;
+use std::path::PathBuf;
+use std::process::Command;
+use std::time::Duration;
 
 // ---------- clipboard history (cliphist) ----------
 pub(crate) struct ClipState(pub(crate) Option<AnyWindowHandle>);
@@ -122,7 +136,7 @@ pub(crate) fn toggle_clip(cx: &mut App) {
         }
     }
     let opened = cx.open_window(
-        crate::overlay_options("fiaboo-clip"),
+        overlay_options("fiaboo-clip"),
         |window, cx| cx.new(|cx| ClipPanel::new(window, cx)),
     );
     if let Ok(h) = opened {

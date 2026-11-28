@@ -1,6 +1,13 @@
 //! Tray context menu (dbusmenu).
-
-use crate::*;
+use crate::commons::theme::{A_ACTIVE, A_BORDER, A_HOVER, NF, Palette, palette, PANEL_FILL};
+use crate::commons::ui::{overlay_options, step_focus};
+use crate::services::tray;
+use gpui::{
+    AnyWindowHandle, App, Context, div, FocusHandle, FontWeight, Global, KeyDownEvent, MouseButton, px, rgb,
+    rgba, Window,
+};
+use gpui::prelude::*;
+use std::time::Duration;
 
 // ---------- tray context menu (dbusmenu) ----------
 pub(crate) struct TrayMenuState(pub(crate) Option<AnyWindowHandle>);
@@ -43,7 +50,7 @@ pub(crate) fn open_tray_menu(cx: &mut App, item: tray::TrayItem, x: f32) {
 
 pub(crate) fn show_tray_menu(cx: &mut App, item: tray::TrayItem, entries: Vec<tray::MenuEntry>, x: f32) {
     let opened = cx.open_window(
-        crate::overlay_options("fiaboo-traymenu"),
+        overlay_options("fiaboo-traymenu"),
         |window, cx| cx.new(|cx| TrayMenu::new(window, cx, item, entries, x)),
     );
     if let Ok(h) = opened {
